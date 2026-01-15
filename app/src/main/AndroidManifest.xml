@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- ===================================================== -->
+    <!-- Permissions -->
+    <!-- ===================================================== -->
+
+    <!-- Android 13+ notifications -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Exact alarms (lecture reminders, day confirmation) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- Required to restore alarms after device reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AttendMate">
+
+        <!-- ===================================================== -->
+        <!-- ENTRY / LAUNCHER -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.entry.EntryActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AttendMate.Splash">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- ===================================================== -->
+        <!-- MAIN / HOME -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <!-- ===================================================== -->
+        <!-- AUTH -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.auth.LoginActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <activity
+            android:name=".ui.auth.RegisterActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <activity
+            android:name=".ui.auth.ForgotPasswordActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <!-- ===================================================== -->
+        <!-- INITIAL SETUP -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.setup.SubjectSetupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <!-- ===================================================== -->
+        <!-- TIMETABLE -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.timetable.setup.TimetableSetupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <!-- ===================================================== -->
+        <!-- SUBJECT MANAGEMENT -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.subjects.ManageSubjectsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <!-- ===================================================== -->
+        <!-- ATTENDANCE -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.attendance.AttendanceListActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <activity
+            android:name=".ui.attendance.AddAttendanceActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <activity
+            android:name=".ui.attendance.EditAttendanceActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <!-- ===================================================== -->
+        <!-- ANALYTICS -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.analytics.AnalyticsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <!-- ===================================================== -->
+        <!-- SETTINGS -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.settings.SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.AttendMate" />
+
+        <!-- ===================================================== -->
+        <!-- NOTIFICATION RECEIVERS (LECTURE) -->
+        <!-- ===================================================== -->
+
+        <!-- Handles Present / Absent / Cancelled actions -->
+        <receiver
+            android:name=".ui.timetable.LectureActionReceiver"
+            android:exported="false" />
+
+        <!-- Fires lecture reminder notifications -->
+        <receiver
+            android:name=".alarms.LectureAlarmReceiver"
+            android:exported="false" />
+
+        <!-- ===================================================== -->
+        <!-- DAY CONFIRMATION -->
+        <!-- ===================================================== -->
+
+        <!-- Shows "Is today a regular day?" notification -->
+        <receiver
+            android:name=".receivers.DayConfirmationAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Handles Regular / Day Off button actions -->
+        <receiver
+            android:name=".receivers.DayConfirmationActionReceiver"
+            android:exported="false" />
+
+        <!-- ===================================================== -->
+        <!-- BOOT COMPLETED (OPTIONAL BUT RECOMMENDED) -->
+        <!-- ===================================================== -->
+
+        <!-- Restores day-confirmation alarm after reboot -->
+        <receiver
+            android:name=".receivers.BootCompletedReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- ===================================================== -->
+        <!-- LEGACY / OPTIONAL -->
+        <!-- ===================================================== -->
+        <activity
+            android:name=".ui.splash.SplashActivity"
+            android:exported="false"
+            tools:ignore="UnusedActivity" />
+
+    </application>
+
+</manifest>
