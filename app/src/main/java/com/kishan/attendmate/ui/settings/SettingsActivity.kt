@@ -35,6 +35,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.kishan.attendmate.ui.auth.LoginActivity
 import com.kishan.attendmate.ui.subjects.ManageSubjectsActivity
 import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.alarms.DayConfirmationAlarmScheduler
+
 
 class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -207,14 +209,24 @@ private fun SettingsPage() {
     if (showLogoutDialog) {
         LogoutConfirmationDialog(
             onConfirm = {
-                auth.signOut()
-                context.startActivity(Intent(context, LoginActivity::class.java))
-                (context as Activity).finish()
+                // 🔐 1. Cancel day confirmation alarm
+                DayConfirmationAlarmScheduler.cancel(context)
 
+                // 🔐 2. Sign out user
+                auth.signOut()
+
+                // 🔐 3. Redirect to login
+                context.startActivity(
+                    Intent(context, LoginActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                                Intent.FLAG_ACTIVITY_CLEAR_TASK
+                    }
+                )
             },
             onDismiss = { showLogoutDialog = false }
         )
     }
+
 }
 
 /* ───────────── UI COMPONENTS ───────────── */

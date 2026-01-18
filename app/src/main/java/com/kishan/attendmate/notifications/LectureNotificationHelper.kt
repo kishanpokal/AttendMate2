@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.kishan.attendmate.R
 import com.kishan.attendmate.ui.timetable.LectureActionReceiver
+import com.kishan.attendmate.util.DebugLog
 
 /**
  * Builds lecture attendance notifications ONLY.
@@ -42,10 +43,10 @@ object LectureNotificationHelper {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Lecture Reminders",
-                NotificationManager.IMPORTANCE_HIGH
+                "Lecture Attendance",
+                NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Lecture attendance reminders"
+                description = "Confirm lecture attendance"
             }
 
             val manager =
@@ -89,18 +90,22 @@ object LectureNotificationHelper {
         }
 
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_notification) // use your app icon
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(subjectName)
             .setContentText("Lecture $startTime – $endTime")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setWhen(System.currentTimeMillis())
+            .setShowWhen(true)
             .setAutoCancel(true)
             .addAction(0, "Present", actionIntent(ACTION_PRESENT))
             .addAction(0, "Absent", actionIntent(ACTION_ABSENT))
-            .addAction(0, "Cancelled", actionIntent(ACTION_CANCELLED))
+            .addAction(0, "Not happening", actionIntent(ACTION_CANCELLED))
             .build()
 
-        NotificationManagerCompat
-            .from(context)
+        NotificationManagerCompat.from(context)
             .notify(lectureKey.hashCode(), notification)
+
+        DebugLog.d("Lecture notification shown: $lectureKey")
     }
 }

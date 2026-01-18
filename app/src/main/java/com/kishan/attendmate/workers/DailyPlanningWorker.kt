@@ -3,43 +3,46 @@ package com.kishan.attendmate.workers
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
-import com.google.firebase.auth.FirebaseAuth
 import com.kishan.attendmate.alarms.DayConfirmationAlarmScheduler
+import com.kishan.attendmate.domain.lectures.TodayScheduleBootstrapper
+import com.kishan.attendmate.util.DebugLog
+import java.time.LocalDate
 import java.time.LocalTime
+import java.time.ZoneId
 
 /**
  * DailyPlanningWorker
  *
  * Responsibility:
  * - Safety net only
- * - Ensures daily Day Confirmation alarm is scheduled
- *
- * NOT responsible for:
- * - Lecture timing
- * - Slot logic
- * - Lecture notifications
+ * - Ensures day confirmation alarm exists
+ * - Triggers lecture recovery + scheduling
  */
 class DailyPlanningWorker(
-    private val context: Context,
+    appContext: Context,
     workerParams: WorkerParameters
-) : CoroutineWorker(context, workerParams) {
+) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result {
 
-        val user = FirebaseAuth.getInstance().currentUser
-            ?: return Result.success()
+        DebugLog.d("DailyPlanningWorker: started")
 
-        /*
-         * Fixed, predictable confirmation time
-         * (example: 08:00 AM)
-         *
-         * AlarmManager guarantees precision.
-         * Worker only ensures it exists.
-         */
+        // 🔔 Fixed confirmation time (08:00 AM)
+        val triggerAtMillis = LocalDate.now()
+            .atTime(LocalTime.of(8, 0))
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+
         DayConfirmationAlarmScheduler.schedule(
-            context = context,
-            triggerTime = LocalTime.of(8, 0)
+            context = applicationContext,
+            triggerAtMillis = triggerAtMillis
         )
+
+        // 🔁 CRITICAL: recover & schedule today's lectures
+        TodayScheduleBootstrapper.run(applicationContext)
+
+        DebugLog.d("DailyPlanningWorker: completed")
 
         return Result.success()
     }

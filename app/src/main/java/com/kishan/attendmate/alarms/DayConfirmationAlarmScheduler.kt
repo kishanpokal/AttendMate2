@@ -6,17 +6,14 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.kishan.attendmate.receivers.DayConfirmationAlarmReceiver
-import java.time.LocalDate
-import java.time.LocalDateTime
-import java.time.LocalTime
-import java.time.ZoneId
 
 /**
- * Schedules the DAILY Day Confirmation alarm.
+ * Schedules the Day Confirmation alarm for TODAY only.
  *
- * Guarantees:
- * - Exactly one upcoming confirmation alarm exists
- * - Works across app restarts, reboots, OEM quirks
+ * Rules:
+ * - Exactly one confirmation alarm at any time
+ * - Alarm time is computed elsewhere (business logic)
+ * - Never schedules for tomorrow automatically
  * - Safe to call multiple times
  */
 object DayConfirmationAlarmScheduler {
@@ -24,15 +21,18 @@ object DayConfirmationAlarmScheduler {
     private const val REQUEST_CODE = 1001
 
     /**
-     * Schedule the NEXT occurrence of the confirmation alarm.
+     * Schedule day confirmation at an exact timestamp (millis).
      *
-     * Example: triggerTime = 08:00
+     * @param triggerAtMillis absolute time in millis
      */
     fun schedule(
         context: Context,
-        triggerTime: LocalTime
+        triggerAtMillis: Long
     ) {
-        val triggerMillis = nextTriggerMillis(triggerTime)
+        // ❌ Never schedule past alarms
+        if (triggerAtMillis <= System.currentTimeMillis()) {
+            return
+        }
 
         val alarmManager =
             context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
@@ -55,44 +55,42 @@ object DayConfirmationAlarmScheduler {
             ) {
                 alarmManager.setAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
-                    triggerMillis,
+                    triggerAtMillis,
                     pendingIntent
                 )
             } else {
                 alarmManager.setExactAndAllowWhileIdle(
                     AlarmManager.RTC_WAKEUP,
-                    triggerMillis,
+                    triggerAtMillis,
                     pendingIntent
                 )
             }
         } catch (e: SecurityException) {
-            // OEM / policy safety net
+            // OEM / policy fallback
             alarmManager.setAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
-                triggerMillis,
+                triggerAtMillis,
                 pendingIntent
             )
         }
     }
 
     /**
-     * Returns millis for the NEXT occurrence of triggerTime.
-     * If today's time has passed → schedules for tomorrow.
+     * Cancel any scheduled day confirmation alarm.
      */
-    private fun nextTriggerMillis(triggerTime: LocalTime): Long {
-        val now = LocalDateTime.now()
+    fun cancel(context: Context) {
+        val alarmManager =
+            context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        val todayTrigger = LocalDateTime.of(LocalDate.now(), triggerTime)
+        val intent = Intent(context, DayConfirmationAlarmReceiver::class.java)
 
-        val nextTrigger = if (todayTrigger.isAfter(now)) {
-            todayTrigger
-        } else {
-            todayTrigger.plusDays(1)
-        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            REQUEST_CODE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
-        return nextTrigger
-            .atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
+        alarmManager.cancel(pendingIntent)
     }
 }

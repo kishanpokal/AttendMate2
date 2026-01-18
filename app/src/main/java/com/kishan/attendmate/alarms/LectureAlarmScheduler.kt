@@ -5,44 +5,48 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
-import com.kishan.attendmate.alarms.LectureAlarmReceiver
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneId
+import com.kishan.attendmate.util.DebugLog
 
+/**
+ * Schedules lecture attendance alarms.
+ *
+ * Guarantees:
+ * - One alarm per lecture PER USER
+ * - No past alarms are ever scheduled
+ * - Stable across login/logout
+ * - Safe across Android 8–14
+ */
 object LectureAlarmScheduler {
 
     /**
-     * Schedule a lecture reminder alarm.
+     * Schedule lecture attendance notification.
      *
-     * @param reminderMinutes minutes BEFORE lecture start
+     * @param triggerAtMillis absolute UTC millis
      */
     fun scheduleLecture(
         context: Context,
+        userId: String,
         subjectId: String,
         subjectName: String,
         date: String,        // yyyy-MM-dd
         startTime: String,   // HH:mm
         endTime: String,     // HH:mm
-        reminderMinutes: Long = 15
+        triggerAtMillis: Long
     ) {
+        val now = System.currentTimeMillis()
+
+        // ⛔ HARD GUARD — Android silently drops past alarms
+        if (triggerAtMillis <= now) {
+            DebugLog.d(
+                "LectureAlarmScheduler: skipped past alarm " +
+                        "(trigger=$triggerAtMillis, now=$now, date=$date, start=$startTime)"
+            )
+            return
+        }
+
         val alarmManager =
             context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        /* ---------- Parse lecture start ---------- */
-        val lectureDate = LocalDate.parse(date)
-        val lectureStart = LocalTime.parse(startTime)
-
-        val lectureStartMillis = lectureDate
-            .atTime(lectureStart)
-            .atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
-
-        val triggerAtMillis =
-            lectureStartMillis - (reminderMinutes * 60_000)
-
-        /* ---------- Build intent ---------- */
         val intent = Intent(context, LectureAlarmReceiver::class.java).apply {
             putExtra(LectureAlarmReceiver.EXTRA_SUBJECT_ID, subjectId)
             putExtra(LectureAlarmReceiver.EXTRA_SUBJECT_NAME, subjectName)
@@ -51,7 +55,10 @@ object LectureAlarmScheduler {
             putExtra(LectureAlarmReceiver.EXTRA_END_TIME, endTime)
         }
 
-        val lectureKey = "${date}_${startTime}_$endTime"
+        /**
+         * 🔐 USER + TIME SCOPED KEY
+         */
+        val lectureKey = "$userId|$date|$startTime|$endTime"
         val requestCode = lectureKey.hashCode()
 
         val pendingIntent = PendingIntent.getBroadcast(
@@ -61,19 +68,42 @@ object LectureAlarmScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        /* ---------- Idempotent scheduling ---------- */
+        // ♻️ Idempotent — cancel existing alarm first
         alarmManager.cancel(pendingIntent)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-            !alarmManager.canScheduleExactAlarms()
-        ) {
-            alarmManager.setAndAllowWhileIdle(
-                AlarmManager.RTC_WAKEUP,
-                triggerAtMillis,
-                pendingIntent
+        try {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                !alarmManager.canScheduleExactAlarms()
+            ) {
+                DebugLog.d(
+                    "LectureAlarmScheduler: exact alarm not allowed, using inexact alarm"
+                )
+
+                alarmManager.setAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            }
+
+            DebugLog.d(
+                "LectureAlarmScheduler: alarm scheduled successfully " +
+                        "(trigger=$triggerAtMillis, requestCode=$requestCode)"
             )
-        } else {
-            alarmManager.setExactAndAllowWhileIdle(
+
+        } catch (e: SecurityException) {
+            DebugLog.d(
+                "LectureAlarmScheduler: SecurityException, fallback used: ${e.message}"
+            )
+
+            alarmManager.setAndAllowWhileIdle(
                 AlarmManager.RTC_WAKEUP,
                 triggerAtMillis,
                 pendingIntent
@@ -82,10 +112,11 @@ object LectureAlarmScheduler {
     }
 
     /**
-     * Cancel a scheduled lecture reminder.
+     * Cancel a scheduled lecture alarm (user-scoped).
      */
     fun cancelLecture(
         context: Context,
+        userId: String,
         date: String,
         startTime: String,
         endTime: String
@@ -93,17 +124,22 @@ object LectureAlarmScheduler {
         val alarmManager =
             context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        val lectureKey = "${date}_${startTime}_$endTime"
+        val lectureKey = "$userId|$date|$startTime|$endTime"
+        val requestCode = lectureKey.hashCode()
 
         val intent = Intent(context, LectureAlarmReceiver::class.java)
 
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            lectureKey.hashCode(),
+            requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         alarmManager.cancel(pendingIntent)
+
+        DebugLog.d(
+            "LectureAlarmScheduler: alarm cancelled (requestCode=$requestCode)"
+        )
     }
 }
