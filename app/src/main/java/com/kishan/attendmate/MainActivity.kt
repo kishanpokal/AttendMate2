@@ -38,13 +38,36 @@ import com.kishan.attendmate.ui.components.AttendMateNavigationBar
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
+import android.content.Intent
+import com.kishan.attendmate.domain.lectures.TodayScheduleBootstrapper
+import com.kishan.attendmate.ui.auth.LoginActivity
 import java.util.*
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val auth = FirebaseAuth.getInstance()
+
+        // 🔐 Auth guard
+        if (auth.currentUser == null) {
+            startActivity(
+                Intent(this, LoginActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
+            )
+            return
+        }
+
+        // 🔔 Ensure notification channels exist
         createNotificationChannels()
+
+        // 🧠 App-launch safety net (VERY IMPORTANT)
+        TodayScheduleBootstrapper.run(this)
+
         enableEdgeToEdge()
+
         setContent {
             AttendMateTheme {
                 Scaffold(
@@ -63,6 +86,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
 
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
