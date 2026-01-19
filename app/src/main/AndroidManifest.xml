@@ -7,30 +7,21 @@
     <!-- Permissions -->
     <!-- ===================================================== -->
 
-    <!-- Android 13+ notification permission -->
+    <!-- Android 13+ notifications -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Required for exact AlarmManager alarms -->
+    <!-- Exact alarms (lecture reminders, day confirmation) -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Required to restore alarms after device reboot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- ===================================================== -->
-    <!-- Intent visibility (Android 12+) -->
-    <!-- ===================================================== -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.SCHEDULE_EXACT_ALARM" />
-        </intent>
-    </queries>
-
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
-        android:icon="@drawable/ic_app_logo"
-        android:roundIcon="@drawable/ic_app_logo"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AttendMate">
@@ -133,20 +124,18 @@
             android:theme="@style/Theme.AttendMate" />
 
         <!-- ===================================================== -->
-        <!-- LECTURE NOTIFICATIONS -->
+        <!-- NOTIFICATION RECEIVERS (LECTURE) -->
         <!-- ===================================================== -->
 
-        <!-- Handles Present / Absent / Not Happening actions -->
+        <!-- Handles Present / Absent / Cancelled actions -->
         <receiver
             android:name=".ui.timetable.LectureActionReceiver"
-            android:exported="false"
-            android:directBootAware="false" />
+            android:exported="false" />
 
-        <!-- Fires lecture attendance notifications -->
+        <!-- Fires lecture reminder notifications -->
         <receiver
             android:name=".alarms.LectureAlarmReceiver"
-            android:exported="false"
-            android:directBootAware="false" />
+            android:exported="false" />
 
         <!-- ===================================================== -->
         <!-- DAY CONFIRMATION -->
@@ -155,26 +144,22 @@
         <!-- Shows "Is today a regular day?" notification -->
         <receiver
             android:name=".receivers.DayConfirmationAlarmReceiver"
-            android:exported="false"
-            android:directBootAware="false" />
+            android:exported="false" />
 
         <!-- Handles Regular / Day Off button actions -->
         <receiver
             android:name=".receivers.DayConfirmationActionReceiver"
-            android:exported="false"
-            android:directBootAware="false" />
+            android:exported="false" />
 
         <!-- ===================================================== -->
-        <!-- BOOT COMPLETED -->
+        <!-- BOOT COMPLETED (OPTIONAL BUT RECOMMENDED) -->
         <!-- ===================================================== -->
 
-        <!-- Restores alarms after reboot -->
+        <!-- Restores day-confirmation alarm after reboot -->
         <receiver
             android:name=".receivers.BootCompletedReceiver"
-            android:permission="android.permission.RECEIVE_BOOT_COMPLETED"
             android:enabled="true"
-            android:exported="false"
-            android:directBootAware="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
