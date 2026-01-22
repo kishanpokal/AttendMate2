@@ -20,6 +20,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Login
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,8 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
@@ -50,8 +53,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.kishan.attendmate.MainActivity
 import com.kishan.attendmate.R
 import com.kishan.attendmate.ui.setup.SubjectSetupActivity
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.min
 
 class LoginActivity : ComponentActivity() {
     private val auth = FirebaseAuth.getInstance()
@@ -74,6 +77,7 @@ class LoginActivity : ComponentActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -107,8 +111,43 @@ class LoginActivity : ComponentActivity() {
         val keyboardController = LocalSoftwareKeyboardController.current
         val isDark = isSystemInDarkTheme()
         val scope = rememberCoroutineScope()
+        val configuration = LocalConfiguration.current
 
-        // Animated values
+        // Responsive calculations
+        val screenWidth = configuration.screenWidthDp.dp
+        val screenHeight = configuration.screenHeightDp.dp
+        val isCompact = screenWidth < 600.dp
+        val isLandscape = screenWidth > screenHeight
+
+        // Adaptive spacing and sizing
+        val horizontalPadding = when {
+            screenWidth < 360.dp -> 16.dp
+            screenWidth < 600.dp -> 24.dp
+            screenWidth < 840.dp -> 48.dp
+            else -> min(screenWidth.value * 0.15f, 120f).dp
+        }
+
+        val contentMaxWidth = when {
+            screenWidth < 600.dp -> screenWidth
+            screenWidth < 840.dp -> 600.dp
+            else -> 480.dp
+        }
+
+        val iconSize = when {
+            screenWidth < 360.dp -> 80.dp
+            screenWidth < 600.dp -> 100.dp
+            else -> 120.dp
+        }
+
+        val titleSize = when {
+            screenWidth < 360.dp -> MaterialTheme.typography.headlineMedium.fontSize
+            screenWidth < 600.dp -> MaterialTheme.typography.displaySmall.fontSize
+            else -> MaterialTheme.typography.displayMedium.fontSize
+        }
+
+        val verticalSpacingMultiplier = if (isLandscape) 0.5f else 1f
+
+        // Animated background
         val infiniteTransition = rememberInfiniteTransition(label = "background")
         val animatedOffset by infiniteTransition.animateFloat(
             initialValue = 0f,
@@ -137,8 +176,8 @@ class LoginActivity : ComponentActivity() {
                                 Color(0xFF302B63),
                                 Color(0xFF24243E)
                             ),
-                            start = androidx.compose.ui.geometry.Offset(animatedOffset, animatedOffset),
-                            end = androidx.compose.ui.geometry.Offset(
+                            start = Offset(animatedOffset, animatedOffset),
+                            end = Offset(
                                 animatedOffset + 1000f,
                                 animatedOffset + 1000f
                             )
@@ -155,85 +194,106 @@ class LoginActivity : ComponentActivity() {
                 )
         ) {
             // Floating orbs decoration
-            FloatingOrbs(isDark)
+            FloatingOrbs(isDark, isCompact)
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState())
-                    .padding(24.dp)
+                    .padding(horizontal = horizontalPadding)
                     .statusBarsPadding()
                     .navigationBarsPadding()
                     .imePadding(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = if (isLandscape) Arrangement.Top else Arrangement.Center
             ) {
-                Spacer(Modifier.height(32.dp))
+                Spacer(Modifier.height((32 * verticalSpacingMultiplier).dp))
 
                 // App Icon with animated glow
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.scale(scale)
+                AnimatedVisibility(
+                    visible = !isLandscape || screenHeight > 500.dp,
+                    enter = fadeIn() + scaleIn(),
+                    exit = fadeOut() + scaleOut()
                 ) {
-                    // Glow effect
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                        modifier = Modifier
-                            .size(120.dp)
-                            .blur(20.dp)
-                    ) {}
-
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        tonalElevation = 8.dp,
-                        modifier = Modifier.size(100.dp)
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.scale(scale)
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(50.dp)
-                            )
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                            modifier = Modifier
+                                .size(iconSize + 20.dp)
+                                .blur(20.dp)
+                        ) {}
+
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            tonalElevation = 8.dp,
+                            modifier = Modifier.size(iconSize)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(iconSize * 0.5f)
+                                )
+                            }
                         }
                     }
                 }
 
-                Spacer(Modifier.height(32.dp))
+                Spacer(
+                    modifier = Modifier.height(
+                        (if (isLandscape) 16.dp else 32.dp) * verticalSpacingMultiplier
+                    )
+                )
+
 
                 // Title with animation
                 Text(
                     text = "Welcome Back",
-                    style = MaterialTheme.typography.displaySmall,
+                    fontSize = titleSize,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onBackground
                 )
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height((8 * verticalSpacingMultiplier).dp))
 
                 Text(
                     text = "Sign in to continue tracking your attendance",
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = if (isCompact) MaterialTheme.typography.bodyMedium
+                    else MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.widthIn(max = contentMaxWidth)
                 )
 
-                Spacer(Modifier.height(40.dp))
+                Spacer(
+                    modifier = Modifier.height(
+                        (if (isLandscape) 16.dp else 32.dp) * verticalSpacingMultiplier
+                    )
+                )
+
 
                 // Login Form Card
                 Surface(
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(if (isCompact) 24.dp else 28.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.7f else 1f),
                     tonalElevation = if (isDark) 4.dp else 2.dp,
                     shadowElevation = 8.dp,
                     modifier = Modifier
+                        .widthIn(max = contentMaxWidth)
                         .fillMaxWidth()
                         .animateContentSize()
                 ) {
                     Column(
-                        modifier = Modifier.padding(24.dp)
+                        modifier = Modifier.padding(
+                            horizontal = if (isCompact) 20.dp else 24.dp,
+                            vertical = if (isCompact) 20.dp else 24.dp
+                        )
                     ) {
                         // Email/Username Input
                         OutlinedTextField(
@@ -253,7 +313,11 @@ class LoginActivity : ComponentActivity() {
                                 )
                             },
                             trailingIcon = {
-                                if (input.isNotEmpty()) {
+                                AnimatedVisibility(
+                                    visible = input.isNotEmpty(),
+                                    enter = fadeIn() + scaleIn(),
+                                    exit = fadeOut() + scaleOut()
+                                ) {
                                     IconButton(onClick = { input = "" }) {
                                         Icon(
                                             Icons.Default.Clear,
@@ -343,11 +407,12 @@ class LoginActivity : ComponentActivity() {
                             Text(
                                 "Forgot Password?",
                                 color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = if (isCompact) 13.sp else 14.sp
                             )
                         }
 
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(if (isCompact) 20.dp else 24.dp))
 
                         // Sign In Button
                         Button(
@@ -366,30 +431,43 @@ class LoginActivity : ComponentActivity() {
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(56.dp)
+                                .height(if (isCompact) 52.dp else 56.dp)
                         ) {
-                            if (loading) {
-                                CircularProgressIndicator(
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.5.dp
-                                )
-                            } else {
-                                Icon(
-                                    Icons.Default.Login,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    "Sign In",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp
-                                )
+                            AnimatedContent(
+                                targetState = loading,
+                                transitionSpec = {
+                                    fadeIn() + scaleIn() togetherWith fadeOut() + scaleOut()
+                                },
+                                label = "button_content"
+                            ) { isLoading ->
+                                if (isLoading) {
+                                    CircularProgressIndicator(
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.5.dp
+                                    )
+                                } else {
+                                    Row(
+                                        horizontalArrangement = Arrangement.Center,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            Icons.AutoMirrored.Filled.Login,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            "Sign In",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = if (isCompact) 15.sp else 16.sp
+                                        )
+                                    }
+                                }
                             }
                         }
 
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(if (isCompact) 20.dp else 24.dp))
 
                         // Divider
                         Row(
@@ -413,7 +491,7 @@ class LoginActivity : ComponentActivity() {
                             )
                         }
 
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(if (isCompact) 20.dp else 24.dp))
 
                         // Google Sign In Button
                         OutlinedButton(
@@ -426,10 +504,10 @@ class LoginActivity : ComponentActivity() {
                             },
                             enabled = !loading,
                             shape = RoundedCornerShape(16.dp),
-                            border = ButtonDefaults.outlinedButtonBorder.copy(width = 1.5.dp),
+                            border = ButtonDefaults.outlinedButtonBorder(enabled = !loading).copy(width = 1.5.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(56.dp)
+                                .height(if (isCompact) 52.dp else 56.dp)
                         ) {
                             Icon(
                                 painter = painterResource(id = R.drawable.ic_google),
@@ -441,48 +519,64 @@ class LoginActivity : ComponentActivity() {
                             Text(
                                 "Continue with Google",
                                 fontWeight = FontWeight.Medium,
-                                fontSize = 15.sp
+                                fontSize = if (isCompact) 14.sp else 15.sp
                             )
                         }
                     }
                 }
 
-                Spacer(Modifier.height(32.dp))
+                Spacer(
+                    modifier = Modifier.height(
+                        (if (isLandscape) 16.dp else 32.dp) * verticalSpacingMultiplier
+                    )
+                )
+
 
                 // Sign Up Link
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier
+                        .widthIn(max = contentMaxWidth)
                         .clip(RoundedCornerShape(16.dp))
                         .clickable {
                             startActivity(Intent(this@LoginActivity, RegisterActivity::class.java))
                         }
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                        modifier = Modifier.padding(
+                            horizontal = if (isCompact) 20.dp else 24.dp,
+                            vertical = if (isCompact) 14.dp else 16.dp
+                        ),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             "Don't have an account? ",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = if (isCompact) 13.sp else 14.sp
                         )
                         Text(
                             "Sign Up",
                             color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            fontSize = if (isCompact) 13.sp else 14.sp
                         )
                     }
                 }
 
-                Spacer(Modifier.height(32.dp))
+                Spacer(
+                    modifier = Modifier.height(
+                        (if (isLandscape) 16.dp else 32.dp) * verticalSpacingMultiplier
+                    )
+                )
+
             }
         }
     }
 
     @Composable
-    private fun FloatingOrbs(isDark: Boolean) {
+    private fun FloatingOrbs(isDark: Boolean, isCompact: Boolean) {
         val infiniteTransition = rememberInfiniteTransition(label = "orbs")
 
         val offset1 by infiniteTransition.animateFloat(
@@ -505,6 +599,9 @@ class LoginActivity : ComponentActivity() {
             label = "orb2"
         )
 
+        val orbSize1 = if (isCompact) 150.dp else 200.dp
+        val orbSize2 = if (isCompact) 180.dp else 250.dp
+
         Box(modifier = Modifier.fillMaxSize()) {
             // Orb 1
             Surface(
@@ -512,9 +609,9 @@ class LoginActivity : ComponentActivity() {
                 color = if (isDark) Color(0xFF6366F1).copy(alpha = 0.1f)
                 else Color(0xFF6366F1).copy(alpha = 0.05f),
                 modifier = Modifier
-                    .size(200.dp)
+                    .size(orbSize1)
                     .offset(x = (-50).dp + offset1.dp, y = 100.dp)
-                    .blur(60.dp)
+                    .blur(if (isCompact) 50.dp else 60.dp)
             ) {}
 
             // Orb 2
@@ -523,9 +620,10 @@ class LoginActivity : ComponentActivity() {
                 color = if (isDark) Color(0xFFEC4899).copy(alpha = 0.1f)
                 else Color(0xFFEC4899).copy(alpha = 0.05f),
                 modifier = Modifier
-                    .size(250.dp)
-                    .offset(x = 200.dp + offset2.dp, y = 500.dp)
-                    .blur(70.dp)
+                    .size(orbSize2)
+                    .align(Alignment.BottomEnd)
+                    .offset(x = offset2.dp, y = (-100).dp)
+                    .blur(if (isCompact) 60.dp else 70.dp)
             ) {}
         }
     }
@@ -571,7 +669,6 @@ class LoginActivity : ComponentActivity() {
         if (Patterns.EMAIL_ADDRESS.matcher(input).matches()) {
             signInWithEmail(input, password, onLoading)
         } else {
-            // Lookup username → email
             db.collection("users")
                 .whereEqualTo("username", input)
                 .limit(1)
@@ -614,6 +711,7 @@ class LoginActivity : ComponentActivity() {
             }
     }
 
+    @Suppress("DEPRECATION")
     private fun handleGoogleCredential(credential: AuthCredential, email: String?) {
         if (email == null) {
             auth.signInWithCredential(credential)
@@ -678,11 +776,8 @@ class LoginActivity : ComponentActivity() {
                 val nextActivity = if (setupDone) MainActivity::class.java
                 else SubjectSetupActivity::class.java
 
-                // 🔔 START notification worker AFTER login
-
                 startActivity(Intent(this, nextActivity))
                 finish()
-
             }
             .addOnFailureListener {
                 Toast.makeText(this, "Failed to load profile", Toast.LENGTH_SHORT).show()

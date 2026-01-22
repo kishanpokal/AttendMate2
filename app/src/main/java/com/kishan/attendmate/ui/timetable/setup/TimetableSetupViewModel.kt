@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.WriteBatch
-import com.kishan.attendmate.domain.timetable.TimetableSlotMapper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -197,27 +196,22 @@ class TimetableSetupViewModel : ViewModel() {
                 batch.delete(it.reference)
             }
 
-            // Save weekly timetable TEMPLATE (slot-based)
+            // Save weekly timetable TEMPLATE (per-lecture)
             _dayLectures.value.forEach { (day, lectures) ->
                 lectures.forEach { lecture ->
-                    val startSlot =
-                        TimetableSlotMapper.timeToSlotIndex(lecture.startTime)
-
-                    repeat(lecture.durationHours) { offset ->
-                        val slotIndex = startSlot + offset
-                        val cellId = "${day.name}_$slotIndex"
-
-                        batch.set(
-                            timetableRef.document(cellId),
-                            mapOf(
-                                "day" to day.name,
-                                "slotIndex" to slotIndex,
-                                "subjectId" to lecture.subjectId,
-                                "subjectName" to lecture.subjectName,
-                                "createdAt" to Date()
-                            )
+                    val docId = "${day.name}_${lecture.id}"
+                    batch.set(
+                        timetableRef.document(docId),
+                        mapOf(
+                            "day" to day.name,
+                            "subjectId" to lecture.subjectId,
+                            "subjectName" to lecture.subjectName,
+                            "startTime" to lecture.startTime.toString(),
+                            "endTime" to lecture.endTime.toString(),
+                            "durationHours" to lecture.durationHours,
+                            "createdAt" to Date()
                         )
-                    }
+                    )
                 }
             }
 
@@ -251,57 +245,32 @@ class TimetableSetupViewModel : ViewModel() {
             return
         }
 
-        val byDay = snapshot.documents.groupBy {
-            DayOfWeek.valueOf(it.getString("day")!!)
+        val result = mutableMapOf<DayOfWeek, MutableList<LectureUiModel>>()
+
+        snapshot.documents.forEach { doc ->
+            val dayStr = doc.getString("day") ?: return@forEach
+            val day = DayOfWeek.valueOf(dayStr)
+            val subjectId = doc.getString("subjectId") ?: return@forEach
+            val subjectName = doc.getString("subjectName") ?: return@forEach
+            val startTimeStr = doc.getString("startTime") ?: return@forEach
+            val duration = doc.getLong("durationHours")?.toInt() ?: return@forEach
+
+            val startTime = LocalTime.parse(startTimeStr)
+
+            val lecture = LectureUiModel(
+                id = doc.id,
+                subjectId = subjectId,
+                subjectName = subjectName,
+                startTime = startTime,
+                durationHours = duration
+            )
+
+            result.getOrPut(day) { mutableListOf() }.add(lecture)
         }
 
-        val result = mutableMapOf<DayOfWeek, List<LectureUiModel>>()
-
-        byDay.forEach { (day, docs) ->
-
-            val sorted = docs.sortedBy {
-                it.getLong("slotIndex")!!.toInt()
-            }
-
-            val lectures = mutableListOf<LectureUiModel>()
-
-            var subjectId: String? = null
-            var subjectName: String? = null
-            var startSlot = -1
-            var duration = 0
-
-            fun flush() {
-                if (subjectId != null) {
-                    lectures.add(
-                        LectureUiModel(
-                            id = "${day.name}_$startSlot",
-                            subjectId = subjectId!!,
-                            subjectName = subjectName!!,
-                            startTime = TimetableSlotMapper.slotIndexToTime(startSlot),
-                            durationHours = duration
-                        )
-                    )
-                }
-            }
-
-            for (doc in sorted) {
-                val slot = doc.getLong("slotIndex")!!.toInt()
-                val sid = doc.getString("subjectId")!!
-                val sname = doc.getString("subjectName")!!
-
-                if (subjectId == sid && slot == startSlot + duration) {
-                    duration++
-                } else {
-                    flush()
-                    subjectId = sid
-                    subjectName = sname
-                    startSlot = slot
-                    duration = 1
-                }
-            }
-
-            flush()
-            result[day] = lectures
+        // Sort lectures by start time for each day
+        result.forEach { (_, lectures) ->
+            lectures.sortBy { it.startTime }
         }
 
         _dayLectures.value = result
