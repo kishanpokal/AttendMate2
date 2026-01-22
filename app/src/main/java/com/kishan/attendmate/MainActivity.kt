@@ -39,7 +39,6 @@ import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import android.content.Intent
-import com.kishan.attendmate.domain.lectures.TodayScheduleBootstrapper
 import com.kishan.attendmate.ui.auth.LoginActivity
 import java.util.*
 
@@ -63,8 +62,8 @@ class MainActivity : ComponentActivity() {
         // 🔔 Ensure notification channels exist
         createNotificationChannels()
 
-        // 🧠 App-launch safety net (VERY IMPORTANT)
-        TodayScheduleBootstrapper.run(this)
+
+
 
         enableEdgeToEdge()
 

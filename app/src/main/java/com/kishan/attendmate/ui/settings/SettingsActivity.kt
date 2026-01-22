@@ -35,7 +35,6 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.kishan.attendmate.ui.auth.LoginActivity
 import com.kishan.attendmate.ui.subjects.ManageSubjectsActivity
 import com.kishan.attendmate.ui.theme.AttendMateTheme
-import com.kishan.attendmate.alarms.DayConfirmationAlarmScheduler
 
 
 class SettingsActivity : ComponentActivity() {
@@ -210,7 +209,7 @@ private fun SettingsPage() {
         LogoutConfirmationDialog(
             onConfirm = {
                 // 🔐 1. Cancel day confirmation alarm
-                DayConfirmationAlarmScheduler.cancel(context)
+
 
                 // 🔐 2. Sign out user
                 auth.signOut()
