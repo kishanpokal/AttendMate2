@@ -378,6 +378,10 @@ fun HomeScreen() {
         AttendanceDialog(
             lecture = activeLecture!!,
             isSaving = isSavingPopup,
+            onDismiss = {
+                showPopup = false
+                activeLecture = null
+            },
             onPresent = {
                 isSavingPopup = true
                 savePopupAttendance(
@@ -532,11 +536,12 @@ fun SkeletonLectureCard() {
     }
 }
 
-/* -------------------- ENHANCED ATTENDANCE DIALOG -------------------- */
+/* -------------------- ENHANCED ATTENDANCE DIALOG WITH CLOSE BUTTON -------------------- */
 @Composable
 fun AttendanceDialog(
     lecture: ActiveLecture,
     isSaving: Boolean,
+    onDismiss: () -> Unit,
     onPresent: () -> Unit,
     onAbsent: () -> Unit
 ) {
@@ -553,7 +558,7 @@ fun AttendanceDialog(
     }
 
     Dialog(
-        onDismissRequest = { },
+        onDismissRequest = { if (!isSaving) onDismiss() },
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Card(
@@ -570,6 +575,25 @@ fun AttendanceDialog(
                 modifier = Modifier.padding(28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                // Close Button at Top Right
+                Box(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    IconButton(
+                        onClick = { if (!isSaving) onDismiss() },
+                        enabled = !isSaving,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 8.dp, y = (-8).dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
                 // Icon
                 Box(
                     modifier = Modifier
@@ -745,14 +769,14 @@ fun getGreetingMessage(): String {
     }
 }
 
-/* -------------------- SUMMARY CARD -------------------- */
+/* -------------------- SUMMARY CARD WITH DECIMAL PERCENTAGE -------------------- */
 @Composable
 fun AttendanceSummaryCard(total: Int, attended: Int) {
-    val percentage = if (total == 0) 0 else ((attended.toFloat() / total.toFloat()) * 100).toInt()
+    val percentage = if (total == 0) 0f else (attended.toFloat() / total.toFloat()) * 100
     val animatedPercentage = remember { Animatable(0f) }
     LaunchedEffect(percentage) {
         animatedPercentage.animateTo(
-            targetValue = percentage.toFloat(),
+            targetValue = percentage,
             animationSpec = tween(durationMillis = 1200, easing = EaseOutCubic)
         )
     }
@@ -805,7 +829,7 @@ fun AttendanceSummaryCard(total: Int, attended: Int) {
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "${animatedPercentage.value.toInt()}%",
+                            text = String.format("%.2f%%", animatedPercentage.value),
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary

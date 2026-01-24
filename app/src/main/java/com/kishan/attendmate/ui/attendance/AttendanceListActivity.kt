@@ -34,7 +34,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.kishan.attendmate.ui.components.AttendMateNavigationBar
 import com.kishan.attendmate.ui.theme.AttendMateTheme
@@ -43,6 +45,22 @@ import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
+/* -------------------- SAFE TIME READER -------------------- */
+private fun readTimeAsString(
+    doc: DocumentSnapshot,
+    field: String
+): String {
+    val value = doc.get(field) ?: return ""
+    return when (value) {
+        is Timestamp -> {
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(value.toDate())
+        }
+        is String -> value
+        else -> ""
+    }
+}
+
+/* -------------------- ACTIVITY -------------------- */
 class AttendanceListActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -128,7 +146,7 @@ fun AttendanceListScreen(
         }
     }
 
-    /* -------- FETCH DATA -------- */
+    /* -------- FETCH DATA (SAFE) -------- */
     LaunchedEffect(refreshKey) {
         loading = true
         val tempList = mutableListOf<AttendanceItem>()
@@ -154,13 +172,9 @@ fun AttendanceListScreen(
                 .await()
             for (doc in attendanceSnap.documents) {
                 val date = doc.getTimestamp("date")?.toDate() ?: continue
-                val statusRaw = doc.getString("status") ?: "ABSENT"
-                val status = statusRaw.uppercase()
-                val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
-                val startTime = doc.getTimestamp("startTime")
-                    ?.toDate()?.let { formatter.format(it) } ?: ""
-                val endTime = doc.getTimestamp("endTime")
-                    ?.toDate()?.let { formatter.format(it) } ?: ""
+                val status = doc.getString("status")?.uppercase() ?: "ABSENT"
+                val startTime = readTimeAsString(doc, "startTime")
+                val endTime = readTimeAsString(doc, "endTime")
                 tempList.add(
                     AttendanceItem(
                         subjectId = subjectId,

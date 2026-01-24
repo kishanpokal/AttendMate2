@@ -175,6 +175,22 @@ private fun SettingsPage() {
 
             Spacer(Modifier.height(24.dp))
 
+            SettingsSection("Web Version", Icons.Default.Info)
+
+            SettingsItem(
+                icon = Icons.Default.Language,
+                title = "Visit Website",
+                subtitle = "Try AttendMate Web for more features",
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        data = android.net.Uri.parse("https://attendmateweb.vercel.app") // Replace with your actual website URL
+                    }
+                    context.startActivity(intent)
+                }
+            )
+
+            Spacer(Modifier.height(24.dp))
+
             SettingsSection("Session", Icons.Default.ExitToApp)
 
             SettingsItem(
@@ -184,6 +200,7 @@ private fun SettingsPage() {
                 isDestructive = true,
                 onClick = { showLogoutDialog = true }
             )
+
         }
     }
 

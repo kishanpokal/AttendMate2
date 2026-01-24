@@ -40,10 +40,35 @@ import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
+/* ---------------- SAFE TIME PARSER ---------------- */
+private fun parseTimeToCalendar(
+    raw: Any?,
+    baseDate: Calendar
+): Calendar {
+    val cal = baseDate.clone() as Calendar
+    when (raw) {
+        is Timestamp -> {
+            cal.timeInMillis = raw.toDate().time
+        }
+        is String -> {
+            val parts = raw.split(":")
+            if (parts.size == 2) {
+                cal.set(Calendar.HOUR_OF_DAY, parts[0].toIntOrNull() ?: 0)
+                cal.set(Calendar.MINUTE, parts[1].toIntOrNull() ?: 0)
+            }
+        }
+    }
+    // CRITICAL: reset noise
+    cal.set(Calendar.SECOND, 0)
+    cal.set(Calendar.MILLISECOND, 0)
+    return cal
+}
+
 /* ---------------- ACTIVITY ---------------- */
 class EditAttendanceActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
         val subjectId = intent.getStringExtra("subjectId") ?: return finish()
         val attendanceId = intent.getStringExtra("attendanceId") ?: return finish()
         setContent {
@@ -73,7 +98,6 @@ fun EditAttendanceScreen(
     val STATUS_PRESENT = "PRESENT"
     val STATUS_ABSENT = "ABSENT"
 
-
     /* ---------- STATE ---------- */
     var subjectName by remember { mutableStateOf("") }
     var lectureDate by remember { mutableStateOf(Calendar.getInstance()) }
@@ -83,9 +107,9 @@ fun EditAttendanceScreen(
     var oldStatus by remember { mutableStateOf("Present") }
     var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
-    val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-    val timeFormatter = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
 
+    val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
 
     val subjectRef = db.collection("users")
         .document(userId)
@@ -105,35 +129,11 @@ fun EditAttendanceScreen(
             val date = (attendanceSnap.getTimestamp("date") ?: Timestamp.now()).toDate()
             lectureDate.timeInMillis = date.time
 
-            // Handle startTime (Timestamp or String)
             val rawStart = attendanceSnap.get("startTime")
-            val startDate = when (rawStart) {
-                is Timestamp -> rawStart.toDate()
-                is String -> {
-                    try {
-                        timeFormatter.parse(rawStart)?.let { parsed ->
-                            Calendar.getInstance().apply { time = parsed }.time
-                        } ?: Date()
-                    } catch (e: Exception) { Date() }
-                }
-                else -> Date()
-            }
-            startTime = Calendar.getInstance().apply { time = startDate }
+            startTime = if (rawStart != null) parseTimeToCalendar(rawStart, lectureDate) else null
 
-            // Handle endTime (Timestamp or String)
             val rawEnd = attendanceSnap.get("endTime")
-            val endDate = when (rawEnd) {
-                is Timestamp -> rawEnd.toDate()
-                is String -> {
-                    try {
-                        timeFormatter.parse(rawEnd)?.let { parsed ->
-                            Calendar.getInstance().apply { time = parsed }.time
-                        } ?: Date()
-                    } catch (e: Exception) { Date() }
-                }
-                else -> Date()
-            }
-            endTime = Calendar.getInstance().apply { time = endDate }
+            endTime = if (rawEnd != null) parseTimeToCalendar(rawEnd, lectureDate) else null
 
             val rawStatus = attendanceSnap.getString("status") ?: STATUS_ABSENT
             status = rawStatus.uppercase(Locale.getDefault())
@@ -153,10 +153,18 @@ fun EditAttendanceScreen(
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon( Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back" )
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 },
-                title = { Text( "Edit Attendance", fontWeight = FontWeight.Bold ) },
+                title = {
+                    Text(
+                        "Edit Attendance",
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                     navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
@@ -176,6 +184,7 @@ fun EditAttendanceScreen(
             }
             return@Scaffold
         }
+
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -324,25 +333,25 @@ fun EditAttendanceScreen(
                         label = "Start Time",
                         value = startTime?.let { timeFormatter.format(it.time) } ?: "Select",
                         onClick = {
+                            val current = startTime ?: lectureDate
                             TimePickerDialog(
                                 context,
                                 { _, h, min ->
-                                    startTime = Calendar.getInstance().apply {
-                                        timeInMillis = startTime?.timeInMillis ?: System.currentTimeMillis()
+                                    startTime = (startTime ?: lectureDate.clone() as Calendar).apply {
                                         set(Calendar.HOUR_OF_DAY, h)
                                         set(Calendar.MINUTE, min)
-                                    } ?: Calendar.getInstance().apply {
-                                        set(Calendar.HOUR_OF_DAY, h)
-                                        set(Calendar.MINUTE, min)
+                                        set(Calendar.SECOND, 0)
+                                        set(Calendar.MILLISECOND, 0)
                                     }
                                 },
-                                startTime?.get(Calendar.HOUR_OF_DAY) ?: 9,
-                                startTime?.get(Calendar.MINUTE) ?: 0,
-                                false
+                                current.get(Calendar.HOUR_OF_DAY),
+                                current.get(Calendar.MINUTE),
+                                true // 24-hour format
                             ).show()
                         }
                     )
                 }
+
                 /* ---------- END TIME ---------- */
                 Box(modifier = Modifier.weight(1f)) {
                     SelectableCard(
@@ -350,21 +359,20 @@ fun EditAttendanceScreen(
                         label = "End Time",
                         value = endTime?.let { timeFormatter.format(it.time) } ?: "Select",
                         onClick = {
+                            val current = endTime ?: lectureDate
                             TimePickerDialog(
                                 context,
                                 { _, h, min ->
-                                    endTime = Calendar.getInstance().apply {
-                                        timeInMillis = endTime?.timeInMillis ?: System.currentTimeMillis()
+                                    endTime = (endTime ?: lectureDate.clone() as Calendar).apply {
                                         set(Calendar.HOUR_OF_DAY, h)
                                         set(Calendar.MINUTE, min)
-                                    } ?: Calendar.getInstance().apply {
-                                        set(Calendar.HOUR_OF_DAY, h)
-                                        set(Calendar.MINUTE, min)
+                                        set(Calendar.SECOND, 0)
+                                        set(Calendar.MILLISECOND, 0)
                                     }
                                 },
-                                endTime?.get(Calendar.HOUR_OF_DAY) ?: 10,
-                                endTime?.get(Calendar.MINUTE) ?: 0,
-                                false
+                                current.get(Calendar.HOUR_OF_DAY),
+                                current.get(Calendar.MINUTE),
+                                true // 24-hour format
                             ).show()
                         }
                     )
@@ -391,7 +399,6 @@ fun EditAttendanceScreen(
                 ) {
                     status = STATUS_PRESENT
                 }
-
                 EditStatusCard(
                     text = "Absent",
                     icon = Icons.Default.Cancel,
@@ -402,6 +409,7 @@ fun EditAttendanceScreen(
                     status = STATUS_ABSENT
                 }
             }
+
             Spacer(modifier = Modifier.height(8.dp))
 
             /* ---------- UPDATE ---------- */
@@ -486,6 +494,7 @@ fun EditAttendanceScreen(
                     }
                 }
             }
+
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
