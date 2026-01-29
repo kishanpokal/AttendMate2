@@ -1,5 +1,6 @@
 package com.kishan.attendmate.ui.analytics
 
+import android.graphics.drawable.Icon
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.SegmentedButtonDefaults.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,15 +27,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.times
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.kishan.attendmate.ui.attendance.StatItem
 import com.kishan.attendmate.ui.components.AttendMateNavigationBar
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.tasks.await
@@ -43,6 +49,7 @@ import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoField
+import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -96,50 +103,13 @@ fun subjectColor(percent: Int): Color = when {
     else -> Color(0xFFF44336) // red
 }
 
-fun percentageAfterSkipping(
-    present: Int,
-    total: Int,
-    skip: Int
-): Int {
-    val newTotal = total + skip
-    return if (newTotal <= 0) 0 else (present * 100) / newTotal
-}
-
-fun lecturesNeededToReach75(
-    present: Int,
-    total: Int,
-    skip: Int
-): Int {
-    val newTotal = total + skip
-    var attended = 0
-    var currPresent = present
-    var currTotal = newTotal
-    while (currTotal > 0 && (currPresent * 100) / currTotal < 75) {
-        attended++
-        currPresent++
-        currTotal++
-    }
-    return attended
-}
-
 data class SkipRecoveryRow(
     val skipped: Int,
     val percentageAfterSkip: Int,
     val lecturesToRecover: Int
 )
 
-fun buildSkipRecoveryTable(
-    present: Int,
-    total: Int
-): List<SkipRecoveryRow> {
-    return (1..4).map { skip ->
-        SkipRecoveryRow(
-            skipped = skip,
-            percentageAfterSkip = percentageAfterSkipping(present, total, skip),
-            lecturesToRecover = lecturesNeededToReach75(present, total, skip)
-        )
-    }
-}
+
 
 /* ------------------------------------------------ */
 /* SCREEN */
@@ -628,105 +598,378 @@ fun StatColumn(label: String, value: String, icon: androidx.compose.ui.graphics.
 @Composable
 fun SubjectBarGraph(attendance: List<AnalyticsAttendance>) {
     val grouped = attendance.groupBy { it.subject }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(2.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
+            .shadow(6.dp, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
-        Column(Modifier.padding(20.dp)) {
+        Column(Modifier.padding(24.dp)) {
+            // Enhanced Header
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.BarChart,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Text(
-                    text = "Subject-wise Analysis",
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleLarge
-                )
-            }
-            Spacer(modifier = Modifier.height(20.dp))
-            grouped.forEach { (subject, list) ->
-                val present = list.count { it.status == "PRESENT" }
-                val total = list.size
-                val percent = if (total == 0) 0 else (present * 100 / total)
-                val color = subjectColor(percent)
-                val animatedProgress = remember { Animatable(0f) }
-                LaunchedEffect(percent) {
-                    animatedProgress.animateTo(
-                        targetValue = percent / 100f,
-                        animationSpec = tween(durationMillis = 800, easing = EaseOutCubic)
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF3B82F6),
+                                    Color(0xFF2563EB)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BarChart,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
-                Column(
-                    modifier = Modifier.padding(vertical = 8.dp)
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Subject-wise Analysis",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "${grouped.size} subjects tracked",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 75% Threshold Info Banner
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFEF4444).copy(alpha = 0.1f))
+                    .border(
+                        width = 1.dp,
+                        color = Color(0xFFEF4444).copy(alpha = 0.3f),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = Color(0xFFEF4444),
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    text = "Red line indicates 75% threshold",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = Color(0xFFEF4444)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Subject Progress Bars
+            grouped.entries.sortedByDescending { entry ->
+                val present = entry.value.count { it.status == "PRESENT" }
+                val total = entry.value.size
+                if (total == 0) 0 else (present * 100 / total)
+            }.forEach { (subject, list) ->
+                EnhancedSubjectBar(
+                    subject = subject,
+                    attendanceList = list,
+                    isLast = grouped.keys.last() == subject
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EnhancedSubjectBar(
+    subject: String,
+    attendanceList: List<AnalyticsAttendance>,
+    isLast: Boolean
+) {
+    val present = attendanceList.count { it.status == "PRESENT" }
+    val total = attendanceList.size
+    val percent = if (total == 0) 0 else (present * 100 / total)
+    val color = subjectColor(percent)
+
+    val animatedProgress = remember { Animatable(0f) }
+    LaunchedEffect(percent) {
+        animatedProgress.animateTo(
+            targetValue = percent / 100f,
+            animationSpec = tween(durationMillis = 1000, easing = EaseOutCubic)
+        )
+    }
+
+    val statusIcon = when {
+        percent >= 75 -> Icons.Default.CheckCircle
+        percent >= 60 -> Icons.Default.Warning
+        else -> Icons.Default.Error
+    }
+
+    val statusText = when {
+        percent >= 75 -> "Safe"
+        percent >= 60 -> "At Risk"
+        else -> "Critical"
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        // Subject Header with Stats
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                // Subject Icon
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(color.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = subject,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = color.copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = "$percent%",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = color
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Box(
-                        Modifier
-                            .fillMaxWidth()
-                            .height(12.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                    ) {
-                        Box(
-                            Modifier
-                                .fillMaxHeight()
-                                .fillMaxWidth(animatedProgress.value)
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(color)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Icon(
+                        imageVector = statusIcon,
+                        contentDescription = null,
+                        tint = color,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Column {
+                    Text(
+                        text = subject,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                     Text(
                         text = "$present / $total lectures",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (grouped.keys.last() != subject) {
-                    HorizontalDivider(
-                        modifier = Modifier.padding(vertical = 8.dp),
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+            }
+
+            // Percentage Badge
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = color.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, color.copy(alpha = 0.3f))
+                ) {
+                    Text(
+                        text = "$percent%",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = color
+                    )
+                }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = color,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Progress Bar with 75% Marker
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(16.dp)
+        ) {
+            // Background bar
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            )
+
+            // Progress bar with gradient
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .fillMaxWidth(animatedProgress.value)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                color,
+                                color.copy(alpha = 0.8f)
+                            )
+                        )
+                    )
+            )
+
+            // 75% Threshold Line
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(2.dp)
+                    .offset(x = (0.75f * LocalConfiguration.current.screenWidthDp.dp) - 48.dp)
+                    .background(Color(0xFFEF4444))
+                    .align(Alignment.CenterStart)
+            )
+
+            // 75% Label
+            Box(
+                modifier = Modifier
+                    .offset(x = (0.75f * LocalConfiguration.current.screenWidthDp.dp) - 48.dp)
+                    .align(Alignment.BottomStart)
+            ) {
+                Surface(
+                    modifier = Modifier.offset(y = 22.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color(0xFFEF4444)
+                ) {
+                    Text(
+                        text = "75%",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp
                     )
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Detailed Stats Row
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(color.copy(alpha = 0.05f))
+                .padding(10.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            StatBadge(
+                label = "Present",
+                value = "$present",
+                color = Color(0xFF10B981)
+            )
+
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(30.dp)
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            )
+
+            StatBadge(
+                label = "Absent",
+                value = "${total - present}",
+                color = Color(0xFFEF4444)
+            )
+
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(30.dp)
+                    .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            )
+
+            StatBadge(
+                label = "Needed",
+                value = if (percent >= 75) "0" else {
+                    val needed = calculateLecturesNeededFor75(present, total)
+                    "$needed"
+                },
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+
+        // Divider
+        if (!isLast) {
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            )
+        }
     }
+}
+
+@Composable
+private fun StatBadge(
+    label: String,
+    value: String,
+    color: Color
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+// Helper function to calculate lectures needed to reach 75%
+private fun calculateLecturesNeededFor75(present: Int, total: Int): Int {
+    if (total == 0) return 0
+    val currentPercent = (present.toFloat() / total) * 100
+    if (currentPercent >= 75) return 0
+
+    var tempPresent = present
+    var tempTotal = total
+    var needed = 0
+
+    while ((tempPresent.toFloat() / tempTotal * 100) < 75 && needed < 100) {
+        tempPresent++
+        tempTotal++
+        needed++
+    }
+
+    return needed
 }
 
 /* ------------------------------------------------ */
@@ -743,37 +986,60 @@ fun AttendanceCalendar(
     }
     val firstDayOfMonth = currentMonth.atDay(1)
     val daysInMonth = currentMonth.lengthOfMonth()
-    val firstDayOfWeek = firstDayOfMonth.dayOfWeek.get(ChronoField.DAY_OF_WEEK) - 1 // 0 = Monday, but for Sunday start, adjust if needed
+
+    // Adjust for Monday start (0 = Monday, 6 = Sunday)
+    val firstDayOfWeek = (firstDayOfMonth.dayOfWeek.value - 1) % 7
+
     val title = currentMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy"))
+    val today = LocalDate.now()
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(2.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
+            .shadow(4.dp, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
-        Column(Modifier.padding(20.dp)) {
+        Column(Modifier.padding(24.dp)) {
             // Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(
-                    imageVector = Icons.Default.CalendarMonth,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
                 Text(
                     text = "Attendance Calendar",
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleLarge
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
-            Spacer(modifier = Modifier.height(16.dp))
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             // Month Navigation
             Row(
                 Modifier.fillMaxWidth(),
@@ -783,120 +1049,211 @@ fun AttendanceCalendar(
                 IconButton(
                     onClick = { monthOffset-- },
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Icon(
                         Icons.Default.ArrowBack,
                         contentDescription = "Previous Month",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
-                Text(
-                    text = title,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = title,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
                 IconButton(
                     onClick = { monthOffset++ },
                     modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Icon(
                         Icons.Default.ArrowForward,
                         contentDescription = "Next Month",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            // Week Day Headers (Sun - Sat)
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Week Day Headers (Mon - Sun)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                listOf("S", "M", "T", "W", "T", "F", "S").forEach { day ->
-                    Text(
-                        text = day,
-                        modifier = Modifier.width(40.dp),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                listOf("M", "T", "W", "T", "F", "S", "S").forEach { day ->
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = day,
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                        )
+                    }
                 }
             }
-            Spacer(modifier = Modifier.height(8.dp))
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Calendar Grid
             LazyVerticalGrid(
                 columns = GridCells.Fixed(7),
                 modifier = Modifier.height(280.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Empty cells for first week
                 items(firstDayOfWeek) {
                     Box(modifier = Modifier.size(40.dp))
                 }
+
                 // Days of month
                 items(daysInMonth) { index ->
                     val date = firstDayOfMonth.plusDays(index.toLong())
                     val dayAttendance = attendance.filter { it.date == date }
                     val hasData = dayAttendance.isNotEmpty()
+                    val isToday = date == today
+
                     val allPresent = dayAttendance.all { it.status == "PRESENT" }
                     val allAbsent = dayAttendance.all { it.status == "ABSENT" }
+
                     val bgColor = when {
+                        !hasData && isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
                         !hasData -> Color.Transparent
-                        allPresent -> Color(0xFF4CAF50).copy(alpha = 0.2f)
-                        allAbsent -> Color(0xFFF44336).copy(alpha = 0.2f)
-                        else -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                        allPresent -> Color(0xFF4CAF50).copy(alpha = 0.15f)
+                        allAbsent -> Color(0xFFF44336).copy(alpha = 0.15f)
+                        else -> Color(0xFF0CFDCD).copy(alpha = 0.15f)
                     }
-                    val textColor = when {
-                        !hasData -> MaterialTheme.colorScheme.onSurface
+
+                    val borderColor = when {
+                        isToday && !hasData -> MaterialTheme.colorScheme.primary
                         allPresent -> Color(0xFF4CAF50)
                         allAbsent -> Color(0xFFF44336)
-                        else -> MaterialTheme.colorScheme.primary
+                        hasData -> Color(0xFF0CFDCD)
+                        else -> Color.Transparent
                     }
+
+                    val textColor = when {
+                        allPresent -> Color(0xFF2E7D32)
+                        allAbsent -> Color(0xFFC62828)
+                        hasData -> Color(0xFF0CFDCD)
+                        isToday -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    }
+
                     Box(
                         modifier = Modifier
                             .size(40.dp)
-                            .clip(CircleShape)
+                            .clip(RoundedCornerShape(10.dp))
                             .background(bgColor)
                             .clickable(enabled = hasData) { onDateClick(date) }
                             .border(
-                                width = if (hasData) 1.dp else 0.dp,
-                                color = textColor,
-                                shape = CircleShape
+                                width = if (hasData || isToday) 2.dp else 0.dp,
+                                color = borderColor,
+                                shape = RoundedCornerShape(10.dp)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text = "${index + 1}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (hasData) FontWeight.Bold else FontWeight.Normal,
-                            color = textColor
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "${index + 1}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (hasData || isToday) FontWeight.Bold else FontWeight.Normal,
+                                color = textColor,
+                                fontSize = 14.sp
+                            )
+
+                            // Small indicator dot for attendance
+                            if (hasData) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(4.dp)
+                                        .clip(CircleShape)
+                                        .background(borderColor)
+                                )
+                            }
+                        }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(16.dp))
-            // Legend
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Enhanced Legend with better design
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
+                    .padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                LegendItem(color = Color(0xFF4CAF50), label = "Present")
-                LegendItem(color = Color(0xFFF44336), label = "Absent")
-                LegendItem(color = MaterialTheme.colorScheme.primary, label = "Mixed")
+                EnhancedLegendItem(
+                    color = Color(0xFF4CAF50),
+                    label = "Present"
+                )
+                EnhancedLegendItem(
+                    color = Color(0xFFF44336),
+                    label = "Absent"
+                )
+                EnhancedLegendItem(
+                    color = Color(0xFF0CFDCD),
+                    label = "Mixed"
+                )
             }
         }
     }
 }
 
+@Composable
+private fun EnhancedLegendItem(
+    color: Color,
+    label: String
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(color.copy(alpha = 0.3f))
+                .border(
+                    width = 2.dp,
+                    color = color,
+                    shape = RoundedCornerShape(4.dp)
+                )
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
 @Composable
 fun LegendItem(color: Color, label: String) {
     Row(
@@ -939,128 +1296,352 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
             Color(0xFF06B6D4)  // Cyan
         )
     }
+
+    // Get theme colors outside Canvas
+    val surfaceColor = MaterialTheme.colorScheme.surfaceContainerLow
+    val surfaceColor2 = MaterialTheme.colorScheme.surface
+    val outlineColor = MaterialTheme.colorScheme.outline
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(2.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
+            .shadow(6.dp, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
-        Column(Modifier.padding(20.dp)) {
+        Column(Modifier.padding(24.dp)) {
+            // Enhanced Header
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.PieChart,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Text(
-                    text = "Distribution by Subject",
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleLarge
-                )
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF6366F1),
+                                    Color(0xFF8B5CF6)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PieChart,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Subject Distribution",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "${grouped.size} subjects tracked",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
-            Spacer(modifier = Modifier.height(20.dp))
-            // Pie Chart
-            Canvas(
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Enhanced Pie Chart with 3D effect
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(240.dp)
+                    .height(260.dp),
+                contentAlignment = Alignment.Center
             ) {
-                var startAngle = -90f
-                val centerX = size.width / 2
-                val centerY = size.height / 2
-                val radius = size.minDimension / 2.5f
-                grouped.entries.forEachIndexed { index, entry ->
-                    val sweep = (entry.value.size / total) * 360f
-                    drawArc(
-                        color = colors[index % colors.size],
-                        startAngle = startAngle,
-                        sweepAngle = sweep,
-                        useCenter = true,
-                        topLeft = androidx.compose.ui.geometry.Offset(
-                            centerX - radius,
-                            centerY - radius
-                        ),
-                        size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
-                    )
-                    startAngle += sweep
-                }
-                // Center circle for donut effect
-                drawCircle(
-                    color = Color.White,
-                    radius = radius * 0.5f,
-                    center = androidx.compose.ui.geometry.Offset(centerX, centerY)
-                )
-            }
-            Spacer(modifier = Modifier.height(20.dp))
-            // Legend with detailed stats
-            Column(
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                grouped.entries.forEachIndexed { index, entry ->
-                    val count = entry.value.size
-                    val percentage = ((count / total) * 100).toInt()
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                Modifier
-                                    .size(16.dp)
-                                    .clip(CircleShape)
-                                    .background(colors[index % colors.size])
-                            )
-                            Text(
-                                text = entry.key,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
+                Canvas(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    var startAngle = -90f
+                    val centerX = size.width / 2
+                    val centerY = size.height / 2
+                    val radius = size.minDimension / 2.6f
+
+                    // Draw shadow/3D effect
+                    grouped.entries.forEachIndexed { index, entry ->
+                        val sweep = (entry.value.size / total) * 360f
+                        drawArc(
+                            color = colors[index % colors.size].copy(alpha = 0.3f),
+                            startAngle = startAngle,
+                            sweepAngle = sweep,
+                            useCenter = true,
+                            topLeft = androidx.compose.ui.geometry.Offset(
+                                centerX - radius + 4.dp.toPx(),
+                                centerY - radius + 4.dp.toPx()
+                            ),
+                            size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
+                        )
+                        startAngle += sweep
+                    }
+
+                    // Draw main pie chart
+                    startAngle = -90f
+                    grouped.entries.forEachIndexed { index, entry ->
+                        val sweep = (entry.value.size / total) * 360f
+
+                        // Main arc
+                        drawArc(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    colors[index % colors.size].copy(alpha = 1f),
+                                    colors[index % colors.size].copy(alpha = 0.8f)
+                                ),
+                                center = androidx.compose.ui.geometry.Offset(centerX, centerY),
+                                radius = radius
+                            ),
+                            startAngle = startAngle,
+                            sweepAngle = sweep,
+                            useCenter = true,
+                            topLeft = androidx.compose.ui.geometry.Offset(
+                                centerX - radius,
+                                centerY - radius
+                            ),
+                            size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
+                        )
+
+                        // Add separator lines between slices
+                        if (sweep > 5) {
+                            val angle = Math.toRadians((startAngle).toDouble())
+                            val lineEndX = centerX + (radius * kotlin.math.cos(angle)).toFloat()
+                            val lineEndY = centerY + (radius * kotlin.math.sin(angle)).toFloat()
+                            drawLine(
+                                color = Color.White.copy(alpha = 0.5f),
+                                start = androidx.compose.ui.geometry.Offset(centerX, centerY),
+                                end = androidx.compose.ui.geometry.Offset(lineEndX, lineEndY),
+                                strokeWidth = 2.dp.toPx()
                             )
                         }
+
+                        startAngle += sweep
+                    }
+
+                    // Center donut hole with gradient
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                surfaceColor,
+                                surfaceColor2
+                            )
+                        ),
+                        radius = radius * 0.55f,
+                        center = androidx.compose.ui.geometry.Offset(centerX, centerY)
+                    )
+
+                    // Inner circle border
+                    drawCircle(
+                        color = outlineColor.copy(alpha = 0.1f),
+                        radius = radius * 0.55f,
+                        center = androidx.compose.ui.geometry.Offset(centerX, centerY),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+                    )
+                }
+
+                // Center text
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "${attendance.size}",
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Total Lectures",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Enhanced Legend with cards
+            Column(
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                grouped.entries.sortedByDescending { it.value.size }.forEachIndexed { index, entry ->
+                    val count = entry.value.size
+                    val percentage = ((count / total) * 100).toInt()
+                    val colorIndex = grouped.entries.indexOf(entry)
+
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                        color = colors[colorIndex % colors.size].copy(alpha = 0.08f),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = colors[colorIndex % colors.size].copy(alpha = 0.2f)
+                        )
+                    ) {
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "$count lectures",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = colors[index % colors.size].copy(alpha = 0.15f)
+                            // Left side: Color and subject
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Text(
-                                    text = "$percentage%",
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors[index % colors.size]
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(
+                                                    colors[colorIndex % colors.size],
+                                                    colors[colorIndex % colors.size].copy(alpha = 0.8f)
+                                                )
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "$percentage%",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color.White
+                                    )
+                                }
+
+                                Column {
+                                    Text(
+                                        text = entry.key,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "$count ${if (count == 1) "lecture" else "lectures"}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            // Right side: Progress bar
+                            Box(
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(percentage / 100f)
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    colors[colorIndex % colors.size],
+                                                    colors[colorIndex % colors.size].copy(alpha = 0.7f)
+                                                )
+                                            )
+                                        )
                                 )
                             }
                         }
                     }
-                    if (grouped.entries.last() != entry) {
-                        HorizontalDivider(
-                            thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
-                        )
-                    }
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Summary Stats
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                SummaryStatItem(
+                    label = "Subjects",
+                    value = "${grouped.size}",
+                    icon = Icons.Default.School
+                )
+
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(40.dp)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                )
+
+                SummaryStatItem(
+                    label = "Total",
+                    value = "${attendance.size}",
+                    icon = Icons.Default.CalendarMonth
+                )
+
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(40.dp)
+                        .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                )
+
+                SummaryStatItem(
+                    label = "Average",
+                    value = "${(attendance.size / grouped.size.toFloat()).toInt()}",
+                    icon = Icons.Default.BarChart
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun SummaryStatItem(
+    label: String,
+    value: String,
+    icon: ImageVector
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -1289,104 +1870,439 @@ fun SkipAttendancePrediction(
     present: Int,
     total: Int
 ) {
+    val currentPercentage = if (total > 0) (present.toFloat() / total * 100).toInt() else 0
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(2.dp, RoundedCornerShape(20.dp)),
-        shape = RoundedCornerShape(20.dp),
+            .shadow(6.dp, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            modifier = Modifier.padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            // Enhanced Header
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.TrendingDown,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
-                )
-                Text(
-                    text = "Attendance After Skipping",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFFFF6B6B),
+                                    Color(0xFFEE5A6F)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ArrowDownward,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Skip Predictor",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "See impact before you skip",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Current Status Banner
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Current Attendance",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "$present / $total lectures",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primary)
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "$currentPercentage%",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Prediction Cards
+            (1..4).forEach { skip ->
+                AdvancedPredictionCard(
+                    skip = skip,
+                    present = present,
+                    total = total
                 )
             }
-            Spacer(modifier = Modifier.height(8.dp))
-            (1..4).forEach { skip ->
-                val percent = percentageAfterSkipping(present, total, skip)
-                val recoverLectures = lecturesNeededToReach75(present, total, skip)
-                val statusColor = when {
-                    percent >= 75 -> Color(0xFF4CAF50)
-                    percent >= 60 -> Color(0xFFFFC107)
-                    else -> Color(0xFFF44336)
-                }
-                val statusText = when {
-                    percent >= 75 -> "Safe"
-                    percent >= 60 -> "Risk"
-                    else -> "Unsafe"
-                }
-                Surface(
-                    shape = RoundedCornerShape(14.dp),
-                    color = statusColor.copy(alpha = 0.12f)
+
+            // Info Footer
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = "75% attendance recommended for eligibility",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdvancedPredictionCard(
+    skip: Int,
+    present: Int,
+    total: Int
+) {
+    val percent = percentageAfterSkipping(present, total, skip)
+    val recoverLectures = lecturesNeededToReach75(present, total, skip)
+
+    val (statusColor, statusText, statusIcon) = when {
+        percent >= 75 -> Triple(Color(0xFF4CAF50), "Safe Zone", Icons.Default.CheckCircle)
+        percent >= 65 -> Triple(Color(0xFFFF9800), "Warning", Icons.Default.Warning)
+        percent >= 60 -> Triple(Color(0xFFFF6B6B), "Risk Zone", Icons.Default.Error)
+        else -> Triple(Color(0xFFF44336), "Critical", Icons.Default.Dangerous)
+    }
+
+    var isExpanded by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { isExpanded = !isExpanded },
+        shape = RoundedCornerShape(16.dp),
+        color = statusColor.copy(alpha = 0.08f),
+        border = BorderStroke(
+            width = 1.5.dp,
+            color = statusColor.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Main Content
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Left: Skip Info
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(statusColor.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "Skip $skip lecture${if (skip > 1) "s" else ""}",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium
-                            )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "$percent%",
-                                    fontWeight = FontWeight.Bold,
-                                    color = statusColor
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = statusColor.copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = statusText,
-                                        modifier = Modifier.padding(
-                                            horizontal = 10.dp,
-                                            vertical = 4.dp
-                                        ),
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = statusColor
-                                    )
-                                }
-                            }
-                        }
-                        // Recovery Info
                         Text(
-                            text = if (recoverLectures == 0) "Already ≥ 75% attendance" else "Attend $recoverLectures lecture${if (recoverLectures > 1) "s" else ""} to reach 75%",
+                            text = "$skip",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "Skip ${if (skip == 1) "lecture" else "$skip lectures"}",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "${total + skip} total after skip",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
+
+                // Right: Result
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "$percent%",
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor
+                        )
+                        Icon(
+                            imageVector = statusIcon,
+                            contentDescription = null,
+                            tint = statusColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = statusColor.copy(alpha = 0.2f)
+                    ) {
+                        Text(
+                            text = statusText,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = statusColor
+                        )
+                    }
+                }
+            }
+
+            // Progress Bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .fillMaxWidth(percent / 100f)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    statusColor,
+                                    statusColor.copy(alpha = 0.8f)
+                                )
+                            )
+                        )
+                )
+            }
+
+            // Expandable Recovery Info
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (recoverLectures == 0)
+                                    Color(0xFF4CAF50).copy(alpha = 0.1f)
+                                else
+                                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                            )
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (recoverLectures == 0)
+                                Icons.Default.CheckCircle
+                            else
+                                Icons.Filled.ArrowUpward,
+                            contentDescription = null,
+                            tint = if (recoverLectures == 0)
+                                Color(0xFF4CAF50)
+                            else
+                                MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = if (recoverLectures == 0)
+                                    "You're safe!"
+                                else
+                                    "Recovery Plan",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = if (recoverLectures == 0)
+                                    "Already maintaining ≥75% attendance"
+                                else
+                                    "Attend $recoverLectures more ${if (recoverLectures == 1) "lecture" else "lectures"} to reach 75%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    // Additional Stats
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        StatItem(
+                            label = "Present",
+                            value = "$present",
+                            icon = Icons.Default.CheckCircle,
+                            color = Color(0xFF4CAF50)
+                        )
+                        StatItem(
+                            label = "After Skip",
+                            value = "${total + skip}",
+                            icon = Icons.Default.CalendarMonth,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        val difference = if (total > 0) {
+                            val currentPercent = present.toFloat() / total * 100
+                            String.format(Locale.getDefault(), "%.1f", currentPercent - percent)
+                        } else {
+                            "0.0"
+                        }
+                        StatItem(
+                            label = "Difference",
+                            value = "-$difference%",
+                            icon = Icons.Filled.ArrowDownward,
+                            color = Color(0xFFFF6B6B)
+                        )
+                    }
+                }
+            }
+
+            // Tap to expand indicator
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = if (isExpanded) "Tap to collapse" else "Tap for details",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
     }
+}
+
+@Composable
+private fun StatItem(
+    label: String,
+    value: String,
+    icon: ImageVector,
+    color: Color
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = color
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+// Helper functions
+private fun percentageAfterSkipping(present: Int, total: Int, skip: Int): Int {
+    val newTotal = total + skip
+    return if (newTotal > 0) ((present.toFloat() / newTotal) * 100).toInt() else 0
+}
+
+private fun lecturesNeededToReach75(present: Int, total: Int, skip: Int): Int {
+    val newTotal = total + skip
+    val currentPercent = if (newTotal > 0) (present.toFloat() / newTotal) * 100 else 0f
+    if (currentPercent >= 75) return 0
+
+    var lecturesNeeded = 0
+    var tempPresent = present
+    var tempTotal = newTotal
+
+    while (tempTotal > 0 && (tempPresent.toFloat() / tempTotal * 100) < 75) {
+        tempPresent++
+        tempTotal++
+        lecturesNeeded++
+        if (lecturesNeeded > 100) break
+    }
+
+    return lecturesNeeded
 }

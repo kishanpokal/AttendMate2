@@ -9,6 +9,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -28,7 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -54,7 +58,9 @@ import com.kishan.attendmate.MainActivity
 import com.kishan.attendmate.R
 import com.kishan.attendmate.ui.setup.SubjectSetupActivity
 import kotlinx.coroutines.launch
+import kotlin.math.cos
 import kotlin.math.min
+import kotlin.math.sin
 
 class LoginActivity : ComponentActivity() {
     private val auth = FirebaseAuth.getInstance()
@@ -93,13 +99,13 @@ class LoginActivity : ComponentActivity() {
             MaterialTheme(
                 colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
             ) {
-                LoginScreen()
+                EnhancedLoginScreen()
             }
         }
     }
 
     @Composable
-    private fun LoginScreen() {
+    private fun EnhancedLoginScreen() {
         var input by remember { mutableStateOf("") }
         var password by remember { mutableStateOf("") }
         var passwordVisible by remember { mutableStateOf(false) }
@@ -119,7 +125,6 @@ class LoginActivity : ComponentActivity() {
         val isCompact = screenWidth < 600.dp
         val isLandscape = screenWidth > screenHeight
 
-        // Adaptive spacing and sizing
         val horizontalPadding = when {
             screenWidth < 360.dp -> 16.dp
             screenWidth < 600.dp -> 24.dp
@@ -134,34 +139,42 @@ class LoginActivity : ComponentActivity() {
         }
 
         val iconSize = when {
-            screenWidth < 360.dp -> 80.dp
-            screenWidth < 600.dp -> 100.dp
-            else -> 120.dp
+            screenWidth < 360.dp -> 90.dp
+            screenWidth < 600.dp -> 110.dp
+            else -> 130.dp
         }
 
-        val titleSize = when {
-            screenWidth < 360.dp -> MaterialTheme.typography.headlineMedium.fontSize
-            screenWidth < 600.dp -> MaterialTheme.typography.displaySmall.fontSize
-            else -> MaterialTheme.typography.displayMedium.fontSize
-        }
+        val verticalSpacingMultiplier = if (isLandscape) 0.6f else 1f
 
-        val verticalSpacingMultiplier = if (isLandscape) 0.5f else 1f
-
-        // Animated background
+        // Advanced Animations
         val infiniteTransition = rememberInfiniteTransition(label = "background")
-        val animatedOffset by infiniteTransition.animateFloat(
+
+        val gradientOffset by infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 1000f,
             animationSpec = infiniteRepeatable(
-                animation = tween(20000, easing = LinearEasing),
+                animation = tween(15000, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse
             ),
-            label = "offset"
+            label = "gradient"
+        )
+
+        val rotation by infiniteTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(20000, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "rotation"
         )
 
         val scale by animateFloatAsState(
-            targetValue = if (loading) 0.98f else 1f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+            targetValue = if (loading) 0.97f else 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium
+            ),
             label = "scale"
         )
 
@@ -176,25 +189,25 @@ class LoginActivity : ComponentActivity() {
                                 Color(0xFF302B63),
                                 Color(0xFF24243E)
                             ),
-                            start = Offset(animatedOffset, animatedOffset),
-                            end = Offset(
-                                animatedOffset + 1000f,
-                                animatedOffset + 1000f
-                            )
+                            start = Offset(gradientOffset, gradientOffset),
+                            end = Offset(gradientOffset + 1000f, gradientOffset + 1000f)
                         )
                     } else {
-                        Brush.linearGradient(
+                        Brush.radialGradient(
                             colors = listOf(
-                                Color(0xFFFDFBFB),
-                                Color(0xFFEBEDEE),
-                                Color(0xFFF0F2F5)
+                                Color(0xFFF8F9FF),
+                                Color(0xFFEEF2FF),
+                                Color(0xFFE0E7FF)
                             )
                         )
                     }
                 )
         ) {
-            // Floating orbs decoration
-            FloatingOrbs(isDark, isCompact)
+            // Advanced Floating Orbs
+            AdvancedFloatingOrbs(isDark, isCompact, rotation)
+
+            // Animated particles
+            AnimatedParticles(isDark)
 
             Column(
                 modifier = Modifier
@@ -207,33 +220,94 @@ class LoginActivity : ComponentActivity() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = if (isLandscape) Arrangement.Top else Arrangement.Center
             ) {
-                Spacer(Modifier.height((32 * verticalSpacingMultiplier).dp))
+                Spacer(Modifier.height((24 * verticalSpacingMultiplier).dp))
 
-                // App Icon with animated glow
+                // Premium App Icon with Glow
                 AnimatedVisibility(
                     visible = !isLandscape || screenHeight > 500.dp,
-                    enter = fadeIn() + scaleIn(),
+                    enter = fadeIn(tween(800)) + scaleIn(tween(800, easing = FastOutSlowInEasing)),
                     exit = fadeOut() + scaleOut()
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.scale(scale)
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                            modifier = Modifier
-                                .size(iconSize + 20.dp)
-                                .blur(20.dp)
-                        ) {}
+                        // Rotating glow rings
+                        Canvas(modifier = Modifier.size(iconSize + 60.dp)) {
+                            val centerX = size.width / 2
+                            val centerY = size.height / 2
 
+                            for (i in 0..2) {
+                                val angle = (rotation + i * 120) * Math.PI / 180
+                                val radius = size.width / 3
+                                val x = (centerX + cos(angle) * radius * 0.3).toFloat()
+                                val y = (centerY + sin(angle) * radius * 0.3).toFloat()
+
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xFF6366F1).copy(alpha = 0.3f),
+                                            Color.Transparent
+                                        )
+                                    ),
+                                    radius = 50f,
+                                    center = Offset(x, y)
+                                )
+                            }
+                        }
+
+                        // Outer pulsing ring
+                        val pulseScale by infiniteTransition.animateFloat(
+                            initialValue = 1f,
+                            targetValue = 1.1f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(2000, easing = EaseInOutCubic),
+                                repeatMode = RepeatMode.Reverse
+                            ),
+                            label = "pulse"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .size((iconSize + 40.dp) * pulseScale)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xFF6366F1).copy(alpha = 0.3f),
+                                            Color.Transparent
+                                        )
+                                    )
+                                )
+                                .blur(25.dp)
+                        )
+
+                        // Main icon container
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primaryContainer,
-                            tonalElevation = 8.dp,
-                            modifier = Modifier.size(iconSize)
+                            tonalElevation = 12.dp,
+                            shadowElevation = 20.dp,
+                            modifier = Modifier
+                                .size(iconSize)
+                                .shadow(
+                                    elevation = 30.dp,
+                                    shape = CircleShape,
+                                    ambientColor = Color(0xFF6366F1).copy(alpha = 0.5f),
+                                    spotColor = Color(0xFF6366F1).copy(alpha = 0.5f)
+                                )
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.primaryContainer,
+                                            MaterialTheme.colorScheme.secondaryContainer
+                                        )
+                                    )
+                                )
+                            ) {
                                 Icon(
                                     Icons.Default.CheckCircle,
                                     contentDescription = null,
@@ -245,308 +319,227 @@ class LoginActivity : ComponentActivity() {
                     }
                 }
 
-                Spacer(
-                    modifier = Modifier.height(
-                        (if (isLandscape) 16.dp else 32.dp) * verticalSpacingMultiplier
-                    )
-                )
+                Spacer(Modifier.height((if (isLandscape) 20.dp else 32.dp) * verticalSpacingMultiplier))
 
-
-                // Title with animation
-                Text(
+                // Animated Title
+                AnimatedText(
                     text = "Welcome Back",
-                    fontSize = titleSize,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    isDark = isDark,
+                    isCompact = isCompact
                 )
 
-                Spacer(Modifier.height((8 * verticalSpacingMultiplier).dp))
+                Spacer(Modifier.height((12 * verticalSpacingMultiplier).dp))
 
                 Text(
                     text = "Sign in to continue tracking your attendance",
-                    style = if (isCompact) MaterialTheme.typography.bodyMedium
-                    else MaterialTheme.typography.bodyLarge,
+                    style = if (isCompact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.widthIn(max = contentMaxWidth)
+                    modifier = Modifier
+                        .widthIn(max = contentMaxWidth)
+                        .animateContentSize()
                 )
 
-                Spacer(
-                    modifier = Modifier.height(
-                        (if (isLandscape) 16.dp else 32.dp) * verticalSpacingMultiplier
-                    )
-                )
+                Spacer(Modifier.height((if (isLandscape) 20.dp else 32.dp) * verticalSpacingMultiplier))
 
-
-                // Login Form Card
+                // Premium Login Form Card
                 Surface(
-                    shape = RoundedCornerShape(if (isCompact) 24.dp else 28.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.7f else 1f),
-                    tonalElevation = if (isDark) 4.dp else 2.dp,
-                    shadowElevation = 8.dp,
+                    shape = RoundedCornerShape(if (isCompact) 28.dp else 32.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.8f else 0.95f),
+                    tonalElevation = 8.dp,
+                    shadowElevation = 16.dp,
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
                         .fillMaxWidth()
                         .animateContentSize()
+                        .shadow(
+                            elevation = 24.dp,
+                            shape = RoundedCornerShape(if (isCompact) 28.dp else 32.dp),
+                            ambientColor = Color(0xFF6366F1).copy(alpha = 0.2f),
+                            spotColor = Color(0xFF6366F1).copy(alpha = 0.2f)
+                        )
                 ) {
-                    Column(
-                        modifier = Modifier.padding(
-                            horizontal = if (isCompact) 20.dp else 24.dp,
-                            vertical = if (isCompact) 20.dp else 24.dp
-                        )
-                    ) {
-                        // Email/Username Input
-                        OutlinedTextField(
-                            value = input,
-                            onValueChange = {
-                                input = it
-                                inputError = null
-                            },
-                            label = { Text("Email or Username") },
-                            placeholder = { Text("Enter your email or username") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Person,
-                                    null,
-                                    tint = if (inputError != null) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            trailingIcon = {
-                                AnimatedVisibility(
-                                    visible = input.isNotEmpty(),
-                                    enter = fadeIn() + scaleIn(),
-                                    exit = fadeOut() + scaleOut()
-                                ) {
-                                    IconButton(onClick = { input = "" }) {
-                                        Icon(
-                                            Icons.Default.Clear,
-                                            contentDescription = "Clear",
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-                            },
-                            isError = inputError != null,
-                            supportingText = inputError?.let { { Text(it) } },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                imeAction = ImeAction.Next,
-                                keyboardType = KeyboardType.Email
-                            ),
-                            shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(Modifier.height(16.dp))
-
-                        // Password Input
-                        OutlinedTextField(
-                            value = password,
-                            onValueChange = {
-                                password = it
-                                passwordError = null
-                            },
-                            label = { Text("Password") },
-                            placeholder = { Text("Enter your password") },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.Lock,
-                                    null,
-                                    tint = if (passwordError != null) MaterialTheme.colorScheme.error
-                                    else MaterialTheme.colorScheme.primary
-                                )
-                            },
-                            trailingIcon = {
-                                IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                    Icon(
-                                        if (passwordVisible) Icons.Default.Visibility
-                                        else Icons.Default.VisibilityOff,
-                                        null,
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            },
-                            visualTransformation = if (passwordVisible) VisualTransformation.None
-                            else PasswordVisualTransformation(),
-                            isError = passwordError != null,
-                            supportingText = passwordError?.let { { Text(it) } },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(
-                                imeAction = ImeAction.Done,
-                                keyboardType = KeyboardType.Password
-                            ),
-                            keyboardActions = KeyboardActions {
-                                keyboardController?.hide()
-                                focusManager.clearFocus()
-                                validateAndLogin(input, password, { inputError = it }, { passwordError = it }) {
-                                    loading = it
-                                }
-                            },
-                            shape = RoundedCornerShape(16.dp),
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        Spacer(Modifier.height(8.dp))
-
-                        // Forgot Password
-                        TextButton(
-                            onClick = {
-                                startActivity(Intent(this@LoginActivity, ForgotPasswordActivity::class.java))
-                            },
-                            modifier = Modifier.align(Alignment.End)
-                        ) {
-                            Text(
-                                "Forgot Password?",
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = if (isCompact) 13.sp else 14.sp
-                            )
-                        }
-
-                        Spacer(Modifier.height(if (isCompact) 20.dp else 24.dp))
-
-                        // Sign In Button
-                        Button(
-                            onClick = {
-                                keyboardController?.hide()
-                                focusManager.clearFocus()
-                                validateAndLogin(input, password, { inputError = it }, { passwordError = it }) {
-                                    loading = it
-                                }
-                            },
-                            enabled = !loading,
-                            shape = RoundedCornerShape(16.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary,
-                                contentColor = MaterialTheme.colorScheme.onPrimary
-                            ),
+                    Box {
+                        // Gradient overlay
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(if (isCompact) 52.dp else 56.dp)
+                                .height(4.dp)
+                                .background(
+                                    Brush.horizontalGradient(
+                                        colors = listOf(
+                                            Color(0xFF6366F1),
+                                            Color(0xFF8B5CF6),
+                                            Color(0xFFEC4899)
+                                        )
+                                    )
+                                )
+                        )
+
+                        Column(
+                            modifier = Modifier.padding(
+                                horizontal = if (isCompact) 24.dp else 28.dp,
+                                vertical = if (isCompact) 28.dp else 32.dp
+                            )
                         ) {
-                            AnimatedContent(
-                                targetState = loading,
-                                transitionSpec = {
-                                    fadeIn() + scaleIn() togetherWith fadeOut() + scaleOut()
+                            // Email/Username Input with animation
+                            AnimatedTextField(
+                                value = input,
+                                onValueChange = {
+                                    input = it
+                                    inputError = null
                                 },
-                                label = "button_content"
-                            ) { isLoading ->
-                                if (isLoading) {
-                                    CircularProgressIndicator(
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.5.dp
-                                    )
-                                } else {
-                                    Row(
-                                        horizontalArrangement = Arrangement.Center,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.Login,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(Modifier.width(8.dp))
-                                        Text(
-                                            "Sign In",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = if (isCompact) 15.sp else 16.sp
-                                        )
+                                label = "Email or Username",
+                                placeholder = "Enter your email or username",
+                                leadingIcon = Icons.Default.Person,
+                                error = inputError,
+                                keyboardOptions = KeyboardOptions(
+                                    imeAction = ImeAction.Next,
+                                    keyboardType = KeyboardType.Email
+                                ),
+                                isCompact = isCompact
+                            )
+
+                            Spacer(Modifier.height(20.dp))
+
+                            // Password Input with animation
+                            AnimatedPasswordField(
+                                value = password,
+                                onValueChange = {
+                                    password = it
+                                    passwordError = null
+                                },
+                                error = passwordError,
+                                passwordVisible = passwordVisible,
+                                onVisibilityToggle = { passwordVisible = !passwordVisible },
+                                onDone = {
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                    validateAndLogin(input, password, { inputError = it }, { passwordError = it }) {
+                                        loading = it
                                     }
-                                }
+                                },
+                                isCompact = isCompact
+                            )
+
+                            Spacer(Modifier.height(12.dp))
+
+                            // Forgot Password
+                            TextButton(
+                                onClick = {
+                                    startActivity(Intent(this@LoginActivity, ForgotPasswordActivity::class.java))
+                                },
+                                modifier = Modifier.align(Alignment.End)
+                            ) {
+                                Text(
+                                    "Forgot Password?",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = if (isCompact) 13.sp else 14.sp
+                                )
                             }
-                        }
 
-                        Spacer(Modifier.height(if (isCompact) 20.dp else 24.dp))
+                            Spacer(Modifier.height(24.dp))
 
-                        // Divider
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            HorizontalDivider(
-                                modifier = Modifier.weight(1f),
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                            )
-                            Text(
-                                "OR",
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium,
-                                fontSize = 12.sp
-                            )
-                            HorizontalDivider(
-                                modifier = Modifier.weight(1f),
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                            )
-                        }
-
-                        Spacer(Modifier.height(if (isCompact) 20.dp else 24.dp))
-
-                        // Google Sign In Button
-                        OutlinedButton(
-                            onClick = {
-                                scope.launch {
-                                    googleClient.signOut().addOnCompleteListener {
-                                        googleLauncher.launch(googleClient.signInIntent)
+                            // Premium Sign In Button
+                            PremiumButton(
+                                text = "Sign In",
+                                icon = Icons.AutoMirrored.Filled.Login,
+                                loading = loading,
+                                onClick = {
+                                    keyboardController?.hide()
+                                    focusManager.clearFocus()
+                                    validateAndLogin(input, password, { inputError = it }, { passwordError = it }) {
+                                        loading = it
                                     }
-                                }
-                            },
-                            enabled = !loading,
-                            shape = RoundedCornerShape(16.dp),
-                            border = ButtonDefaults.outlinedButtonBorder(enabled = !loading).copy(width = 1.5.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(if (isCompact) 52.dp else 56.dp)
-                        ) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_google),
-                                contentDescription = null,
-                                modifier = Modifier.size(24.dp),
-                                tint = Color.Unspecified
+                                },
+                                isCompact = isCompact
                             )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                "Continue with Google",
-                                fontWeight = FontWeight.Medium,
-                                fontSize = if (isCompact) 14.sp else 15.sp
+
+                            Spacer(Modifier.height(24.dp))
+
+                            // Modern Divider
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(1.dp)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    Color.Transparent,
+                                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                                )
+                                            )
+                                        )
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                ) {
+                                    Text(
+                                        "OR",
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp,
+                                        letterSpacing = 1.sp
+                                    )
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(1.dp)
+                                        .background(
+                                            Brush.horizontalGradient(
+                                                colors = listOf(
+                                                    MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                                    Color.Transparent
+                                                )
+                                            )
+                                        )
+                                )
+                            }
+
+                            Spacer(Modifier.height(24.dp))
+
+                            // Google Sign In Button
+                            GoogleSignInButton(
+                                loading = loading,
+                                onClick = {
+                                    scope.launch {
+                                        googleClient.signOut().addOnCompleteListener {
+                                            googleLauncher.launch(googleClient.signInIntent)
+                                        }
+                                    }
+                                },
+                                isCompact = isCompact
                             )
                         }
                     }
                 }
 
-                Spacer(
-                    modifier = Modifier.height(
-                        (if (isLandscape) 16.dp else 32.dp) * verticalSpacingMultiplier
-                    )
-                )
+                Spacer(Modifier.height((if (isLandscape) 20.dp else 32.dp) * verticalSpacingMultiplier))
 
-
-                // Sign Up Link
+                // Sign Up Link with animation
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(RoundedCornerShape(20.dp))
                         .clickable {
                             startActivity(Intent(this@LoginActivity, RegisterActivity::class.java))
                         }
+                        .animateContentSize()
                 ) {
                     Row(
                         modifier = Modifier.padding(
-                            horizontal = if (isCompact) 20.dp else 24.dp,
-                            vertical = if (isCompact) 14.dp else 16.dp
+                            horizontal = if (isCompact) 24.dp else 28.dp,
+                            vertical = if (isCompact) 16.dp else 18.dp
                         ),
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
@@ -554,36 +547,41 @@ class LoginActivity : ComponentActivity() {
                         Text(
                             "Don't have an account? ",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = if (isCompact) 13.sp else 14.sp
+                            fontSize = if (isCompact) 14.sp else 15.sp,
+                            fontWeight = FontWeight.Medium
                         )
                         Text(
                             "Sign Up",
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.Bold,
-                            fontSize = if (isCompact) 13.sp else 14.sp
+                            fontSize = if (isCompact) 14.sp else 15.sp
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(
+                            Icons.Default.ArrowForward,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
 
-                Spacer(
-                    modifier = Modifier.height(
-                        (if (isLandscape) 16.dp else 32.dp) * verticalSpacingMultiplier
-                    )
-                )
-
+                Spacer(Modifier.height((if (isLandscape) 24.dp else 32.dp) * verticalSpacingMultiplier))
             }
         }
     }
 
+    // Continue with helper composables in next part...
+
     @Composable
-    private fun FloatingOrbs(isDark: Boolean, isCompact: Boolean) {
+    private fun AdvancedFloatingOrbs(isDark: Boolean, isCompact: Boolean, rotation: Float) {
         val infiniteTransition = rememberInfiniteTransition(label = "orbs")
 
         val offset1 by infiniteTransition.animateFloat(
             initialValue = 0f,
-            targetValue = 100f,
+            targetValue = 150f,
             animationSpec = infiniteRepeatable(
-                animation = tween(3000, easing = LinearEasing),
+                animation = tween(4000, easing = EaseInOutCubic),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "orb1"
@@ -591,43 +589,432 @@ class LoginActivity : ComponentActivity() {
 
         val offset2 by infiniteTransition.animateFloat(
             initialValue = 0f,
-            targetValue = -80f,
+            targetValue = -120f,
             animationSpec = infiniteRepeatable(
-                animation = tween(4000, easing = LinearEasing),
+                animation = tween(5000, easing = EaseInOutCubic),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "orb2"
         )
 
-        val orbSize1 = if (isCompact) 150.dp else 200.dp
-        val orbSize2 = if (isCompact) 180.dp else 250.dp
+        val orbSize1 = if (isCompact) 200.dp else 280.dp
+        val orbSize2 = if (isCompact) 250.dp else 350.dp
 
         Box(modifier = Modifier.fillMaxSize()) {
-            // Orb 1
-            Surface(
-                shape = CircleShape,
-                color = if (isDark) Color(0xFF6366F1).copy(alpha = 0.1f)
-                else Color(0xFF6366F1).copy(alpha = 0.05f),
+            // Orb 1 - Top Left
+            Box(
                 modifier = Modifier
                     .size(orbSize1)
-                    .offset(x = (-50).dp + offset1.dp, y = 100.dp)
-                    .blur(if (isCompact) 50.dp else 60.dp)
-            ) {}
+                    .offset(x = (-80).dp + offset1.dp, y = 80.dp + offset1.dp)
+                    .rotate(rotation)
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                if (isDark) Color(0xFF6366F1).copy(alpha = 0.15f)
+                                else Color(0xFF6366F1).copy(alpha = 0.08f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                }
+            }
 
-            // Orb 2
-            Surface(
-                shape = CircleShape,
-                color = if (isDark) Color(0xFFEC4899).copy(alpha = 0.1f)
-                else Color(0xFFEC4899).copy(alpha = 0.05f),
+            // Orb 2 - Bottom Right
+            Box(
                 modifier = Modifier
                     .size(orbSize2)
                     .align(Alignment.BottomEnd)
-                    .offset(x = offset2.dp, y = (-100).dp)
-                    .blur(if (isCompact) 60.dp else 70.dp)
-            ) {}
+                    .offset(x = 80.dp + offset2.dp, y = (-60).dp)
+                    .rotate(-rotation * 0.5f)
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                if (isDark) Color(0xFFEC4899).copy(alpha = 0.15f)
+                                else Color(0xFFEC4899).copy(alpha = 0.08f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                }
+            }
+
+            // Orb 3 - Center
+            Box(
+                modifier = Modifier
+                    .size(if (isCompact) 180.dp else 220.dp)
+                    .align(Alignment.Center)
+                    .offset(y = offset1.dp)
+                    .rotate(rotation * 0.3f)
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(
+                                if (isDark) Color(0xFF8B5CF6).copy(alpha = 0.12f)
+                                else Color(0xFF8B5CF6).copy(alpha = 0.06f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+                }
+            }
         }
     }
 
+    @Composable
+    private fun AnimatedParticles(isDark: Boolean) {
+        val infiniteTransition = rememberInfiniteTransition(label = "particles")
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            repeat(8) { index ->
+                val offsetY by infiniteTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 800f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(
+                            durationMillis = 8000 + (index * 500),
+                            easing = LinearEasing
+                        ),
+                        repeatMode = RepeatMode.Restart
+                    ),
+                    label = "particle_$index"
+                )
+
+                val offsetX = (index * 100).dp
+                val size = (8 + (index % 3) * 4).dp
+
+                Box(
+                    modifier = Modifier
+                        .offset(x = offsetX, y = offsetY.dp)
+                        .size(size)
+                        .clip(CircleShape)
+                        .background(
+                            if (isDark) Color.White.copy(alpha = 0.05f)
+                            else Color(0xFF6366F1).copy(alpha = 0.04f)
+                        )
+                        .blur(4.dp)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun AnimatedText(text: String, isDark: Boolean, isCompact: Boolean) {
+        var visible by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) {
+            visible = true
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(tween(1000)) + slideInVertically(tween(1000)) { -50 }
+        ) {
+            Text(
+                text = text,
+                fontSize = when {
+                    isCompact -> 32.sp
+                    else -> 42.sp
+                },
+                fontWeight = FontWeight.ExtraBold,
+                color = MaterialTheme.colorScheme.onBackground,
+                style = MaterialTheme.typography.displayMedium,
+                modifier = Modifier.animateContentSize()
+            )
+        }
+    }
+
+// Add these composables and functions to your LoginActivity class
+
+    @Composable
+    private fun AnimatedTextField(
+        value: String,
+        onValueChange: (String) -> Unit,
+        label: String,
+        placeholder: String,
+        leadingIcon: androidx.compose.ui.graphics.vector.ImageVector,
+        error: String?,
+        keyboardOptions: KeyboardOptions,
+        isCompact: Boolean
+    ) {
+        var isFocused by remember { mutableStateOf(false) }
+
+        val borderColor by animateColorAsState(
+            targetValue = when {
+                error != null -> MaterialTheme.colorScheme.error
+                isFocused -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+            },
+            label = "border"
+        )
+
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text(label) },
+            placeholder = { Text(placeholder) },
+            leadingIcon = {
+                Icon(
+                    leadingIcon,
+                    null,
+                    tint = if (error != null) MaterialTheme.colorScheme.error
+                    else if (isFocused) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            trailingIcon = {
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = value.isNotEmpty(),
+                    enter = fadeIn() + scaleIn(),
+                    exit = fadeOut() + scaleOut()
+                ) {
+                    IconButton(onClick = { onValueChange("") }) {
+                        Icon(
+                            Icons.Default.Clear,
+                            contentDescription = "Clear",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            isError = error != null,
+            supportingText = error?.let {
+                {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn() + expandVertically()
+                    ) {
+                        Text(it)
+                    }
+                }
+            },
+            singleLine = true,
+            keyboardOptions = keyboardOptions,
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = borderColor,
+                unfocusedBorderColor = borderColor,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize()
+        )
+    }
+
+    @Composable
+    private fun AnimatedPasswordField(
+        value: String,
+        onValueChange: (String) -> Unit,
+        error: String?,
+        passwordVisible: Boolean,
+        onVisibilityToggle: () -> Unit,
+        onDone: () -> Unit,
+        isCompact: Boolean
+    ) {
+        var isFocused by remember { mutableStateOf(false) }
+
+        val borderColor by animateColorAsState(
+            targetValue = when {
+                error != null -> MaterialTheme.colorScheme.error
+                isFocused -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+            },
+            label = "border"
+        )
+
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = { Text("Password") },
+            placeholder = { Text("Enter your password") },
+            leadingIcon = {
+                Icon(
+                    Icons.Default.Lock,
+                    null,
+                    tint = if (error != null) MaterialTheme.colorScheme.error
+                    else if (isFocused) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            trailingIcon = {
+                IconButton(onClick = onVisibilityToggle) {
+                    Icon(
+                        if (passwordVisible) Icons.Default.Visibility
+                        else Icons.Default.VisibilityOff,
+                        null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            },
+            visualTransformation = if (passwordVisible) VisualTransformation.None
+            else PasswordVisualTransformation(),
+            isError = error != null,
+            supportingText = error?.let {
+                {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn() + expandVertically()
+                    ) {
+                        Text(it)
+                    }
+                }
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(
+                imeAction = ImeAction.Done,
+                keyboardType = KeyboardType.Password
+            ),
+            keyboardActions = KeyboardActions { onDone() },
+            shape = RoundedCornerShape(16.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = borderColor,
+                unfocusedBorderColor = borderColor,
+                focusedLabelColor = MaterialTheme.colorScheme.primary,
+                cursorColor = MaterialTheme.colorScheme.primary
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .animateContentSize()
+        )
+    }
+
+    @Composable
+    private fun PremiumButton(
+        text: String,
+        icon: androidx.compose.ui.graphics.vector.ImageVector,
+        loading: Boolean,
+        onClick: () -> Unit,
+        isCompact: Boolean
+    ) {
+        val scale by animateFloatAsState(
+            targetValue = if (loading) 0.95f else 1f,
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+            label = "scale"
+        )
+
+        Button(
+            onClick = onClick,
+            enabled = !loading,
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent
+            ),
+            contentPadding = PaddingValues(0.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (isCompact) 56.dp else 60.dp)
+                .scale(scale)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(
+                                Color(0xFF6366F1),
+                                Color(0xFF8B5CF6),
+                                Color(0xFFEC4899)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                AnimatedContent(
+                    targetState = loading,
+                    transitionSpec = {
+                        fadeIn(tween(300)) + scaleIn() togetherWith
+                                fadeOut(tween(300)) + scaleOut()
+                    },
+                    label = "button_content"
+                ) { isLoading ->
+                    if (isLoading) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 3.dp
+                        )
+                    } else {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                icon,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text,
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = if (isCompact) 16.sp else 17.sp,
+                                letterSpacing = 0.5.sp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun GoogleSignInButton(
+        loading: Boolean,
+        onClick: () -> Unit,
+        isCompact: Boolean
+    ) {
+        val scale by animateFloatAsState(
+            targetValue = if (loading) 0.95f else 1f,
+            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+            label = "scale"
+        )
+
+        OutlinedButton(
+            onClick = onClick,
+            enabled = !loading,
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(
+                width = 1.5.dp,
+                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+            ),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (isCompact) 56.dp else 60.dp)
+                .scale(scale)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_google),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp),
+                    tint = Color.Unspecified
+                )
+                Spacer(Modifier.width(12.dp))
+                Text(
+                    "Continue with Google",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = if (isCompact) 15.sp else 16.sp
+                )
+            }
+        }
+    }
+
+    // Validation and Login Functions (Keep your existing logic)
     private fun validateAndLogin(
         input: String,
         password: String,
@@ -655,7 +1042,6 @@ class LoginActivity : ComponentActivity() {
         }
 
         if (hasError) return
-
         login(input.trim(), password, onLoading)
     }
 
@@ -783,4 +1169,4 @@ class LoginActivity : ComponentActivity() {
                 Toast.makeText(this, "Failed to load profile", Toast.LENGTH_SHORT).show()
             }
     }
-}
+} // End of LoginActivity class

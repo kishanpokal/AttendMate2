@@ -105,8 +105,10 @@ data class AttendanceItem(
     val date: Date,
     val status: String,  // "PRESENT" / "ABSENT"
     val startTime: String = "",
-    val endTime: String = ""
+    val endTime: String = "",
+    val note: String? = null // ✅ NEW (optional)
 )
+
 
 data class FilterOption(
     val name: String,
@@ -175,6 +177,8 @@ fun AttendanceListScreen(
                 val status = doc.getString("status")?.uppercase() ?: "ABSENT"
                 val startTime = readTimeAsString(doc, "startTime")
                 val endTime = readTimeAsString(doc, "endTime")
+                val note = doc.getString("note") // ✅ safe (may be null)
+
                 tempList.add(
                     AttendanceItem(
                         subjectId = subjectId,
@@ -183,9 +187,11 @@ fun AttendanceListScreen(
                         date = date,
                         status = status,
                         startTime = startTime,
-                        endTime = endTime
+                        endTime = endTime,
+                        note = note
                     )
                 )
+
             }
         }
         allAttendance = tempList.sortedByDescending { it.date }
@@ -775,13 +781,26 @@ fun ModernAttendanceCard(
             }
             Spacer(modifier = Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.subjectName,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = item.subjectName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // 📝 Note indicator
+                    if (!item.note.isNullOrBlank()) {
+                        Icon(
+                            imageVector = Icons.Default.EditNote,
+                            contentDescription = "Has note",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
                 if (item.startTime.isNotEmpty() && item.endTime.isNotEmpty()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -992,6 +1011,14 @@ fun ModernAttendanceDialog(
                         label = "Status",
                         value = if (isPresent) "Present" else "Absent"
                     )
+                    // -------- NOTE (if exists) --------
+                    if (!attendance.note.isNullOrBlank()) {
+                        DetailRow(
+                            icon = Icons.Default.EditNote,
+                            label = "Note",
+                            value = attendance.note!!
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(20.dp))
                 Row(
