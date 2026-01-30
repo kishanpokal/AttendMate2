@@ -76,10 +76,8 @@ class EditAttendanceActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
         val subjectId = intent.getStringExtra("subjectId") ?: return finish()
         val attendanceId = intent.getStringExtra("attendanceId") ?: return finish()
-
         setContent {
             AttendMateTheme {
                 Surface(
@@ -109,6 +107,7 @@ fun EditAttendanceScreen(
     val haptic = LocalHapticFeedback.current
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
+
     val userId = auth.currentUser?.uid ?: return
 
     val STATUS_PRESENT = "PRESENT"
@@ -145,7 +144,6 @@ fun EditAttendanceScreen(
             subjectName = subjectSnap.getString("name") ?: ""
 
             val attendanceSnap = attendanceRef.get().await()
-
             val date = (attendanceSnap.getTimestamp("date") ?: Timestamp.now()).toDate()
             lectureDate.timeInMillis = date.time
 
@@ -158,6 +156,7 @@ fun EditAttendanceScreen(
             val rawStatus = attendanceSnap.getString("status") ?: STATUS_ABSENT
             status = rawStatus.uppercase(Locale.getDefault())
             oldStatus = status
+
             note = attendanceSnap.getString("note") ?: ""
 
             isLoading = false
@@ -313,7 +312,6 @@ fun EditAttendanceScreen(
                             title = "Subject Information",
                             subtitle = "This cannot be changed"
                         )
-
                         LockedInfoCard(
                             icon = Icons.Filled.Book,
                             label = "Subject",
@@ -408,16 +406,11 @@ fun EditAttendanceScreen(
                         )
 
                         /* ---------- NOTE FIELD ---------- */
-                        AnimatedVisibility(
-                            visible = status == STATUS_ABSENT,
-                            enter = fadeIn() + expandVertically()
-                        ) {
-                            EditNoteField(
-                                note = note,
-                                onNoteChange = { if (it.length <= 200) note = it },
-                                status = status
-                            )
-                        }
+                        EditNoteField(
+                            note = note,
+                            onNoteChange = { if (it.length <= 200) note = it },
+                            status = status
+                        )
                     }
                 }
 
@@ -466,7 +459,11 @@ fun EditAttendanceScreen(
                             }
                                 .addOnSuccessListener {
                                     isSaving = false
-                                    Toast.makeText(context, "✓ Attendance updated successfully!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(
+                                        context,
+                                        "✓ Attendance updated successfully!",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
                                     onBack()
                                 }
                                 .addOnFailureListener {
@@ -766,6 +763,7 @@ private fun EditTimeSelector(
                                 modifier = Modifier.size(20.dp)
                             )
                         }
+
                         Column {
                             Text(
                                 "Lecture Duration",
@@ -815,10 +813,7 @@ private fun EditableTimeCard(
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected)
-                MaterialTheme.colorScheme.primaryContainer
-            else
-                MaterialTheme.colorScheme.surfaceContainerHigh
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
         ),
         border = if (isSelected) BorderStroke(
             1.5.dp,
@@ -837,10 +832,7 @@ private fun EditableTimeCard(
                     .size(44.dp)
                     .clip(CircleShape)
                     .background(
-                        if (isSelected)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -867,10 +859,7 @@ private fun EditableTimeCard(
                     value,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSelected)
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 15.sp
                 )
             }
@@ -1224,7 +1213,6 @@ private fun SelectableCard(
     onClick: () -> Unit
 ) {
     val isSelected = value != "Select"
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1250,19 +1238,18 @@ private fun SelectableCard(
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(
-                            if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceContainerHighest
+                            if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest
                         ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = if (isSelected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                 }
+
                 Column {
                     Text(
                         text = label,
@@ -1273,11 +1260,11 @@ private fun SelectableCard(
                         text = value,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium,
-                        color = if (isSelected) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
+
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
@@ -1317,8 +1304,7 @@ fun EditStatusCard(
             ),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (selected) selectedColor.copy(alpha = 0.15f)
-            else MaterialTheme.colorScheme.surfaceContainerHigh
+            containerColor = if (selected) selectedColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh
         )
     ) {
         Column(
@@ -1333,25 +1319,23 @@ fun EditStatusCard(
                     .size(48.dp)
                     .clip(CircleShape)
                     .background(
-                        if (selected) selectedColor
-                        else MaterialTheme.colorScheme.surfaceContainerHighest
+                        if (selected) selectedColor else MaterialTheme.colorScheme.surfaceContainerHighest
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (selected) Color.White
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(24.dp)
                 )
             }
+
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = if (selected) selectedColor
-                else MaterialTheme.colorScheme.onSurface
+                color = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface
             )
         }
     }

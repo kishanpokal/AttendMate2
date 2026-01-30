@@ -13,8 +13,10 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,9 +34,12 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
@@ -140,6 +145,7 @@ data class ActiveLecture(
 @Composable
 fun HomeScreen() {
     val haptic = LocalHapticFeedback.current
+    val configuration = LocalConfiguration.current
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
     val userId = auth.currentUser?.uid ?: return
@@ -199,6 +205,7 @@ fun HomeScreen() {
                 val endTime = doc.getString("endTime") ?: continue
                 val start = LocalTime.parse(startTime)
                 val end = LocalTime.parse(endTime)
+
 
                 if (now.isAfter(start) && now.isBefore(end)) {
                     val subjectId = doc.getString("subjectId") ?: continue
@@ -302,6 +309,8 @@ fun HomeScreen() {
                 }
             }
 
+
+
             todayLectures = todayList.sortedBy { it.startTime }
             totalClasses = total
             attendedClasses = attended
@@ -357,9 +366,10 @@ fun HomeScreen() {
                             if (isLoading) {
                                 SkeletonSummaryCard()
                             } else {
-                                AttendanceSummaryCard(
+                                ModernAttendanceSummaryCard(
                                     total = totalClasses,
-                                    attended = attendedClasses
+                                    attended = attendedClasses,
+                                    screenWidth = configuration.screenWidthDp.dp
                                 )
                             }
                         }
@@ -1021,14 +1031,16 @@ fun ModernAttendanceDialog(
     onPresent: () -> Unit,
     onAbsent: () -> Unit
 ) {
-    val scale = remember { Animatable(0.8f) }
+    val scale = remember { Animatable(0.7f) }
     val alpha = remember { Animatable(0f) }
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp.dp
 
     LaunchedEffect(Unit) {
         launch {
             alpha.animateTo(
                 targetValue = 1f,
-                animationSpec = tween(200)
+                animationSpec = tween(300, easing = EaseOutCubic)
             )
         }
         launch {
@@ -1036,7 +1048,7 @@ fun ModernAttendanceDialog(
                 targetValue = 1f,
                 animationSpec = spring(
                     dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
+                    stiffness = Spring.StiffnessMedium
                 )
             )
         }
@@ -1053,7 +1065,7 @@ fun ModernAttendanceDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.6f * alpha.value))
+                .background(Color.Black.copy(alpha = 0.65f * alpha.value))
                 .clickable(
                     indication = null,
                     interactionSource = remember { MutableInteractionSource() }
@@ -1062,18 +1074,18 @@ fun ModernAttendanceDialog(
         ) {
             Card(
                 modifier = Modifier
-                    .fillMaxWidth(0.92f)
+                    .fillMaxWidth(if (screenWidth > 600.dp) 0.85f else 0.92f)
                     .scale(scale.value)
                     .alpha(alpha.value)
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
                     ) { /* Prevent dismissal when clicking card */ },
-                shape = RoundedCornerShape(32.dp),
+                shape = RoundedCornerShape(36.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 16.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 24.dp)
             ) {
                 Box(
                     modifier = Modifier
@@ -1081,73 +1093,68 @@ fun ModernAttendanceDialog(
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                                     MaterialTheme.colorScheme.surface
                                 )
                             )
                         )
                 ) {
+                    // Decorative background elements
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        drawCircle(
+                            color = Color(0xFF667EEA).copy(alpha = 0.04f),
+                            radius = 150f,
+                            center = Offset(size.width * 0.2f, size.height * 0.15f)
+                        )
+                        drawCircle(
+                            color = Color(0xFFF093FB).copy(alpha = 0.05f),
+                            radius = 180f,
+                            center = Offset(size.width * 0.85f, size.height * 0.75f)
+                        )
+                    }
+
                     Column(
-                        modifier = Modifier.padding(32.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // Close Button
                         Box(
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            IconButton(
+                            Surface(
                                 onClick = { if (!isSaving) onDismiss() },
                                 enabled = !isSaving,
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
-                                    .offset(x = 12.dp, y = (-12).dp)
-                                    .shadow(
-                                        elevation = 4.dp,
-                                        shape = CircleShape,
-                                        spotColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
-                                    )
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                                    .size(40.dp)
+                                    .offset(x = 8.dp, y = (-8).dp)
+                                    .size(44.dp),
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                shadowElevation = 6.dp
                             ) {
-                                Icon(
-                                    imageVector = Icons.Outlined.Close,
-                                    contentDescription = "Close",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Close,
+                                        contentDescription = "Close",
+                                        tint = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
                             }
                         }
 
-                        // Animated Icon
-                        Box(
-                            modifier = Modifier
-                                .size(100.dp)
-                                .shadow(
-                                    elevation = 20.dp,
-                                    shape = CircleShape,
-                                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                                )
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.linearGradient(
-                                        colors = listOf(
-                                            MaterialTheme.colorScheme.primary,
-                                            MaterialTheme.colorScheme.tertiary
-                                        )
-                                    )
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.EventNote,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(50.dp)
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                        Spacer(modifier = Modifier.height(24.dp))
+                        // Animated Icon with pulse effect
+                        AnimatedDialogIcon()
+
+                        Spacer(modifier = Modifier.height(28.dp))
 
                         // Title
                         Text(
@@ -1155,272 +1162,219 @@ fun ModernAttendanceDialog(
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 26.sp
+                            fontSize = 28.sp,
+                            letterSpacing = 0.5.sp
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
-                        // Subject Name
+                        // Subject Name Badge
                         Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                            shadowElevation = 2.dp
-                        ) {
-                            Text(
-                                text = lecture.subjectName,
-                                style = MaterialTheme.typography.titleLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-                                fontSize = 18.sp
+                            shape = RoundedCornerShape(18.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                            shadowElevation = 4.dp,
+                            border = BorderStroke(
+                                width = 1.5.dp,
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
                             )
-                        }
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        // Time Card
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(20.dp),
+                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Filled.Schedule,
+                                    imageVector = Icons.Default.MenuBook,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                                 Text(
-                                    text = lecture.startTime,
+                                    text = lecture.subjectName,
                                     style = MaterialTheme.typography.titleLarge,
+                                    color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 18.sp
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.onSurfaceVariant)
-                                )
-                                Text(
-                                    text = lecture.endTime,
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    fontSize = 18.sp
+                                    fontSize = 19.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Note Field
+                        // Enhanced Time Card
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(22.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shadowElevation = 3.dp
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(
+                                                    AttendanceColors.Info.copy(alpha = 0.2f),
+                                                    AttendanceColors.InfoLight.copy(alpha = 0.15f)
+                                                )
+                                            )
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Schedule,
+                                        contentDescription = null,
+                                        tint = AttendanceColors.Info,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(16.dp))
+
+                                Text(
+                                    text = lecture.startTime,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 20.sp
+                                )
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Text(
+                                    text = lecture.endTime,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 20.sp
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(28.dp))
+
+                        // Enhanced Note Field
                         OutlinedTextField(
                             value = note,
                             onValueChange = onNoteChange,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 120.dp),
                             label = {
                                 Text(
-                                    "Reason / Note (optional)",
-                                    fontWeight = FontWeight.Medium
+                                    "Add a Note (Optional)",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
                                 )
                             },
                             placeholder = {
-                                Text("e.g. Sick, Late arrival, Personal work")
-                            },
-                            maxLines = 3,
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.EditNote,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary
+                                Text(
+                                    "e.g., Medical emergency, Family function, Late arrival...",
+                                    fontSize = 13.sp
                                 )
+                            },
+                            maxLines = 4,
+                            leadingIcon = {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(start = 4.dp)
+                                        .size(40.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.EditNote,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
                             },
                             supportingText = {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Text(
+                                        "Keep it brief and relevant",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
                                     Text(
                                         "${note.length}/200",
                                         style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
                                         color = if (note.length > 180)
-                                            MaterialTheme.colorScheme.error
+                                            AttendanceColors.Absent
+                                        else if (note.length > 150)
+                                            AttendanceColors.Warning
                                         else
-                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                            MaterialTheme.colorScheme.primary
                                     )
                                 }
                             },
                             enabled = !isSaving,
-                            shape = RoundedCornerShape(16.dp),
+                            shape = RoundedCornerShape(18.dp),
                             colors = OutlinedTextFieldDefaults.colors(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
                             )
                         )
 
-                        Spacer(modifier = Modifier.height(28.dp))
+                        Spacer(modifier = Modifier.height(32.dp))
 
                         // Action Buttons
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
                             // Absent Button
-                            Button(
-                                onClick = onAbsent,
-                                enabled = !isSaving,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(60.dp)
-                                    .shadow(
-                                        elevation = if (!isSaving) 8.dp else 2.dp,
-                                        shape = RoundedCornerShape(18.dp),
-                                        spotColor = Color(0xFFEF4444).copy(alpha = 0.3f)
-                                    ),
-                                shape = RoundedCornerShape(18.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Transparent,
-                                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                                ),
-                                border = BorderStroke(
-                                    width = 2.dp,
-                                    color = if (!isSaving) Color(0xFFEF4444) else MaterialTheme.colorScheme.outline
-                                ),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            if (!isSaving) {
-                                                Brush.linearGradient(
-                                                    colors = listOf(
-                                                        Color(0xFFEF4444).copy(alpha = 0.1f),
-                                                        Color(0xFFDC2626).copy(alpha = 0.1f)
-                                                    )
-                                                )
-                                            } else {
-                                                Brush.linearGradient(
-                                                    colors = listOf(
-                                                        MaterialTheme.colorScheme.surfaceContainerHighest,
-                                                        MaterialTheme.colorScheme.surfaceContainerHighest
-                                                    )
-                                                )
-                                            }
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (isSaving) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.5.dp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    } else {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Outlined.Close,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(22.dp),
-                                                tint = Color(0xFFEF4444)
-                                            )
-                                            Text(
-                                                text = "Absent",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFFEF4444),
-                                                fontSize = 16.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            ModernActionButton(
+                                text = "Absent",
+                                icon = Icons.Outlined.Close,
+                                backgroundColor = AttendanceColors.Absent,
+                                isEnabled = !isSaving,
+                                isLoading = false,
+                                modifier = Modifier.weight(1f),
+                                onClick = onAbsent
+                            )
 
                             // Present Button
-                            Button(
-                                onClick = onPresent,
-                                enabled = !isSaving,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(60.dp)
-                                    .shadow(
-                                        elevation = if (!isSaving) 12.dp else 2.dp,
-                                        shape = RoundedCornerShape(18.dp),
-                                        spotColor = Color(0xFF10B981).copy(alpha = 0.4f)
-                                    ),
-                                shape = RoundedCornerShape(18.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Transparent,
-                                    disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-                                ),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(
-                                            if (!isSaving) {
-                                                Brush.linearGradient(
-                                                    colors = listOf(
-                                                        Color(0xFF10B981),
-                                                        Color(0xFF059669)
-                                                    )
-                                                )
-                                            } else {
-                                                Brush.linearGradient(
-                                                    colors = listOf(
-                                                        MaterialTheme.colorScheme.surfaceContainerHighest,
-                                                        MaterialTheme.colorScheme.surfaceContainerHighest
-                                                    )
-                                                )
-                                            }
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (isSaving) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.5.dp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    } else {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.CheckCircle,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(22.dp),
-                                                tint = Color.White
-                                            )
-                                            Text(
-                                                text = "Present",
-                                                style = MaterialTheme.typography.labelLarge,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color.White,
-                                                fontSize = 16.sp
-                                            )
-                                        }
-                                    }
-                                }
-                            }
+                            ModernActionButton(
+                                text = "Present",
+                                icon = Icons.Filled.CheckCircle,
+                                backgroundColor = AttendanceColors.Present,
+                                isEnabled = !isSaving,
+                                isLoading = isSaving,
+                                modifier = Modifier.weight(1f),
+                                onClick = onPresent
+                            )
                         }
+
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
@@ -1428,6 +1382,299 @@ fun ModernAttendanceDialog(
     }
 }
 
+object AttendanceColors {
+    val Present = Color(0xFF10B981)
+    val PresentLight = Color(0xFF34D399)
+    val PresentBg = Color(0xFFD1FAE5)
+
+    val Absent = Color(0xFFEF4444)
+    val AbsentLight = Color(0xFFF87171)
+    val AbsentBg = Color(0xFFFEE2E2)
+
+    val Warning = Color(0xFFF59E0B)
+    val WarningLight = Color(0xFFFBBF24)
+    val WarningBg = Color(0xFFFEF3C7)
+
+    val Info = Color(0xFF3B82F6)
+    val InfoLight = Color(0xFF60A5FA)
+    val InfoBg = Color(0xFFDBEAFE)
+}
+
+/* -------------------- ANIMATED DIALOG ICON -------------------- */
+@Composable
+private fun AnimatedDialogIcon() {
+    val infiniteTransition = rememberInfiniteTransition(label = "dialog_icon")
+
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = -10f,
+        targetValue = 10f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = EaseInOutCubic),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "rotation"
+    )
+
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.95f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = EaseInOutCubic),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "scale"
+    )
+
+    Box(contentAlignment = Alignment.Center) {
+        // Outer glow rings
+        repeat(3) { index ->
+            Box(
+                modifier = Modifier
+                    .size((120 + index * 25).dp)
+                    .scale(scale)
+                    .alpha(0.2f - (index * 0.05f))
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+        }
+
+        // Main icon container
+        Box(
+            modifier = Modifier
+                .size(110.dp)
+                .scale(scale)
+                .shadow(
+                    elevation = 24.dp,
+                    shape = CircleShape,
+                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                )
+                .clip(CircleShape)
+                .background(
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF667EEA),
+                            Color(0xFF764BA2),
+                            Color(0xFFF093FB)
+                        ),
+                        start = Offset.Zero,
+                        end = Offset.Infinite
+                    )
+                )
+                .border(
+                    width = 4.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.5f),
+                            Color.White.copy(alpha = 0.2f)
+                        )
+                    ),
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // Radial white overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.radialGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.3f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+
+            Icon(
+                imageVector = Icons.Default.EventNote,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier
+                    .size(56.dp)
+                    .graphicsLayer {
+                        rotationZ = rotation
+                    }
+            )
+        }
+    }
+}
+
+/* -------------------- MODERN ACTION BUTTON -------------------- */
+@Composable
+private fun ModernActionButton(
+    text: String,
+    icon: ImageVector,
+    backgroundColor: Color,
+    isEnabled: Boolean,
+    isLoading: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val buttonScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "button_scale"
+    )
+
+    Button(
+        onClick = onClick,
+        enabled = isEnabled,
+        modifier = modifier
+            .height(64.dp)
+            .scale(buttonScale)
+            .shadow(
+                elevation = if (isEnabled && !isLoading) 12.dp else 4.dp,
+                shape = RoundedCornerShape(20.dp),
+                spotColor = backgroundColor.copy(alpha = 0.4f)
+            ),
+        shape = RoundedCornerShape(20.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = Color.Transparent,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+        ),
+        contentPadding = PaddingValues(0.dp),
+        interactionSource = interactionSource
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    if (isEnabled && !isLoading) {
+                        Brush.linearGradient(
+                            colors = listOf(
+                                backgroundColor,
+                                backgroundColor.copy(alpha = 0.85f)
+                            ),
+                            start = Offset(0f, 0f),
+                            end = Offset.Infinite
+                        )
+                    } else {
+                        Brush.linearGradient(
+                            colors = listOf(
+                                MaterialTheme.colorScheme.surfaceContainerHighest,
+                                MaterialTheme.colorScheme.surfaceContainerHigh
+                            )
+                        )
+                    }
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    strokeWidth = 3.dp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = if (isEnabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = if (isEnabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontSize = 17.sp,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+            }
+        }
+    }
+}
+
+/* -------------------- SAVE ATTENDANCE FUNCTION -------------------- */
+fun savePopupAttendance(
+    db: FirebaseFirestore,
+    userId: String,
+    lecture: ActiveLecture,
+    status: String,
+    note: String,
+    onDone: () -> Unit
+) {
+    val today = Calendar.getInstance()
+    val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(today.time)
+
+    val startCal = Calendar.getInstance().apply {
+        val (h, m) = lecture.startTime.split(":").map { it.toInt() }
+        set(Calendar.HOUR_OF_DAY, h)
+        set(Calendar.MINUTE, m)
+    }
+
+    val endCal = Calendar.getInstance().apply {
+        val (h, m) = lecture.endTime.split(":").map { it.toInt() }
+        set(Calendar.HOUR_OF_DAY, h)
+        set(Calendar.MINUTE, m)
+    }
+
+    val lectureId = "${dateKey}_${SimpleDateFormat("HHmm", Locale.getDefault()).format(startCal.time)}_" +
+            SimpleDateFormat("HHmm", Locale.getDefault()).format(endCal.time)
+
+    val subjectRef = db.collection("users")
+        .document(userId)
+        .collection("subjects")
+        .document(lecture.subjectId)
+
+    val attendanceRef = subjectRef.collection("attendance").document(lectureId)
+
+    db.runTransaction { tx ->
+        if (tx.get(attendanceRef).exists()) {
+            throw Exception("Attendance already marked")
+        }
+
+        val subjectSnap = tx.get(subjectRef)
+        val total = (subjectSnap.getLong("totalClasses") ?: 0) + 1
+        val attended = if (status == "Present")
+            (subjectSnap.getLong("attendedClasses") ?: 0) + 1
+        else
+            subjectSnap.getLong("attendedClasses") ?: 0
+
+        val attendanceData = mutableMapOf<String, Any>(
+            "status" to status,
+            "date" to today.time,
+            "startTime" to startCal.time,
+            "endTime" to endCal.time,
+            "createdAt" to Date()
+        )
+
+        // Save note only if user entered it
+        if (note.isNotBlank()) {
+            attendanceData["note"] = note.trim()
+        }
+
+        tx.set(attendanceRef, attendanceData)
+        tx.update(
+            subjectRef,
+            mapOf(
+                "totalClasses" to total,
+                "attendedClasses" to attended
+            )
+        )
+    }.addOnCompleteListener {
+        onDone()
+    }
+}
 /* -------------------- SKELETON LOADING COMPONENTS -------------------- */
 @Composable
 fun SkeletonSummaryCard() {
@@ -1563,121 +1810,59 @@ fun SkeletonLectureCard() {
     }
 }
 
-/* -------------------- SAVE ATTENDANCE FUNCTION -------------------- */
-fun savePopupAttendance(
-    db: FirebaseFirestore,
-    userId: String,
-    lecture: ActiveLecture,
-    status: String,
-    note: String,
-    onDone: () -> Unit
-) {
-    val today = Calendar.getInstance()
-    val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(today.time)
 
-    val startCal = Calendar.getInstance().apply {
-        val (h, m) = lecture.startTime.split(":").map { it.toInt() }
-        set(Calendar.HOUR_OF_DAY, h)
-        set(Calendar.MINUTE, m)
-    }
 
-    val endCal = Calendar.getInstance().apply {
-        val (h, m) = lecture.endTime.split(":").map { it.toInt() }
-        set(Calendar.HOUR_OF_DAY, h)
-        set(Calendar.MINUTE, m)
-    }
-
-    val lectureId = "${dateKey}_${SimpleDateFormat("HHmm", Locale.getDefault()).format(startCal.time)}_" +
-            SimpleDateFormat("HHmm", Locale.getDefault()).format(endCal.time)
-
-    val subjectRef = db.collection("users")
-        .document(userId)
-        .collection("subjects")
-        .document(lecture.subjectId)
-
-    val attendanceRef = subjectRef.collection("attendance").document(lectureId)
-
-    db.runTransaction { tx ->
-        if (tx.get(attendanceRef).exists()) {
-            throw Exception("Attendance already marked")
-        }
-
-        val subjectSnap = tx.get(subjectRef)
-        val total = (subjectSnap.getLong("totalClasses") ?: 0) + 1
-        val attended = if (status == "Present")
-            (subjectSnap.getLong("attendedClasses") ?: 0) + 1
-        else
-            subjectSnap.getLong("attendedClasses") ?: 0
-
-        val attendanceData = mutableMapOf<String, Any>(
-            "status" to status,
-            "date" to today.time,
-            "startTime" to startCal.time,
-            "endTime" to endCal.time,
-            "createdAt" to Date()
-        )
-
-        // Save note only if user entered it
-        if (note.isNotBlank()) {
-            attendanceData["note"] = note.trim()
-        }
-
-        tx.set(attendanceRef, attendanceData)
-        tx.update(
-            subjectRef,
-            mapOf(
-                "totalClasses" to total,
-                "attendedClasses" to attended
-            )
-        )
-    }.addOnCompleteListener {
-        onDone()
-    }
-}
-
-/* -------------------- ATTENDANCE SUMMARY CARD (from Part 1) -------------------- */
-
+/* -------------------- MODERN ATTENDANCE SUMMARY CARD -------------------- */
 @Composable
-fun AttendanceSummaryCard(total: Int, attended: Int) {
+fun ModernAttendanceSummaryCard(
+    total: Int,
+    attended: Int,
+    screenWidth: androidx.compose.ui.unit.Dp
+) {
     val percentage = if (total == 0) 0f else (attended.toFloat() / total.toFloat()) * 100
     val animatedPercentage = remember { Animatable(0f) }
 
     LaunchedEffect(percentage) {
         animatedPercentage.animateTo(
             targetValue = percentage,
-            animationSpec = tween(durationMillis = 1500, easing = EaseOutCubic)
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            )
         )
     }
 
     val statusColor = when {
-        percentage >= 75 -> Color(0xFF10B981) // Green
-        percentage >= 60 -> Color(0xFFFF9800) // Orange
-        else -> Color(0xFFEF4444) // Red
+        percentage >= 75 -> AttendanceColors.Present
+        percentage >= 60 -> AttendanceColors.Warning
+        else -> AttendanceColors.Absent
     }
 
     val statusText = when {
         percentage >= 75 -> "Excellent"
         percentage >= 60 -> "Good"
-        else -> "Needs Improvement"
+        else -> "Needs Attention"
     }
 
     val statusIcon = when {
         percentage >= 75 -> Icons.Default.CheckCircle
         percentage >= 60 -> Icons.Default.Warning
-        else -> Icons.Default.Error
+        else -> Icons.Default.ErrorOutline
     }
 
-    // Get surface color outside Canvas
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .shadow(8.dp, RoundedCornerShape(28.dp)),
-        shape = RoundedCornerShape(28.dp),
+            .shadow(
+                elevation = 12.dp,
+                shape = RoundedCornerShape(32.dp),
+                spotColor = statusColor.copy(alpha = 0.25f)
+            ),
+        shape = RoundedCornerShape(32.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            containerColor = MaterialTheme.colorScheme.surface
         )
     ) {
         Box(
@@ -1687,119 +1872,94 @@ fun AttendanceSummaryCard(total: Int, attended: Int) {
                     Brush.verticalGradient(
                         colors = listOf(
                             statusColor.copy(alpha = 0.08f),
-                            MaterialTheme.colorScheme.surfaceContainerLow
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                            MaterialTheme.colorScheme.surface
                         )
                     )
                 )
         ) {
+            // Decorative background patterns
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val circleRadius = 100f
+                drawCircle(
+                    color = statusColor.copy(alpha = 0.03f),
+                    radius = circleRadius,
+                    center = Offset(size.width * 0.85f, size.height * 0.2f)
+                )
+                drawCircle(
+                    color = statusColor.copy(alpha = 0.05f),
+                    radius = circleRadius * 1.5f,
+                    center = Offset(size.width * 0.15f, size.height * 0.8f)
+                )
+            }
+
             Column(
-                modifier = Modifier.padding(28.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header with icon
+                // Header Section
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(
-                                        statusColor,
-                                        statusColor.copy(alpha = 0.8f)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .shadow(
+                                    elevation = 8.dp,
+                                    shape = RoundedCornerShape(14.dp),
+                                    spotColor = statusColor.copy(alpha = 0.3f)
+                                )
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        colors = listOf(
+                                            statusColor,
+                                            statusColor.copy(alpha = 0.8f)
+                                        )
                                     )
-                                )
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.School,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                    Column {
-                        Text(
-                            text = "Overall Attendance",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = statusText,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = statusColor,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(28.dp))
-
-                // Enhanced Circular Progress
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(200.dp)
-                ) {
-                    // Outer glow effect
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colors = listOf(
-                                    statusColor.copy(alpha = 0.2f),
-                                    Color.Transparent
-                                )
-                            ),
-                            radius = size.width / 2
-                        )
-                    }
-
-                    // Background circle
-                    Canvas(modifier = Modifier.size(180.dp)) {
-                        drawCircle(
-                            color = surfaceVariantColor.copy(alpha = 0.3f),
-                            style = Stroke(width = 16.dp.toPx())
-                        )
-                    }
-
-                    // Progress circle
-                    CircularProgressIndicator(
-                        progress = { animatedPercentage.value / 100f },
-                        modifier = Modifier.size(180.dp),
-                        strokeWidth = 16.dp,
-                        trackColor = Color.Transparent,
-                        color = statusColor
-                    )
-
-                    // Center content
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                text = String.format(Locale.getDefault(), "%.1f", animatedPercentage.value),
-                                style = MaterialTheme.typography.displayLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = statusColor,
-                                fontSize = 48.sp
-                            )
-                            Text(
-                                text = "%",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = statusColor.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(bottom = 8.dp)
+                            Icon(
+                                imageVector = Icons.Default.School,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(26.dp)
                             )
                         }
+                        Column {
+                            Text(
+                                text = "Attendance",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 20.sp
+                            )
+                            Text(
+                                text = "Overall Performance",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+
+                    // Status Badge
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = statusColor.copy(alpha = 0.15f),
+                        border = BorderStroke(1.5.dp, statusColor.copy(alpha = 0.3f))
+                    ) {
                         Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -1811,128 +1971,296 @@ fun AttendanceSummaryCard(total: Int, attended: Int) {
                             )
                             Text(
                                 text = statusText,
-                                style = MaterialTheme.typography.labelLarge,
+                                style = MaterialTheme.typography.labelMedium,
                                 color = statusColor,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
                             )
                         }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-                // Stats Row
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
-                        .padding(20.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                // Circular Progress with 3D effect
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.size(220.dp)
                 ) {
-                    EnhancedStatItemMain(
-                        label = "Attended",
-                        value = attended.toString(),
-                        icon = Icons.Default.CheckCircle,
-                        color = Color(0xFF10B981)
+                    // Outer glow layers
+                    repeat(3) { index ->
+                        Canvas(
+                            modifier = Modifier
+                                .size(220.dp - (index * 20).dp)
+                                .alpha(0.3f - (index * 0.1f))
+                        ) {
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        statusColor.copy(alpha = 0.3f),
+                                        Color.Transparent
+                                    )
+                                ),
+                                radius = size.width / 2
+                            )
+                        }
+                    }
+
+                    // Background track with gradient
+                    Canvas(modifier = Modifier.size(190.dp)) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    surfaceVariantColor.copy(alpha = 0.3f),
+                                    surfaceVariantColor.copy(alpha = 0.1f)
+                                )
+                            ),
+                            style = Stroke(width = 20.dp.toPx())
+                        )
+                    }
+
+                    // Animated progress arc
+                    CircularProgressIndicator(
+                        progress = { animatedPercentage.value / 100f },
+                        modifier = Modifier.size(190.dp),
+                        strokeWidth = 20.dp,
+                        trackColor = Color.Transparent,
+                        color = statusColor,
+                        strokeCap = StrokeCap.Round
                     )
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(50.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                    )
-                    EnhancedStatItemMain(
-                        label = "Total",
-                        value = total.toString(),
-                        icon = Icons.Default.CalendarMonth,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Box(
-                        modifier = Modifier
-                            .width(1.dp)
-                            .height(50.dp)
-                            .background(MaterialTheme.colorScheme.outlineVariant)
-                    )
-                    EnhancedStatItemMain(
-                        label = "Missed",
-                        value = (total - attended).toString(),
-                        icon = Icons.Default.Cancel,
-                        color = Color(0xFFEF4444)
-                    )
+
+                    // Inner shadow circle
+                    Canvas(modifier = Modifier.size(150.dp)) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.1f),
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                    }
+
+                    // Center content
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.Bottom,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = String.format(
+                                    Locale.getDefault(),
+                                    "%.1f",
+                                    animatedPercentage.value
+                                ),
+                                style = MaterialTheme.typography.displayLarge,
+                                fontWeight = FontWeight.ExtraBold,
+                                color = statusColor,
+                                fontSize = 56.sp
+                            )
+                            Text(
+                                text = "%",
+                                style = MaterialTheme.typography.headlineLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = statusColor.copy(alpha = 0.7f),
+                                fontSize = 32.sp,
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            )
+                        }
+                    }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
-                // Progress indicator
+                // Enhanced Stats Row
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                    shadowElevation = 4.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(20.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ModernStatItem(
+                            label = "Present",
+                            value = attended.toString(),
+                            icon = Icons.Default.CheckCircle,
+                            color = AttendanceColors.Present
+                        )
+
+                        VerticalDivider(
+                            modifier = Modifier.height(60.dp),
+                            thickness = 2.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        ModernStatItem(
+                            label = "Total",
+                            value = total.toString(),
+                            icon = Icons.Default.CalendarMonth,
+                            color = AttendanceColors.Info
+                        )
+
+                        VerticalDivider(
+                            modifier = Modifier.height(60.dp),
+                            thickness = 2.dp,
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        ModernStatItem(
+                            label = "Absent",
+                            value = (total - attended).toString(),
+                            icon = Icons.Default.Cancel,
+                            color = AttendanceColors.Absent
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Progress Message Card
                 if (percentage < 75) {
                     val lecturesNeeded = calculateLecturesNeededFor75Percent(attended, total)
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFFF9800).copy(alpha = 0.1f),
-                        border = BorderStroke(1.dp, Color(0xFFFF9800).copy(alpha = 0.3f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.TrendingUp,
-                                contentDescription = null,
-                                tint = Color(0xFFFF9800),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "To reach 75%",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Attend $lecturesNeeded more ${if (lecturesNeeded == 1) "lecture" else "lectures"}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+                    MotivationalCard(
+                        icon = Icons.Default.TrendingUp,
+                        title = "Keep Going!",
+                        message = "Attend $lecturesNeeded more ${if (lecturesNeeded == 1) "class" else "classes"} to reach 75%",
+                        color = AttendanceColors.Warning
+                    )
                 } else {
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF10B981).copy(alpha = 0.1f),
-                        border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.3f))
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(14.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = null,
-                                tint = Color(0xFF10B981),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Great job!",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "You're maintaining excellent attendance",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+                    MotivationalCard(
+                        icon = Icons.Default.EmojiEvents,
+                        title = "Amazing Work!",
+                        message = "You're maintaining excellent attendance",
+                        color = AttendanceColors.Present
+                    )
                 }
+            }
+        }
+    }
+}
+
+/* -------------------- MODERN STAT ITEM -------------------- */
+@Composable
+private fun ModernStatItem(
+    label: String,
+    value: String,
+    icon: ImageVector,
+    color: Color
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(46.dp)
+                .shadow(
+                    elevation = 6.dp,
+                    shape = CircleShape,
+                    spotColor = color.copy(alpha = 0.3f)
+                )
+                .clip(CircleShape)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            color.copy(alpha = 0.2f),
+                            color.copy(alpha = 0.1f)
+                        )
+                    )
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+
+        Text(
+            text = value,
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.ExtraBold,
+            color = color,
+            fontSize = 24.sp
+        )
+
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Medium,
+            fontSize = 12.sp
+        )
+    }
+}
+
+/* -------------------- MOTIVATIONAL CARD -------------------- */
+@Composable
+private fun MotivationalCard(
+    icon: ImageVector,
+    title: String,
+    message: String,
+    color: Color
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = color.copy(alpha = 0.1f),
+        border = BorderStroke(1.5.dp, color.copy(alpha = 0.25f)),
+        shadowElevation = 2.dp
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                color.copy(alpha = 0.3f),
+                                color.copy(alpha = 0.2f)
+                            )
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = color,
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 15.sp
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp
+                )
             }
         }
     }

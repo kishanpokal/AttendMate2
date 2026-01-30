@@ -2226,7 +2226,7 @@ private fun AdvancedPredictionCard(
                             "0.0"
                         }
                         StatItem(
-                            label = "Difference",
+                            label = "Diff.",
                             value = "-$difference%",
                             icon = Icons.Filled.ArrowDownward,
                             color = Color(0xFFFF6B6B)

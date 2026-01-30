@@ -315,17 +315,11 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
                             }
                         )
 
-                        // Note field with animation
-                        AnimatedVisibility(
-                            visible = status == "Absent",
-                            enter = fadeIn() + expandVertically()
-                        ) {
-                            ModernNoteField(
-                                note = note,
-                                onNoteChange = { if (it.length <= 200) note = it },
-                                status = status
-                            )
-                        }
+                        ModernNoteField(
+                            note = note,
+                            onNoteChange = { if (it.length <= 200) note = it },
+                            status = status
+                        )
                     }
                 }
 
