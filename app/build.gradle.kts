@@ -106,6 +106,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-
+    implementation ("androidx.glance:glance-appwidget:1.0.0")
+    implementation ("androidx.glance:glance-material3:1.0.0")
 
 }

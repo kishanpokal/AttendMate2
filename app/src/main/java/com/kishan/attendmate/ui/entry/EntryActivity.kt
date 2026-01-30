@@ -1,4 +1,3 @@
-
 package com.kishan.attendmate.ui.entry
 
 import android.content.Intent
@@ -10,14 +9,14 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
@@ -35,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlin.math.sin
 import kotlin.math.cos
 import kotlin.math.PI
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 class EntryActivity : ComponentActivity() {
@@ -73,9 +73,38 @@ data class OrbitingParticle(
 @Composable
 fun EntryScreen(onNavigate: (Class<*>) -> Unit) {
     val configuration = LocalConfiguration.current
-    val screenWidth = configuration.screenWidthDp.dp
-    val screenHeight = configuration.screenHeightDp.dp
-    val minDimension = minOf(screenWidth, screenHeight)
+
+    val screenWidthDp = configuration.screenWidthDp.dp
+    val screenHeightDp = configuration.screenHeightDp.dp
+
+    // Calculate safe dimensions
+    val isPortrait = screenHeightDp > screenWidthDp
+    val minDimensionValue = minOf(screenWidthDp.value, screenHeightDp.value)
+
+    // Responsive sizing based on screen size
+    val logoSize = when {
+        minDimensionValue < 360f -> (minDimensionValue * 0.35f).dp
+        minDimensionValue < 400f -> (minDimensionValue * 0.4f).dp
+        else -> (minDimensionValue * 0.45f).dp
+    }
+
+    val titleFontSize = when {
+        minDimensionValue < 360f -> 32.sp
+        minDimensionValue < 400f -> 40.sp
+        else -> 48.sp
+    }
+
+    val subtitleFontSize = when {
+        minDimensionValue < 360f -> 14.sp
+        minDimensionValue < 400f -> 16.sp
+        else -> 18.sp
+    }
+
+    val quoteFontSize = when {
+        minDimensionValue < 360f -> 13.sp
+        minDimensionValue < 400f -> 14.sp
+        else -> 16.sp
+    }
 
     var visible by remember { mutableStateOf(false) }
     var logoVisible by remember { mutableStateOf(false) }
@@ -153,141 +182,180 @@ fun EntryScreen(onNavigate: (Class<*>) -> Unit) {
         // Floating rings
         FloatingRings()
 
-        // Main content
-        Column(
+        // Scrollable main content for small screens
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .then(
+                    if (isPortrait && screenHeightDp < 700.dp) {
+                        Modifier.verticalScroll(rememberScrollState())
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
-            // Ultra-advanced animated logo
-            AnimatedVisibility(
-                visible = logoVisible,
-                enter = scaleIn(
-                    animationSpec = spring(
-                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                        stiffness = Spring.StiffnessLow
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        horizontal = 20.dp,
+                        vertical = if (isPortrait) 32.dp else 16.dp
                     ),
-                    initialScale = 0.3f
-                ) + fadeIn(tween(1000, easing = EaseOutCubic))
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                UltraAdvancedLogo(minDimension = minDimension)
-            }
+                // Top spacer for centering
+                Spacer(modifier = Modifier.weight(0.5f))
 
-            Spacer(modifier = Modifier.height(minDimension * 0.1f))
-
-            // Content section
-            AnimatedVisibility(
-                visible = contentVisible,
-                enter = fadeIn(tween(1200, easing = EaseOutCubic)) +
-                        slideInVertically(
-                            initialOffsetY = { 60 },
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        )
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
+                // Logo section
+                AnimatedVisibility(
+                    visible = logoVisible,
+                    enter = scaleIn(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        ),
+                        initialScale = 0.3f
+                    ) + fadeIn(tween(1000, easing = EaseOutCubic))
                 ) {
-                    // Advanced shimmer title
-                    AdvancedShimmerText(
-                        text = "AttendMate",
-                        style = MaterialTheme.typography.displayLarge.copy(fontSize = (minDimension * 0.12f).value.sp),
-                        fontWeight = FontWeight.ExtraBold
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(logoSize)
+                            .padding(8.dp)
+                    ) {
+                        UltraAdvancedLogo(logoSize = logoSize)
+                    }
+                }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(if (isPortrait) 24.dp else 16.dp))
 
-                    // Animated subtitle with particles
-                    EnhancedSubtitle()
-
-                    Spacer(modifier = Modifier.height(minDimension * 0.2f))
-
-                    // Holographic quote card
-                    AnimatedContent(
-                        targetState = quoteIndex,
-                        transitionSpec = {
-                            (fadeIn(tween(1000, easing = EaseInOutCubic)) +
-                                    slideInVertically(
-                                        initialOffsetY = { it },
-                                        animationSpec = tween(1000, easing = EaseOutBack)
-                                    ) + scaleIn(
-                                initialScale = 0.7f,
-                                animationSpec = tween(1000, easing = EaseOutBack)
-                            )).togetherWith(
-                                fadeOut(tween(500, easing = EaseInCubic)) +
-                                        slideOutVertically(
-                                            targetOffsetY = { -it },
-                                            animationSpec = tween(500, easing = EaseInCubic)
-                                        ) + scaleOut(
-                                    targetScale = 0.7f,
-                                    animationSpec = tween(500, easing = EaseInCubic)
+                // Content section
+                AnimatedVisibility(
+                    visible = contentVisible,
+                    enter = fadeIn(tween(1200, easing = EaseOutCubic)) +
+                            slideInVertically(
+                                initialOffsetY = { 60 },
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMedium
                                 )
                             )
-                        },
-                        label = "quote_animation"
-                    ) { index ->
-                        HolographicCard(minDimension = minDimension) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.padding(minDimension * 0.08f)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // Advanced shimmer title
+                        AdvancedShimmerText(
+                            text = "AttendMate",
+                            fontSize = titleFontSize,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Animated subtitle with particles
+                        EnhancedSubtitle(fontSize = subtitleFontSize)
+
+                        Spacer(modifier = Modifier.height(if (isPortrait) 32.dp else 20.dp))
+
+                        // Holographic quote card
+                        AnimatedContent(
+                            targetState = quoteIndex,
+                            transitionSpec = {
+                                (fadeIn(tween(1000, easing = EaseInOutCubic)) +
+                                        slideInVertically(
+                                            initialOffsetY = { it },
+                                            animationSpec = tween(1000, easing = EaseOutBack)
+                                        ) + scaleIn(
+                                    initialScale = 0.7f,
+                                    animationSpec = tween(1000, easing = EaseOutBack)
+                                )).togetherWith(
+                                    fadeOut(tween(500, easing = EaseInCubic)) +
+                                            slideOutVertically(
+                                                targetOffsetY = { -it },
+                                                animationSpec = tween(500, easing = EaseInCubic)
+                                            ) + scaleOut(
+                                        targetScale = 0.7f,
+                                        animationSpec = tween(500, easing = EaseInCubic)
+                                    )
+                                )
+                            },
+                            label = "quote_animation"
+                        ) { index ->
+                            HolographicCard(
+                                horizontalPadding = 16.dp,
+                                verticalPadding = 20.dp
                             ) {
-                                // Quote icon
-                                Box(
-                                    modifier = Modifier
-                                        .size(minDimension * 0.12f)
-                                        .background(
-                                            brush = Brush.radialGradient(
-                                                colors = listOf(
-                                                    Color(0xFF6366F1).copy(alpha = 0.3f),
-                                                    Color.Transparent
-                                                )
-                                            ),
-                                            shape = MaterialTheme.shapes.medium
-                                        ),
-                                    contentAlignment = Alignment.Center
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier.padding(16.dp)
                                 ) {
+                                    // Quote icon
+                                    Box(
+                                        modifier = Modifier
+                                            .size(48.dp)
+                                            .background(
+                                                brush = Brush.radialGradient(
+                                                    colors = listOf(
+                                                        Color(0xFF6366F1).copy(alpha = 0.3f),
+                                                        Color.Transparent
+                                                    )
+                                                ),
+                                                shape = MaterialTheme.shapes.medium
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "💡",
+                                            fontSize = 28.sp
+                                        )
+                                    }
+
+                                    Spacer(modifier = Modifier.height(16.dp))
+
                                     Text(
-                                        text = "💡",
-                                        fontSize = (minDimension * 0.08f).value.sp
+                                        text = quotes[index],
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        textAlign = TextAlign.Center,
+                                        color = Color.White.copy(alpha = 0.95f),
+                                        fontWeight = FontWeight.Medium,
+                                        lineHeight = 24.sp,
+                                        letterSpacing = 0.3.sp,
+                                        fontSize = quoteFontSize
                                     )
                                 }
-
-                                Spacer(modifier = Modifier.height(minDimension * 0.05f))
-
-                                Text(
-                                    text = quotes[index],
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    textAlign = TextAlign.Center,
-                                    color = Color.White.copy(alpha = 0.95f),
-                                    fontWeight = FontWeight.Medium,
-                                    lineHeight = 28.sp,
-                                    letterSpacing = 0.3.sp,
-                                    fontSize = (minDimension * 0.04f).value.sp
-                                )
                             }
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(minDimension * 0.2f))
+                // Bottom spacer
+                Spacer(modifier = Modifier.weight(0.8f))
 
-                    // Quantum loading indicator
-                    QuantumLoadingIndicator(minDimension = minDimension)
+                // Loading section at bottom
+                AnimatedVisibility(
+                    visible = contentVisible,
+                    enter = fadeIn(tween(1500))
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(bottom = if (isPortrait) 32.dp else 16.dp)
+                    ) {
+                        // Quantum loading indicator
+                        QuantumLoadingIndicator(size = 60.dp)
 
-                    Spacer(modifier = Modifier.height(minDimension * 0.06f))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                    // Loading text with pulse
-                    PulsingText()
+                        // Loading text with pulse
+                        PulsingText()
+                    }
                 }
             }
         }
 
         // Corner accent decorations
-        CornerAccents(minDimension = minDimension)
+        CornerAccents(cornerSize = (minDimensionValue * 0.08f).dp)
     }
 }
 
@@ -337,13 +405,13 @@ fun CosmicBackground() {
 @Composable
 fun EnhancedParticleSystem() {
     val particles = remember {
-        List(100) {
+        List(80) {
             Particle(
                 x = Random.nextFloat(),
                 y = Random.nextFloat(),
                 speedX = (Random.nextFloat() - 0.5f) * 0.0008f,
                 speedY = (Random.nextFloat() - 0.5f) * 0.0008f,
-                radius = Random.nextFloat() * 4f + 1f,
+                radius = Random.nextFloat() * 3f + 1f,
                 color = listOf(
                     Color(0xFF6366F1),
                     Color(0xFF8B5CF6),
@@ -404,17 +472,21 @@ fun EnhancedParticleSystem() {
         }
 
         // Enhanced connections with gradient
+        val maxConnections = 40
+        var connectionCount = 0
         for (i in particles.indices) {
+            if (connectionCount >= maxConnections) break
             for (j in i + 1 until particles.size) {
+                if (connectionCount >= maxConnections) break
                 val p1 = particles[i]
                 val p2 = particles[j]
                 val dx = (p1.x - p2.x) * size.width
                 val dy = (p1.y - p2.y) * size.height
-                val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+                val distance = sqrt(dx * dx + dy * dy)
 
-                val maxDistance = minOf(size.width, size.height) * 0.15f
+                val maxDistance = minOf(size.width, size.height) * 0.12f
                 if (distance < maxDistance) {
-                    val alpha = (1f - distance / maxDistance) * 0.25f
+                    val alpha = (1f - distance / maxDistance) * 0.2f
                     drawLine(
                         brush = Brush.linearGradient(
                             colors = listOf(
@@ -426,9 +498,10 @@ fun EnhancedParticleSystem() {
                         ),
                         start = Offset(p1.x * size.width, p1.y * size.height),
                         end = Offset(p2.x * size.width, p2.y * size.height),
-                        strokeWidth = 1.5f,
+                        strokeWidth = 1f,
                         blendMode = BlendMode.Plus
                     )
+                    connectionCount++
                 }
             }
         }
@@ -464,8 +537,8 @@ fun AnimatedMeshGradient() {
         val height = size.height
 
         for (i in 0..5) {
-            val angle1 = Math.toRadians((offset1 + i * 60).toDouble())
-            val angle2 = Math.toRadians((offset2 + i * 60).toDouble())
+            val angle1 = (offset1 + i * 60).toDouble() * PI / 180.0
+            val angle2 = (offset2 + i * 60).toDouble() * PI / 180.0
 
             val x1 = (width / 2 + cos(angle1) * width / 2.2).toFloat()
             val y1 = (height / 2 + sin(angle1) * height / 2.2).toFloat()
@@ -473,13 +546,13 @@ fun AnimatedMeshGradient() {
             val x2 = (width / 2 + cos(angle2) * width / 2.8).toFloat()
             val y2 = (height / 2 + sin(angle2) * height / 2.8).toFloat()
 
-            val baseRadius = minOf(width, height) * 0.3f
+            val baseRadius = minOf(width, height) * 0.25f
 
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF6366F1).copy(alpha = 0.2f),
-                        Color(0xFF8B5CF6).copy(alpha = 0.12f),
+                        Color(0xFF6366F1).copy(alpha = 0.15f),
+                        Color(0xFF8B5CF6).copy(alpha = 0.1f),
                         Color.Transparent
                     ),
                     center = Offset(x1, y1),
@@ -493,8 +566,8 @@ fun AnimatedMeshGradient() {
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFEC4899).copy(alpha = 0.18f),
-                        Color(0xFF14B8A6).copy(alpha = 0.1f),
+                        Color(0xFFEC4899).copy(alpha = 0.15f),
+                        Color(0xFF14B8A6).copy(alpha = 0.08f),
                         Color.Transparent
                     ),
                     center = Offset(x2, y2),
@@ -524,7 +597,7 @@ fun GeometricGrid() {
 
     Canvas(modifier = Modifier.fillMaxSize()) {
         val spacing = minOf(size.width, size.height) * 0.05f
-        val lineAlpha = 0.03f
+        val lineAlpha = 0.02f
 
         // Vertical lines
         var x = offset % spacing
@@ -579,17 +652,17 @@ fun FloatingRings() {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val centerX = size.width / 2
         val centerY = size.height / 2
-        val baseRadius = minOf(size.width, size.height) * 0.3f
+        val baseRadius = minOf(size.width, size.height) * 0.25f
 
         // Outer ring
         rotate(rotation1, pivot = Offset(centerX, centerY)) {
             for (i in 0..3) {
-                val radius = baseRadius * (0.9f - i * 0.18f)
+                val radius = baseRadius * (0.9f - i * 0.15f)
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.04f - i * 0.008f),
+                    color = Color.White.copy(alpha = 0.03f - i * 0.005f),
                     radius = radius,
                     center = Offset(centerX, centerY),
-                    style = Stroke(width = 2f)
+                    style = Stroke(width = 1.5f)
                 )
             }
         }
@@ -597,12 +670,12 @@ fun FloatingRings() {
         // Inner ring
         rotate(rotation2, pivot = Offset(centerX, centerY)) {
             for (i in 0..2) {
-                val radius = baseRadius * (0.5f + i * 0.15f)
+                val radius = baseRadius * (0.5f + i * 0.12f)
                 drawOval(
-                    color = Color(0xFF6366F1).copy(alpha = 0.08f - i * 0.02f),
+                    color = Color(0xFF6366F1).copy(alpha = 0.06f - i * 0.015f),
                     topLeft = Offset(centerX - radius, centerY - radius / 2),
-                    size = Size(radius * 2, radius),
-                    style = Stroke(width = 2f)
+                    size = androidx.compose.ui.geometry.Size(radius * 2, radius),
+                    style = Stroke(width = 1.5f)
                 )
             }
         }
@@ -610,7 +683,7 @@ fun FloatingRings() {
 }
 
 @Composable
-fun UltraAdvancedLogo(minDimension: Dp) {
+fun UltraAdvancedLogo(logoSize: Dp) {
     val infiniteTransition = rememberInfiniteTransition(label = "logo")
 
     val rotation by infiniteTransition.animateFloat(
@@ -625,7 +698,7 @@ fun UltraAdvancedLogo(minDimension: Dp) {
 
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 0.95f,
-        targetValue = 1.08f,
+        targetValue = 1.05f,
         animationSpec = infiniteRepeatable(
             animation = tween(2500, easing = EaseInOutCubic),
             repeatMode = RepeatMode.Reverse
@@ -645,12 +718,12 @@ fun UltraAdvancedLogo(minDimension: Dp) {
 
     // Orbiting particles
     val orbitingParticles = remember {
-        List(12) { index ->
+        List(10) { index ->
             OrbitingParticle(
-                angle = (index * 30f),
-                distance = minDimension.value * 0.4f,
+                angle = (index * 36f),
+                distance = logoSize.value * 0.45f,
                 speed = 0.3f + (index % 3) * 0.1f,
-                size = 4f + (index % 3) * 2f,
+                size = 3f + (index % 3) * 1.5f,
                 color = listOf(
                     Color(0xFF6366F1),
                     Color(0xFF8B5CF6),
@@ -662,7 +735,7 @@ fun UltraAdvancedLogo(minDimension: Dp) {
     }
 
     Box(
-        modifier = Modifier.size(minDimension * 0.6f),
+        modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
@@ -670,26 +743,26 @@ fun UltraAdvancedLogo(minDimension: Dp) {
             val centerY = size.height / 2
             val baseRadius = size.minDimension / 2
 
-            // Outer glow
-            for (i in 0..5) {
+            // Outer glow layers
+            for (i in 0..4) {
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFF6366F1).copy(alpha = (0.15f - i * 0.02f) * glowIntensity),
+                            Color(0xFF6366F1).copy(alpha = (0.12f - i * 0.02f) * glowIntensity),
                             Color.Transparent
                         ),
                         center = Offset(centerX, centerY),
-                        radius = baseRadius * (1f + i * 0.15f)
+                        radius = baseRadius * (1f + i * 0.12f)
                     ),
                     center = Offset(centerX, centerY),
-                    radius = baseRadius * (1f + i * 0.15f),
+                    radius = baseRadius * (1f + i * 0.12f),
                     blendMode = BlendMode.Plus
                 )
             }
 
             // Orbiting particles
             orbitingParticles.forEach { particle ->
-                val angle = Math.toRadians((rotation * particle.speed + particle.angle).toDouble())
+                val angle = (rotation * particle.speed + particle.angle).toDouble() * PI / 180.0
                 val x = centerX + (cos(angle) * particle.distance).toFloat()
                 val y = centerY + (sin(angle) * particle.distance).toFloat()
 
@@ -697,13 +770,13 @@ fun UltraAdvancedLogo(minDimension: Dp) {
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            particle.color.copy(alpha = 0.8f),
+                            particle.color.copy(alpha = 0.7f),
                             particle.color.copy(alpha = 0.3f),
                             Color.Transparent
                         )
                     ),
                     center = Offset(x, y),
-                    radius = particle.size * 3f,
+                    radius = particle.size * 2.5f,
                     blendMode = BlendMode.Plus
                 )
 
@@ -715,9 +788,9 @@ fun UltraAdvancedLogo(minDimension: Dp) {
                 )
             }
 
-            // Rotating rings
+            // Rotating outer rings
             rotate(rotation, pivot = Offset(centerX, centerY)) {
-                for (i in 0..3) {
+                for (i in 0..2) {
                     drawCircle(
                         brush = Brush.sweepGradient(
                             colors = listOf(
@@ -729,9 +802,9 @@ fun UltraAdvancedLogo(minDimension: Dp) {
                             ),
                             center = Offset(centerX, centerY)
                         ),
-                        radius = baseRadius * (0.9f - i * 0.18f),
+                        radius = baseRadius * (0.85f - i * 0.15f),
                         center = Offset(centerX, centerY),
-                        style = Stroke(width = 5f),
+                        style = Stroke(width = 4f),
                         blendMode = BlendMode.Plus
                     )
                 }
@@ -750,9 +823,9 @@ fun UltraAdvancedLogo(minDimension: Dp) {
                         ),
                         center = Offset(centerX, centerY)
                     ),
-                    radius = baseRadius * 0.45f,
+                    radius = baseRadius * 0.4f,
                     center = Offset(centerX, centerY),
-                    style = Stroke(width = 8f)
+                    style = Stroke(width = 6f)
                 )
             }
 
@@ -768,7 +841,7 @@ fun UltraAdvancedLogo(minDimension: Dp) {
                         ),
                         center = Offset(centerX, centerY)
                     ),
-                    radius = baseRadius * 0.3f,
+                    radius = baseRadius * 0.28f,
                     center = Offset(centerX, centerY),
                     blendMode = BlendMode.Plus
                 )
@@ -779,12 +852,12 @@ fun UltraAdvancedLogo(minDimension: Dp) {
                 brush = Brush.radialGradient(
                     colors = listOf(
                         Color.White.copy(alpha = glowIntensity),
-                        Color(0xFF6366F1).copy(alpha = 0.6f * glowIntensity),
+                        Color(0xFF6366F1).copy(alpha = 0.5f * glowIntensity),
                         Color.Transparent
                     ),
                     center = Offset(centerX, centerY)
                 ),
-                radius = baseRadius * 0.45f,
+                radius = baseRadius * 0.38f,
                 center = Offset(centerX, centerY),
                 blendMode = BlendMode.Plus
             )
@@ -792,7 +865,7 @@ fun UltraAdvancedLogo(minDimension: Dp) {
             // Center dot
             drawCircle(
                 color = Color.White,
-                radius = 8f,
+                radius = 6f,
                 center = Offset(centerX, centerY)
             )
         }
@@ -802,7 +875,7 @@ fun UltraAdvancedLogo(minDimension: Dp) {
 @Composable
 fun AdvancedShimmerText(
     text: String,
-    style: androidx.compose.ui.text.TextStyle,
+    fontSize: androidx.compose.ui.unit.TextUnit,
     fontWeight: FontWeight
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
@@ -819,7 +892,8 @@ fun AdvancedShimmerText(
 
     Text(
         text = text,
-        style = style.copy(
+        style = MaterialTheme.typography.displayLarge.copy(
+            fontSize = fontSize,
             brush = Brush.linearGradient(
                 colors = listOf(
                     Color(0xFF4338CA),
@@ -834,18 +908,18 @@ fun AdvancedShimmerText(
                 end = Offset(shimmer + 600f, shimmer + 600f)
             ),
             shadow = androidx.compose.ui.graphics.Shadow(
-                color = Color(0xFF6366F1).copy(alpha = 0.5f),
+                color = Color(0xFF6366F1).copy(alpha = 0.4f),
                 offset = Offset(0f, 0f),
-                blurRadius = 30f
+                blurRadius = 25f
             )
         ),
         fontWeight = fontWeight,
-        letterSpacing = 3.sp
+        letterSpacing = 2.sp
     )
 }
 
 @Composable
-fun EnhancedSubtitle() {
+fun EnhancedSubtitle(fontSize: androidx.compose.ui.unit.TextUnit) {
     val infiniteTransition = rememberInfiniteTransition(label = "subtitle")
 
     val glowAlpha by infiniteTransition.animateFloat(
@@ -860,27 +934,29 @@ fun EnhancedSubtitle() {
 
     Row(
         horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(horizontal = 16.dp)
     ) {
         Text(
             text = "Track smart",
             style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = fontSize,
                 shadow = androidx.compose.ui.graphics.Shadow(
                     color = Color(0xFF6366F1).copy(alpha = 0.3f * glowAlpha),
                     offset = Offset(0f, 0f),
-                    blurRadius = 20f
+                    blurRadius = 15f
                 )
             ),
             fontWeight = FontWeight.SemiBold,
             color = Color.White.copy(alpha = 0.95f),
-            letterSpacing = 1.sp
+            letterSpacing = 0.8.sp
         )
 
         // Animated dot
         Box(
             modifier = Modifier
-                .padding(horizontal = 12.dp)
-                .size(8.dp)
+                .padding(horizontal = 10.dp)
+                .size(6.dp)
                 .background(
                     brush = Brush.radialGradient(
                         colors = listOf(
@@ -896,22 +972,24 @@ fun EnhancedSubtitle() {
         Text(
             text = "Attend better",
             style = MaterialTheme.typography.titleLarge.copy(
+                fontSize = fontSize,
                 shadow = androidx.compose.ui.graphics.Shadow(
                     color = Color(0xFFEC4899).copy(alpha = 0.3f * glowAlpha),
                     offset = Offset(0f, 0f),
-                    blurRadius = 20f
+                    blurRadius = 15f
                 )
             ),
             fontWeight = FontWeight.SemiBold,
             color = Color.White.copy(alpha = 0.95f),
-            letterSpacing = 1.sp
+            letterSpacing = 0.8.sp
         )
     }
 }
 
 @Composable
 fun HolographicCard(
-    minDimension: Dp,
+    horizontalPadding: Dp,
+    verticalPadding: Dp,
     content: @Composable () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "holographic")
@@ -929,7 +1007,7 @@ fun HolographicCard(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = minDimension * 0.04f)
+            .padding(horizontal = horizontalPadding)
     ) {
         // Outer glow
         Box(
@@ -954,12 +1032,10 @@ fun HolographicCard(
                     .background(
                         brush = Brush.linearGradient(
                             colors = listOf(
-                                Color(0xFF6366F1).copy(alpha = 0.4f + shimmer * 0.2f),
-                                Color(0xFF8B5CF6).copy(alpha = 0.3f),
-                                Color(0xFFEC4899).copy(alpha = 0.4f - shimmer * 0.2f)
-                            ),
-                            start = Offset(shimmer * minDimension.value, shimmer * minDimension.value),
-                            end = Offset((1f - shimmer) * minDimension.value, (1f - shimmer) * minDimension.value)
+                                Color(0xFF6366F1).copy(alpha = 0.35f + shimmer * 0.15f),
+                                Color(0xFF8B5CF6).copy(alpha = 0.25f),
+                                Color(0xFFEC4899).copy(alpha = 0.35f - shimmer * 0.15f)
+                            )
                         ),
                         shape = MaterialTheme.shapes.extraLarge
                     )
@@ -987,7 +1063,7 @@ fun HolographicCard(
 }
 
 @Composable
-fun QuantumLoadingIndicator(minDimension: Dp) {
+fun QuantumLoadingIndicator(size: Dp) {
     val infiniteTransition = rememberInfiniteTransition(label = "quantum")
 
     val rotation by infiniteTransition.animateFloat(
@@ -1001,8 +1077,8 @@ fun QuantumLoadingIndicator(minDimension: Dp) {
     )
 
     val scale by infiniteTransition.animateFloat(
-        initialValue = 0.8f,
-        targetValue = 1.2f,
+        initialValue = 0.85f,
+        targetValue = 1.15f,
         animationSpec = infiniteRepeatable(
             animation = tween(1000, easing = EaseInOutCubic),
             repeatMode = RepeatMode.Reverse
@@ -1011,13 +1087,13 @@ fun QuantumLoadingIndicator(minDimension: Dp) {
     )
 
     Box(
-        modifier = Modifier.size(minDimension * 0.2f),
+        modifier = Modifier.size(size),
         contentAlignment = Alignment.Center
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val centerX = size.width / 2
-            val centerY = size.height / 2
-            val radius = size.minDimension / 2
+            val centerX = this.size.width / 2
+            val centerY = this.size.height / 2
+            val radius = this.size.minDimension / 2
 
             // Outer rings
             rotate(rotation, pivot = Offset(centerX, centerY)) {
@@ -1039,7 +1115,7 @@ fun QuantumLoadingIndicator(minDimension: Dp) {
                         useCenter = false,
                         style = Stroke(width = 3f, cap = StrokeCap.Round),
                         topLeft = Offset(centerX - currentRadius, centerY - currentRadius),
-                        size = Size(currentRadius * 2, currentRadius * 2)
+                        size = androidx.compose.ui.geometry.Size(currentRadius * 2, currentRadius * 2)
                     )
                 }
             }
@@ -1060,7 +1136,7 @@ fun QuantumLoadingIndicator(minDimension: Dp) {
                     useCenter = false,
                     style = Stroke(width = 4f, cap = StrokeCap.Round),
                     topLeft = Offset(centerX - radius * 0.4f, centerY - radius * 0.4f),
-                    size = Size(radius * 0.8f, radius * 0.8f)
+                    size = androidx.compose.ui.geometry.Size(radius * 0.8f, radius * 0.8f)
                 )
             }
 
@@ -1074,7 +1150,7 @@ fun QuantumLoadingIndicator(minDimension: Dp) {
                     )
                 ),
                 center = Offset(centerX, centerY),
-                radius = radius * 0.25f * scale,
+                radius = radius * 0.22f * scale,
                 blendMode = BlendMode.Plus
             )
         }
@@ -1110,29 +1186,33 @@ fun PulsingText() {
         style = MaterialTheme.typography.bodyMedium,
         color = Color.White.copy(alpha = alpha),
         fontWeight = FontWeight.Medium,
-        letterSpacing = 2.sp
+        letterSpacing = 1.5.sp,
+        fontSize = 14.sp
     )
 }
 
 @Composable
-fun CornerAccents(minDimension: Dp) {
+fun CornerAccents(cornerSize: Dp) {
     val infiniteTransition = rememberInfiniteTransition(label = "corners")
+
     val glowAlpha by infiniteTransition.animateFloat(
         initialValue = 0.2f,
-        targetValue = 0.6f,
+        targetValue = 0.5f,
         animationSpec = infiniteRepeatable(
             animation = tween(2000, easing = EaseInOutCubic),
             repeatMode = RepeatMode.Reverse
         ),
         label = "glow"
     )
+
     Canvas(modifier = Modifier.fillMaxSize()) {
-        val cornerSize = minOf(size.width, size.height) * 0.1f
-        val strokeWidth = 3f
+        val cornerLength = cornerSize.toPx()
+        val strokeWidth = 2.5f
+
         // Top-left
         drawLine(
             color = Color(0xFF6366F1).copy(alpha = glowAlpha),
-            start = Offset(0f, cornerSize),
+            start = Offset(0f, cornerLength),
             end = Offset(0f, 0f),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
@@ -1140,14 +1220,15 @@ fun CornerAccents(minDimension: Dp) {
         drawLine(
             color = Color(0xFF6366F1).copy(alpha = glowAlpha),
             start = Offset(0f, 0f),
-            end = Offset(cornerSize, 0f),
+            end = Offset(cornerLength, 0f),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
         )
+
         // Top-right
         drawLine(
             color = Color(0xFF8B5CF6).copy(alpha = glowAlpha),
-            start = Offset(size.width - cornerSize, 0f),
+            start = Offset(size.width - cornerLength, 0f),
             end = Offset(size.width, 0f),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
@@ -1155,14 +1236,15 @@ fun CornerAccents(minDimension: Dp) {
         drawLine(
             color = Color(0xFF8B5CF6).copy(alpha = glowAlpha),
             start = Offset(size.width, 0f),
-            end = Offset(size.width, cornerSize),
+            end = Offset(size.width, cornerLength),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
         )
+
         // Bottom-left
         drawLine(
             color = Color(0xFFEC4899).copy(alpha = glowAlpha),
-            start = Offset(0f, size.height - cornerSize),
+            start = Offset(0f, size.height - cornerLength),
             end = Offset(0f, size.height),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
@@ -1170,14 +1252,15 @@ fun CornerAccents(minDimension: Dp) {
         drawLine(
             color = Color(0xFFEC4899).copy(alpha = glowAlpha),
             start = Offset(0f, size.height),
-            end = Offset(cornerSize, size.height),
+            end = Offset(cornerLength, size.height),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
         )
+
         // Bottom-right
         drawLine(
             color = Color(0xFF14B8A6).copy(alpha = glowAlpha),
-            start = Offset(size.width - cornerSize, size.height),
+            start = Offset(size.width - cornerLength, size.height),
             end = Offset(size.width, size.height),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
@@ -1185,7 +1268,7 @@ fun CornerAccents(minDimension: Dp) {
         drawLine(
             color = Color(0xFF14B8A6).copy(alpha = glowAlpha),
             start = Offset(size.width, size.height),
-            end = Offset(size.width, size.height - cornerSize),
+            end = Offset(size.width, size.height - cornerLength),
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
         )
