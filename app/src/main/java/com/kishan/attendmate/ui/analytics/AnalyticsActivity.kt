@@ -52,6 +52,85 @@ import java.time.temporal.ChronoField
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.ui.text.style.TextOverflow
+import kotlin.compareTo
+
+data class ResponsiveConfig(
+    val screenWidth: Int,
+    val isPhone: Boolean,
+    val cornerRadiusLarge: androidx.compose.ui.unit.Dp,
+    val cornerRadiusMedium: androidx.compose.ui.unit.Dp,
+    val cornerRadiusSmall: androidx.compose.ui.unit.Dp,
+    val cardPadding: PaddingValues,
+    val itemSpacing: androidx.compose.ui.unit.Dp,
+    val iconSizeLarge: androidx.compose.ui.unit.Dp,
+    val iconSizeMedium: androidx.compose.ui.unit.Dp,
+    val iconSizeSmall: androidx.compose.ui.unit.Dp,
+    val titleSize: androidx.compose.ui.unit.TextUnit,
+    val bodySize: androidx.compose.ui.unit.TextUnit,
+    val labelSize: androidx.compose.ui.unit.TextUnit,
+    val calendarCellSize: androidx.compose.ui.unit.Dp
+)
+
+@Composable
+fun rememberResponsiveConfig(): ResponsiveConfig {
+    val configuration = LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp
+    // Simple breakpoints: small, medium, large
+    return remember(screenWidth) {
+        when {
+            screenWidth < 360 -> ResponsiveConfig(
+                screenWidth = screenWidth,
+                isPhone = true,
+                cornerRadiusLarge = 16.dp,
+                cornerRadiusMedium = 12.dp,
+                cornerRadiusSmall = 8.dp,
+                cardPadding = PaddingValues(12.dp),
+                itemSpacing = 8.dp,
+                iconSizeLarge = 28.dp,
+                iconSizeMedium = 18.dp,
+                iconSizeSmall = 14.dp,
+                titleSize = 16.sp,
+                bodySize = 13.sp,
+                labelSize = 11.sp,
+                calendarCellSize = 34.dp
+            )
+            screenWidth < 720 -> ResponsiveConfig(
+                screenWidth = screenWidth,
+                isPhone = screenWidth < 420,
+                cornerRadiusLarge = 20.dp,
+                cornerRadiusMedium = 14.dp,
+                cornerRadiusSmall = 10.dp,
+                cardPadding = PaddingValues(16.dp),
+                itemSpacing = 12.dp,
+                iconSizeLarge = 34.dp,
+                iconSizeMedium = 20.dp,
+                iconSizeSmall = 16.dp,
+                titleSize = 18.sp,
+                bodySize = 14.sp,
+                labelSize = 12.sp,
+                calendarCellSize = 44.dp
+            )
+            else -> ResponsiveConfig(
+                screenWidth = screenWidth,
+                isPhone = false,
+                cornerRadiusLarge = 24.dp,
+                cornerRadiusMedium = 16.dp,
+                cornerRadiusSmall = 12.dp,
+                cardPadding = PaddingValues(20.dp),
+                itemSpacing = 16.dp,
+                iconSizeLarge = 40.dp,
+                iconSizeMedium = 24.dp,
+                iconSizeSmall = 18.dp,
+                titleSize = 20.sp,
+                bodySize = 16.sp,
+                labelSize = 13.sp,
+                calendarCellSize = 52.dp
+            )
+        }
+    }
+}
 
 /* ------------------------------------------------ */
 /* ACTIVITY */
@@ -183,6 +262,8 @@ fun AnalyticsScreen() {
     val neededFor75 = lecturesNeededFor75(present, total)
     val bunkable = maxBunkableLectures(present, total)
     val dateFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
+    // create responsive config for calendars/cards
+    val config = rememberResponsiveConfig()
 
     Column(modifier = Modifier.fillMaxSize()) {
         /* -------- TOP HEADER -------- */
@@ -275,7 +356,8 @@ fun AnalyticsScreen() {
                     }
                     /* -------- CALENDAR -------- */
                     item {
-                        AttendanceCalendar(attendance) { selectedDate = it }
+                        // Use SmartAttendanceCalendar which will choose compact/regular based on config
+                        SmartAttendanceCalendar(config = config, attendance = attendance) { selectedDate = it }
                     }
                     /* -------- PIE CHART -------- */
                     item {
@@ -975,8 +1057,12 @@ private fun calculateLecturesNeededFor75(present: Int, total: Int): Int {
 /* ------------------------------------------------ */
 /* CALENDAR - MODERN (USING JAVA.TIME) */
 /* ------------------------------------------------ */
+/* ------------------------------------------------ */
+/* IMPROVED RESPONSIVE CALENDAR */
+/* ------------------------------------------------ */
 @Composable
 fun AttendanceCalendar(
+    config: ResponsiveConfig,
     attendance: List<AnalyticsAttendance>,
     onDateClick: (LocalDate) -> Unit
 ) {
@@ -986,8 +1072,6 @@ fun AttendanceCalendar(
     }
     val firstDayOfMonth = currentMonth.atDay(1)
     val daysInMonth = currentMonth.lengthOfMonth()
-
-    // Adjust for Monday start (0 = Monday, 6 = Sunday)
     val firstDayOfWeek = (firstDayOfMonth.dayOfWeek.value - 1) % 7
 
     val title = currentMonth.format(DateTimeFormatter.ofPattern("MMMM yyyy"))
@@ -996,23 +1080,23 @@ fun AttendanceCalendar(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .shadow(4.dp, RoundedCornerShape(24.dp)),
-        shape = RoundedCornerShape(24.dp),
+            .shadow(4.dp, RoundedCornerShape(config.cornerRadiusLarge)),
+        shape = RoundedCornerShape(config.cornerRadiusLarge),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow
         )
     ) {
-        Column(Modifier.padding(24.dp)) {
-            // Header
+        Column(Modifier.padding(config.cardPadding)) {
+            // Header - Responsive layout
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                horizontalArrangement = Arrangement.spacedBy(config.itemSpacing),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(config.iconSizeLarge * 1.8f)
+                        .clip(RoundedCornerShape(config.cornerRadiusMedium))
                         .background(
                             Brush.linearGradient(
                                 colors = listOf(
@@ -1027,20 +1111,23 @@ fun AttendanceCalendar(
                         imageVector = Icons.Default.CalendarMonth,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(config.iconSizeMedium)
                     )
                 }
                 Text(
                     text = "Attendance Calendar",
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.onSurface
+                    fontSize = config.titleSize,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(config.itemSpacing))
 
-            // Month Navigation
+            // Month Navigation - Responsive
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1049,15 +1136,15 @@ fun AttendanceCalendar(
                 IconButton(
                     onClick = { monthOffset-- },
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(config.iconSizeLarge * 1.8f)
+                        .clip(RoundedCornerShape(config.cornerRadiusSmall))
                         .background(MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Icon(
                         Icons.Default.ArrowBack,
                         contentDescription = "Previous Month",
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(config.iconSizeMedium)
                     )
                 }
 
@@ -1065,44 +1152,45 @@ fun AttendanceCalendar(
                     Text(
                         text = title,
                         fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.primary
+                        fontSize = config.titleSize,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1
                     )
                 }
 
                 IconButton(
                     onClick = { monthOffset++ },
                     modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(config.iconSizeLarge * 1.8f)
+                        .clip(RoundedCornerShape(config.cornerRadiusSmall))
                         .background(MaterialTheme.colorScheme.primaryContainer)
                 ) {
                     Icon(
                         Icons.Default.ArrowForward,
                         contentDescription = "Next Month",
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(config.iconSizeMedium)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(config.itemSpacing))
 
-            // Week Day Headers (Mon - Sun)
+            // Week Day Headers - Responsive
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 listOf("M", "T", "W", "T", "F", "S", "S").forEach { day ->
                     Box(
-                        modifier = Modifier
-                            .size(40.dp),
+                        modifier = Modifier.size(config.calendarCellSize),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
                             text = day,
                             textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.labelLarge,
+                            fontSize = config.labelSize,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                         )
@@ -1110,18 +1198,19 @@ fun AttendanceCalendar(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(config.itemSpacing / 2))
 
-            // Calendar Grid
+            // Calendar Grid - Responsive height
+            val gridHeight = (config.calendarCellSize + 6.dp) * 6
             LazyVerticalGrid(
                 columns = GridCells.Fixed(7),
-                modifier = Modifier.height(280.dp),
+                modifier = Modifier.height(gridHeight),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Empty cells for first week
                 items(firstDayOfWeek) {
-                    Box(modifier = Modifier.size(40.dp))
+                    Box(modifier = Modifier.size(config.calendarCellSize))
                 }
 
                 // Days of month
@@ -1160,14 +1249,14 @@ fun AttendanceCalendar(
 
                     Box(
                         modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .size(config.calendarCellSize)
+                            .clip(RoundedCornerShape(config.cornerRadiusSmall))
                             .background(bgColor)
                             .clickable(enabled = hasData) { onDateClick(date) }
                             .border(
                                 width = if (hasData || isToday) 2.dp else 0.dp,
                                 color = borderColor,
-                                shape = RoundedCornerShape(10.dp)
+                                shape = RoundedCornerShape(config.cornerRadiusSmall)
                             ),
                         contentAlignment = Alignment.Center
                     ) {
@@ -1177,13 +1266,11 @@ fun AttendanceCalendar(
                         ) {
                             Text(
                                 text = "${index + 1}",
-                                style = MaterialTheme.typography.bodyMedium,
+                                fontSize = config.labelSize,
                                 fontWeight = if (hasData || isToday) FontWeight.Bold else FontWeight.Normal,
-                                color = textColor,
-                                fontSize = 14.sp
+                                color = textColor
                             )
 
-                            // Small indicator dot for attendance
                             if (hasData) {
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Box(
@@ -1198,29 +1285,62 @@ fun AttendanceCalendar(
                 }
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(config.itemSpacing))
 
-            // Enhanced Legend with better design
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                EnhancedLegendItem(
-                    color = Color(0xFF4CAF50),
-                    label = "Present"
-                )
-                EnhancedLegendItem(
-                    color = Color(0xFFF44336),
-                    label = "Absent"
-                )
-                EnhancedLegendItem(
-                    color = Color(0xFF0CFDCD),
-                    label = "Mixed"
-                )
+            // Legend - Fully Responsive Layout
+            if (config.isPhone) {
+                // Vertical stacked layout for small phones
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(config.cornerRadiusMedium))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
+                        .padding(config.itemSpacing),
+                    verticalArrangement = Arrangement.spacedBy(config.itemSpacing / 2),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    EnhancedLegendItem(
+                        config = config,
+                        color = Color(0xFF4CAF50),
+                        label = "Present"
+                    )
+                    EnhancedLegendItem(
+                        config = config,
+                        color = Color(0xFFF44336),
+                        label = "Absent"
+                    )
+                    EnhancedLegendItem(
+                        config = config,
+                        color = Color(0xFF0CFDCD),
+                        label = "Mixed"
+                    )
+                }
+            } else {
+                // Horizontal layout for tablets and larger screens
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(config.cornerRadiusMedium))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
+                        .padding(config.itemSpacing),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    EnhancedLegendItem(
+                        config = config,
+                        color = Color(0xFF4CAF50),
+                        label = "Present"
+                    )
+                    EnhancedLegendItem(
+                        config = config,
+                        color = Color(0xFFF44336),
+                        label = "Absent"
+                    )
+                    EnhancedLegendItem(
+                        config = config,
+                        color = Color(0xFF0CFDCD),
+                        label = "Mixed"
+                    )
+                }
             }
         }
     }
@@ -1228,16 +1348,17 @@ fun AttendanceCalendar(
 
 @Composable
 private fun EnhancedLegendItem(
+    config: ResponsiveConfig,
     color: Color,
     label: String
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(config.itemSpacing / 2)
     ) {
         Box(
             modifier = Modifier
-                .size(16.dp)
+                .size(config.iconSizeSmall)
                 .clip(RoundedCornerShape(4.dp))
                 .background(color.copy(alpha = 0.3f))
                 .border(
@@ -1248,32 +1369,339 @@ private fun EnhancedLegendItem(
         )
         Text(
             text = label,
-            style = MaterialTheme.typography.bodySmall,
+            fontSize = config.labelSize,
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
+
+/* ------------------------------------------------ */
+/* ALTERNATIVE: ULTRA-COMPACT CALENDAR FOR VERY SMALL SCREENS */
+/* ------------------------------------------------ */
 @Composable
-fun LegendItem(color: Color, label: String) {
+fun CompactAttendanceCalendar(
+    config: ResponsiveConfig,
+    attendance: List<AnalyticsAttendance>,
+    onDateClick: (LocalDate) -> Unit
+) {
+    var monthOffset by remember { mutableStateOf(0) }
+    val currentMonth = remember(monthOffset) {
+        YearMonth.now().plusMonths(monthOffset.toLong())
+    }
+    val firstDayOfMonth = currentMonth.atDay(1)
+    val daysInMonth = currentMonth.lengthOfMonth()
+
+    // --- CHANGE 1: Update Logic for Sunday Start ---
+    // Monday is 1, Sunday is 7.
+    // 7 % 7 = 0 (Sunday is now index 0)
+    // 1 % 7 = 1 (Monday is now index 1)
+    val firstDayOfWeek = firstDayOfMonth.dayOfWeek.value % 7
+
+    val title = currentMonth.format(DateTimeFormatter.ofPattern("MMM yyyy"))
+    val today = LocalDate.now()
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(4.dp, RoundedCornerShape(config.cornerRadiusLarge)),
+        shape = RoundedCornerShape(config.cornerRadiusLarge),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+        )
+    ) {
+        Column(Modifier.padding(config.cardPadding)) {
+            // ... (Header and Month Navigation code remains exactly the same) ...
+
+            // Compact Header
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(config.iconSizeLarge * 1.5f)
+                        .clip(RoundedCornerShape(config.cornerRadiusMedium))
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.primary,
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                )
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(config.iconSizeMedium)
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Calendar",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = config.bodySize,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1
+                    )
+                    Text(
+                        text = "Attendance tracker",
+                        fontSize = config.labelSize * 0.9f,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(config.itemSpacing))
+
+            // Compact Month Navigation
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { monthOffset-- },
+                    modifier = Modifier
+                        .size(config.iconSizeLarge * 1.5f)
+                        .clip(RoundedCornerShape(config.cornerRadiusSmall))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Icon(
+                        Icons.Default.ArrowBack,
+                        contentDescription = "Previous",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(config.iconSizeSmall)
+                    )
+                }
+
+                Text(
+                    text = title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = config.bodySize,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center
+                )
+
+                IconButton(
+                    onClick = { monthOffset++ },
+                    modifier = Modifier
+                        .size(config.iconSizeLarge * 1.5f)
+                        .clip(RoundedCornerShape(config.cornerRadiusSmall))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Icon(
+                        Icons.Default.ArrowForward,
+                        contentDescription = "Next",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.size(config.iconSizeSmall)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(config.itemSpacing / 2))
+
+            // --- CHANGE 2: Update Week Headers ---
+            // Compact Week Headers (Sunday to Saturday)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                // Changed list to start with "S" (Sunday)
+                listOf("S", "M", "T", "W", "T", "F", "S").forEach { day ->
+                    Box(
+                        modifier = Modifier.size(config.calendarCellSize * 0.9f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = day,
+                            textAlign = TextAlign.Center,
+                            fontSize = config.labelSize * 0.9f,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Compact Calendar Grid
+            val compactCellSize = config.calendarCellSize * 0.9f
+            // We usually need 6 rows to cover all month variations
+            val gridHeight = (compactCellSize + 4.dp) * 6
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(7),
+                modifier = Modifier.height(gridHeight),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Empty boxes for days before the 1st of the month
+                items(firstDayOfWeek) {
+                    Box(modifier = Modifier.size(compactCellSize))
+                }
+
+                items(daysInMonth) { index ->
+                    val date = firstDayOfMonth.plusDays(index.toLong())
+                    val dayAttendance = attendance.filter { it.date == date }
+                    val hasData = dayAttendance.isNotEmpty()
+                    val isToday = date == today
+
+                    val allPresent = dayAttendance.all { it.status == "PRESENT" }
+                    val allAbsent = dayAttendance.all { it.status == "ABSENT" }
+
+                    val bgColor = when {
+                        !hasData && isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        !hasData -> Color.Transparent
+                        allPresent -> Color(0xFF4CAF50).copy(alpha = 0.15f)
+                        allAbsent -> Color(0xFFF44336).copy(alpha = 0.15f)
+                        else -> Color(0xFF0CFDCD).copy(alpha = 0.15f)
+                    }
+
+                    val borderColor = when {
+                        isToday && !hasData -> MaterialTheme.colorScheme.primary
+                        allPresent -> Color(0xFF4CAF50)
+                        allAbsent -> Color(0xFFF44336)
+                        hasData -> Color(0xFF0CFDCD)
+                        else -> Color.Transparent
+                    }
+
+                    val textColor = when {
+                        allPresent -> Color(0xFF2E7D32)
+                        allAbsent -> Color(0xFFC62828)
+                        hasData -> Color(0xFF0CFDCD)
+                        isToday -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(compactCellSize)
+                            .clip(RoundedCornerShape(config.cornerRadiusSmall * 0.7f))
+                            .background(bgColor)
+                            .clickable(enabled = hasData) { onDateClick(date) }
+                            .border(
+                                width = if (hasData || isToday) 1.5.dp else 0.dp,
+                                color = borderColor,
+                                shape = RoundedCornerShape(config.cornerRadiusSmall * 0.7f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "${index + 1}",
+                                fontSize = config.labelSize * 0.9f,
+                                fontWeight = if (hasData || isToday) FontWeight.Bold else FontWeight.Normal,
+                                color = textColor
+                            )
+
+                            if (hasData) {
+                                Spacer(modifier = Modifier.height(1.dp))
+                                Box(
+                                    modifier = Modifier
+                                        .size(3.dp)
+                                        .clip(CircleShape)
+                                        .background(borderColor)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(config.itemSpacing / 2))
+
+            // Legend remains the same...
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(config.cornerRadiusMedium))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
+                    .padding(config.itemSpacing),
+                verticalArrangement = Arrangement.spacedBy(config.itemSpacing / 3),
+                horizontalAlignment = Alignment.Start
+            ) {
+                CompactLegendItem(
+                    config = config,
+                    color = Color(0xFF4CAF50),
+                    label = "Present"
+                )
+                CompactLegendItem(
+                    config = config,
+                    color = Color(0xFFF44336),
+                    label = "Absent"
+                )
+                CompactLegendItem(
+                    config = config,
+                    color = Color(0xFF0CFDCD),
+                    label = "Mixed"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactLegendItem(
+    config: ResponsiveConfig,
+    color: Color,
+    label: String
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(config.itemSpacing / 2)
     ) {
         Box(
-            Modifier
-                .size(12.dp)
-                .clip(CircleShape)
+            modifier = Modifier
+                .size(config.iconSizeSmall * 0.8f)
+                .clip(RoundedCornerShape(3.dp))
                 .background(color.copy(alpha = 0.3f))
-                .border(1.dp, color, CircleShape)
+                .border(
+                    width = 1.5.dp,
+                    color = color,
+                    shape = RoundedCornerShape(3.dp)
+                )
         )
         Text(
             text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            fontSize = config.labelSize * 0.9f,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
         )
     }
 }
+
+/* ------------------------------------------------ */
+/* SMART CALENDAR SELECTOR - CHOOSES BEST LAYOUT */
+/* ------------------------------------------------ */
+@Composable
+fun SmartAttendanceCalendar(
+    config: ResponsiveConfig,
+    attendance: List<AnalyticsAttendance>,
+    onDateClick: (LocalDate) -> Unit
+) {
+    // Use compact version for very small screens, normal for others
+    if (config.screenWidth < 360) {
+        CompactAttendanceCalendar(config, attendance, onDateClick)
+    } else {
+        AttendanceCalendar(config, attendance, onDateClick)
+    }
+}
+
+
 
 /* ------------------------------------------------ */
 /* PIE CHART - MODERN */
@@ -1752,14 +2180,16 @@ fun ModernDateDialog(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     dayAttendance.forEach { item ->
                         val isPresent = item.status == "PRESENT"
                         val statusColor = if (isPresent) Color(0xFF4CAF50) else Color(0xFFF44336)
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 modifier = Modifier
@@ -1770,7 +2200,8 @@ fun ModernDateDialog(
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f, fill = false)
                                 ) {
                                     Icon(
                                         imageVector = if (isPresent) Icons.Default.CheckCircle else Icons.Outlined.Cancel,
@@ -1781,19 +2212,25 @@ fun ModernDateDialog(
                                     Text(
                                         text = item.subject,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Medium
+                                        fontWeight = FontWeight.Medium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
                                 }
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Surface(
                                     shape = RoundedCornerShape(8.dp),
                                     color = statusColor.copy(alpha = 0.15f)
                                 ) {
                                     Text(
                                         text = item.status,
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = statusColor
+                                        color = statusColor,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -2306,3 +2743,4 @@ private fun lecturesNeededToReach75(present: Int, total: Int, skip: Int): Int {
 
     return lecturesNeeded
 }
+

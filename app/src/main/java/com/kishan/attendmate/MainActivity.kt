@@ -30,7 +30,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
@@ -2128,14 +2127,14 @@ fun ModernAttendanceSummaryCard(
                 if (percentage < 75) {
                     val lecturesNeeded = calculateLecturesNeededFor75Percent(attended, total)
                     MotivationalCard(
-                        icon = Icons.Default.TrendingUp,
+                        icon = "🖕",
                         title = "Keep Going!",
                         message = "Attend $lecturesNeeded more ${if (lecturesNeeded == 1) "class" else "classes"} to reach 75%",
                         color = AttendanceColors.Warning
                     )
                 } else {
                     MotivationalCard(
-                        icon = Icons.Default.EmojiEvents,
+                        icon = "🗿",
                         title = "Amazing Work!",
                         message = "You're maintaining excellent attendance",
                         color = AttendanceColors.Present
@@ -2206,7 +2205,7 @@ private fun ModernStatItem(
 /* -------------------- MOTIVATIONAL CARD -------------------- */
 @Composable
 private fun MotivationalCard(
-    icon: ImageVector,
+    icon: String,
     title: String,
     message: String,
     color: Color
@@ -2237,11 +2236,9 @@ private fun MotivationalCard(
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(24.dp)
+                Text(
+                    text = icon,
+                    fontSize = 22.sp
                 )
             }
 
@@ -2265,6 +2262,7 @@ private fun MotivationalCard(
         }
     }
 }
+
 
 @Composable
 private fun EnhancedStatItemMain(
