@@ -175,6 +175,24 @@ private fun SettingsPage() {
 
             Spacer(Modifier.height(24.dp))
 
+            SettingsSection("Friends", Icons.Default.Group)
+
+            SettingsItem(
+                icon = Icons.Default.PersonAdd,
+                title = "Manage Friends",
+                subtitle = "Add friends & view profiles",
+                onClick = {
+                    context.startActivity(
+                        Intent(
+                            context,
+                            com.kishan.attendmate.ui.friends.FriendsActivity::class.java
+                        )
+                    )
+                }
+            )
+
+            Spacer(Modifier.height(24.dp))
+
             SettingsSection("Web Version", Icons.Default.Info)
 
             SettingsItem(

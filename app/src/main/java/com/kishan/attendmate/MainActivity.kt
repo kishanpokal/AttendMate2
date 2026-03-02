@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -54,7 +56,11 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.firestore.PersistentCacheSettings
+import com.google.firebase.firestore.Source
 import com.kishan.attendmate.ui.components.AttendMateNavigationBar
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import com.kishan.attendmate.ui.auth.LoginActivity
@@ -69,7 +75,6 @@ import java.util.*
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
         val auth = FirebaseAuth.getInstance()
 
         // 🔐 Auth guard
@@ -82,6 +87,13 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        // 💾 Enable Firestore Offline Persistence
+        val db = FirebaseFirestore.getInstance()
+        val settings = FirebaseFirestoreSettings.Builder()
+            .setLocalCacheSettings(PersistentCacheSettings.newBuilder().build())
+            .build()
+        db.firestoreSettings = settings
+
         // 🔔 Ensure notification channels exist
         createNotificationChannels()
 
@@ -89,9 +101,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             AttendMateTheme {
                 Scaffold(
-                    bottomBar = {
-                        AttendMateNavigationBar(selectedRoute = "home")
-                    }
+                    bottomBar = { AttendMateNavigationBar(selectedRoute = "home") }
                 ) { paddingValues ->
                     Box(
                         modifier = Modifier
@@ -140,7 +150,14 @@ data class ActiveLecture(
     val endTime: String
 )
 
+data class FetchResult(
+    val lectures: List<TodayLecture>,
+    val total: Int,
+    val attended: Int
+)
+
 /* -------------------- HOME SCREEN -------------------- */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen() {
     val haptic = LocalHapticFeedback.current
@@ -150,11 +167,18 @@ fun HomeScreen() {
     val userId = auth.currentUser?.uid ?: return
 
     var todayLectures by remember { mutableStateOf<List<TodayLecture>>(emptyList()) }
-    var totalClasses by remember { mutableStateOf(0) }
-    var attendedClasses by remember { mutableStateOf(0) }
+    var totalClasses by remember { mutableIntStateOf(0) }
+    var attendedClasses by remember { mutableIntStateOf(0) }
+
+    // UI States
     var isLoading by remember { mutableStateOf(true) }
+    var isRefreshing by remember { mutableStateOf(false) } // For swipe down
     var username by remember { mutableStateOf("User") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Logic States
+    var refreshTrigger by remember { mutableIntStateOf(0) }
+    var forceServerFetch by remember { mutableStateOf(false) }
 
     /* Popup state */
     var showPopup by remember { mutableStateOf(false) }
@@ -168,7 +192,8 @@ fun HomeScreen() {
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                isLoading = true
+                // Instantly triggers the LaunchedEffect to run seamlessly
+                refreshTrigger++
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -177,15 +202,16 @@ fun HomeScreen() {
         }
     }
 
-    // ── Data Loading (keep your existing logic) ─────────────────────────────
-    LaunchedEffect(isLoading, userId) {
-        if (!isLoading) return@LaunchedEffect
-        isLoading = true
+    // ── Safe Offline-First & Server-First Data Loading ─────────────────────────────
+    LaunchedEffect(refreshTrigger, userId) {
+        if (todayLectures.isEmpty() && !isRefreshing) {
+            isLoading = true
+        }
         errorMessage = null
 
-        try {
-            // 1. Get user info
-            val userDoc = db.collection("users").document(userId).get().await()
+        suspend fun fetchAttendanceData(source: Source): FetchResult {
+            // 1. Get user info safely
+            val userDoc = db.collection("users").document(userId).get(source).await()
             username = userDoc.getString("username") ?: "User"
 
             /* -------- CHECK CURRENT LECTURE -------- */
@@ -196,37 +222,35 @@ fun HomeScreen() {
                 .document(userId)
                 .collection("timetable")
                 .whereEqualTo("day", todayDay)
-                .get()
+                .get(source)
                 .await()
 
-            for (doc in timetableSnapshot.documents) {
-                val startTime = doc.getString("startTime") ?: continue
-                val endTime = doc.getString("endTime") ?: continue
-                val start = LocalTime.parse(startTime)
-                val end = LocalTime.parse(endTime)
+            timetableSnapshot.documents.forEach { doc ->
+                val startTimeRaw = doc.getString("startTime") ?: return@forEach
+                val endTimeRaw = doc.getString("endTime") ?: return@forEach
 
+                val start = runCatching { LocalTime.parse(startTimeRaw.padStart(5, '0')) }.getOrNull() ?: return@forEach
+                val end = runCatching { LocalTime.parse(endTimeRaw.padStart(5, '0')) }.getOrNull() ?: return@forEach
 
                 if (now.isAfter(start) && now.isBefore(end)) {
-                    val subjectId = doc.getString("subjectId") ?: continue
-                    val subjectName = doc.getString("subjectName") ?: continue
+                    val subjectId = doc.getString("subjectId") ?: return@forEach
+                    val subjectName = doc.getString("subjectName") ?: return@forEach
 
                     val todayDate = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-                    val lectureId = "${todayDate}_${startTime.replace(":", "")}_${endTime.replace(":", "")}"
+                    val lectureId = "${todayDate}_${startTimeRaw.replace(":", "")}_${endTimeRaw.replace(":", "")}"
 
-                    val attendanceRef = db.collection("users")
+                    val attendanceExists = db.collection("users")
                         .document(userId)
                         .collection("subjects")
                         .document(subjectId)
                         .collection("attendance")
                         .document(lectureId)
+                        .get(source).await().exists()
 
-                    if (!attendanceRef.get().await().exists()) {
-                        activeLecture = ActiveLecture(
-                            subjectId, subjectName, startTime, endTime
-                        )
+                    if (!attendanceExists) {
+                        activeLecture = ActiveLecture(subjectId, subjectName, startTimeRaw, endTimeRaw)
                         showPopup = true
                     }
-                    break
                 }
             }
 
@@ -234,15 +258,11 @@ fun HomeScreen() {
             val subjects = db.collection("users")
                 .document(userId)
                 .collection("subjects")
-                .get()
+                .get(source)
                 .await()
 
             if (subjects.isEmpty) {
-                todayLectures = emptyList()
-                totalClasses = 0
-                attendedClasses = 0
-                isLoading = false
-                return@LaunchedEffect
+                return FetchResult(emptyList(), 0, 0)
             }
 
             val todayList = mutableListOf<TodayLecture>()
@@ -253,30 +273,21 @@ fun HomeScreen() {
             for (subjectDoc in subjects.documents) {
                 val subjectName = subjectDoc.getString("name") ?: continue
 
-                val attendanceSnapshot = subjectDoc.reference
-                    .collection("attendance")
-                    .get()
-                    .await()
+                val attendanceSnapshot = subjectDoc.reference.collection("attendance").get(source).await()
 
                 for (doc in attendanceSnapshot.documents) {
                     val status = doc.getString("status")?.uppercase() ?: "ABSENT"
                     total++
                     if (status == "PRESENT") attended++
 
-                    // Handle date
                     val todayDate = LocalDate.now().toString()
                     val dateString: String = when (val rawDate = doc.get("date")) {
                         is String -> rawDate
-                        is Timestamp -> rawDate.toDate()
-                            .toInstant()
-                            .atZone(ZoneId.systemDefault())
-                            .toLocalDate()
-                            .toString()
+                        is Timestamp -> rawDate.toDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate().toString()
                         else -> continue
                     }
                     if (dateString != todayDate) continue
 
-                    // Handle time
                     val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
                     val startTime = doc.get("startTime")?.let { raw ->
                         when (raw) {
@@ -297,33 +308,69 @@ fun HomeScreen() {
                     val note = doc.getString("note")
 
                     todayList.add(
-                        TodayLecture(
-                            subjectName = subjectName,
-                            status = status,
-                            startTime = startTime,
-                            endTime = endTime,
-                            note = note
-                        )
+                        TodayLecture(subjectName, status, startTime, endTime, note)
                     )
                 }
             }
 
+            return FetchResult(todayList.sortedBy { it.startTime }, total, attended)
+        }
 
-
-            todayLectures = todayList.sortedBy { it.startTime }
-            totalClasses = total
-            attendedClasses = attended
-
+        try {
+            // SKIP CACHE if user explicitly swiped down or marked attendance
+            if (!forceServerFetch && !isRefreshing) {
+                val cacheData = fetchAttendanceData(Source.CACHE)
+                if (cacheData.total > 0 || cacheData.lectures.isNotEmpty()) {
+                    todayLectures = cacheData.lectures
+                    totalClasses = cacheData.total
+                    attendedClasses = cacheData.attended
+                    isLoading = false
+                }
+            }
         } catch (e: Exception) {
-            errorMessage = "Failed to load data: ${e.localizedMessage}"
+            // Cache miss - totally normal
+        }
+
+        try {
+            // ALWAYS hit the server to ensure background changes/new marks are grabbed
+            val serverData = fetchAttendanceData(Source.SERVER)
+
+            todayLectures = serverData.lectures
+            totalClasses = serverData.total
+            attendedClasses = serverData.attended
+
+            // GUARANTEED SAVE: Instantly update daily snapshot with pristine server data
+            saveDailySnapshot(
+                db = db,
+                userId = userId,
+                todayLectures = serverData.lectures,
+                total = serverData.total,
+                attended = serverData.attended
+            )
+
+            errorMessage = null
+        } catch (e: Exception) {
+            Log.e("DATA_LOAD_ERROR", "Failed to load data from server", e)
+
+            if (todayLectures.isEmpty() && totalClasses == 0) {
+                errorMessage = if (e.message?.contains("offline", ignoreCase = true) == true ||
+                    e.message?.contains("network", ignoreCase = true) == true ||
+                    e is com.google.firebase.firestore.FirebaseFirestoreException
+                ) {
+                    "Unable to connect. Please check your internet."
+                } else {
+                    "An unexpected data error occurred. Please try again."
+                }
+            }
         } finally {
             isLoading = false
+            isRefreshing = false
+            forceServerFetch = false
         }
     }
 
     /* ================= UI ================= */
     Box(modifier = Modifier.fillMaxSize()) {
-        // Animated gradient background
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -337,81 +384,93 @@ fun HomeScreen() {
                 )
         )
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            /* -------- MODERN HEADER -------- */
-            EnhancedHeader(username = username)
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                isRefreshing = true
+                forceServerFetch = true
+                refreshTrigger++
+            },
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                /* -------- COMPACT HEADER -------- */
+                EnhancedHeader(username = username)
 
-            /* -------- ERROR STATE -------- */
-            if (errorMessage != null) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    EnhancedErrorState(errorMessage = errorMessage ?: "Unknown error")
-                }
-            } else {
-                /* -------- CONTENT -------- */
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(24.dp)
-                ) {
-                    // Summary Card
-                    item {
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = fadeIn() + slideInVertically()
-                        ) {
-                            if (isLoading) {
-                                SkeletonSummaryCard()
-                            } else {
-                                ModernAttendanceSummaryCard(
-                                    total = totalClasses,
-                                    attended = attendedClasses,
-                                    screenWidth = configuration.screenWidthDp.dp
+                /* -------- ERROR STATE -------- */
+                if (errorMessage != null && todayLectures.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        EnhancedErrorState(
+                            errorMessage = errorMessage ?: "Unknown error",
+                            onRetry = {
+                                forceServerFetch = true
+                                refreshTrigger++
+                            }
+                        )
+                    }
+                } else {
+                    /* -------- CONTENT -------- */
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        // Summary Card
+                        item {
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = fadeIn() + slideInVertically()
+                            ) {
+                                if (isLoading && todayLectures.isEmpty()) {
+                                    SkeletonSummaryCard()
+                                } else {
+                                    ModernAttendanceSummaryCard(
+                                        total = totalClasses,
+                                        attended = attendedClasses,
+                                        screenWidth = configuration.screenWidthDp.dp
+                                    )
+                                }
+                            }
+                        }
+
+                        // Section Header
+                        item {
+                            AnimatedVisibility(
+                                visible = true,
+                                enter = fadeIn() + slideInVertically()
+                            ) {
+                                EnhancedSectionHeader(
+                                    icon = Icons.Outlined.EventNote,
+                                    title = "Today's Lectures",
+                                    subtitle = getCurrentDateString(),
+                                    onActionClick = null
                                 )
                             }
                         }
-                    }
 
-                    // Section Header
-                    item {
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = fadeIn() + slideInVertically()
-                        ) {
-                            EnhancedSectionHeader(
-                                icon = Icons.Outlined.EventNote,
-                                title = "Today's Lectures",
-                                subtitle = getCurrentDateString(),
-                                onActionClick = null
-                            )
+                        // Lectures List
+                        if (isLoading && todayLectures.isEmpty()) {
+                            items(3) {
+                                SkeletonLectureCard()
+                            }
+                        } else if (todayLectures.isEmpty()) {
+                            item {
+                                EnhancedEmptyState()
+                            }
+                        } else {
+                            items(todayLectures) { lecture ->
+                                EnhancedTodayLectureCard(
+                                    item = lecture,
+                                    onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress) }
+                                )
+                            }
                         }
-                    }
 
-                    // Lectures List
-                    if (isLoading) {
-                        items(3) {
-                            SkeletonLectureCard()
-                        }
-                    } else if (todayLectures.isEmpty()) {
-                        item {
-                            EnhancedEmptyState()
-                        }
-                    } else {
-                        items(todayLectures) { lecture ->
-                            EnhancedTodayLectureCard(
-                                item = lecture,
-                                onClick = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    // Handle click if needed
-                                }
-                            )
-                        }
-                    }
-
-                    item {
-                        Spacer(modifier = Modifier.height(16.dp))
+                        item { Spacer(modifier = Modifier.height(16.dp)) }
                     }
                 }
             }
@@ -423,9 +482,7 @@ fun HomeScreen() {
         ModernAttendanceDialog(
             lecture = activeLecture!!,
             note = popupNote,
-            onNoteChange = {
-                if (it.length <= 200) popupNote = it
-            },
+            onNoteChange = { if (it.length <= 200) popupNote = it },
             isSaving = isSavingPopup,
             onDismiss = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -437,31 +494,43 @@ fun HomeScreen() {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 isSavingPopup = true
                 savePopupAttendance(
-                    db, userId, activeLecture!!, "Present", popupNote
+                    db,
+                    userId,
+                    activeLecture!!,
+                    "Present",
+                    popupNote
                 ) {
                     isSavingPopup = false
                     showPopup = false
                     popupNote = ""
-                    isLoading = true
+                    // Force complete server override
+                    forceServerFetch = true
+                    refreshTrigger++
                 }
             },
             onAbsent = {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 isSavingPopup = true
                 savePopupAttendance(
-                    db, userId, activeLecture!!, "Absent", popupNote
+                    db,
+                    userId,
+                    activeLecture!!,
+                    "Absent",
+                    popupNote
                 ) {
                     isSavingPopup = false
                     showPopup = false
                     popupNote = ""
-                    isLoading = true
+                    // Force complete server override
+                    forceServerFetch = true
+                    refreshTrigger++
                 }
             }
         )
     }
 }
 
-/* -------------------- ENHANCED HEADER -------------------- */
+/* -------------------- COMPACT HEADER -------------------- */
 @Composable
 fun EnhancedHeader(username: String) {
     Card(
@@ -469,10 +538,10 @@ fun EnhancedHeader(username: String) {
             .fillMaxWidth()
             .shadow(
                 elevation = 4.dp,
-                shape = RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp),
+                shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
                 spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             ),
-        shape = RoundedCornerShape(bottomStart = 32.dp, bottomEnd = 32.dp),
+        shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         )
@@ -490,7 +559,7 @@ fun EnhancedHeader(username: String) {
                 )
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp)
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -503,24 +572,24 @@ fun EnhancedHeader(username: String) {
                             style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.primary,
                             fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
+                            fontSize = 12.sp
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = "Hello, $username",
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 28.sp
+                            fontSize = 24.sp
                         )
                     }
 
                     // Profile Avatar
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(48.dp)
                             .shadow(
-                                elevation = 8.dp,
+                                elevation = 6.dp,
                                 shape = CircleShape,
                                 spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
                             )
@@ -537,30 +606,30 @@ fun EnhancedHeader(username: String) {
                     ) {
                         Text(
                             text = username.firstOrNull()?.uppercaseChar()?.toString() ?: "U",
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            fontSize = 24.sp
+                            fontSize = 20.sp
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Date and Day
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Outlined.CalendarToday,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
                     )
                     Text(
                         text = getCurrentDateString(),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Medium
                     )
@@ -590,8 +659,8 @@ fun EnhancedSectionHeader(
         ) {
             Box(
                 modifier = Modifier
-                    .size(48.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
             ) {
@@ -599,17 +668,16 @@ fun EnhancedSectionHeader(
                     imageVector = icon,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
-
             Column {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 20.sp
+                    fontSize = 18.sp
                 )
                 Text(
                     text = subtitle,
@@ -632,42 +700,96 @@ fun EnhancedSectionHeader(
     }
 }
 
-/* -------------------- ENHANCED ERROR STATE -------------------- */
+/* -------------------- PRO ERROR STATE -------------------- */
 @Composable
-fun EnhancedErrorState(errorMessage: String) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+fun EnhancedErrorState(errorMessage: String, onRetry: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 32.dp)
+            .shadow(
+                elevation = 8.dp,
+                shape = RoundedCornerShape(28.dp),
+                spotColor = MaterialTheme.colorScheme.error.copy(alpha = 0.2f)
+            ),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
     ) {
         Box(
             modifier = Modifier
-                .size(100.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)),
-            contentAlignment = Alignment.Center
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+                            MaterialTheme.colorScheme.surface
+                        )
+                    )
+                )
         ) {
-            Icon(
-                imageVector = Icons.Outlined.ErrorOutline,
-                contentDescription = null,
-                modifier = Modifier.size(56.dp),
-                tint = MaterialTheme.colorScheme.error
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(32.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.ErrorOutline,
+                        contentDescription = null,
+                        modifier = Modifier.size(56.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Oops!",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        lineHeight = 20.sp
+                    )
+                }
+
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier
+                        .fillMaxWidth(0.8f)
+                        .height(50.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Try Again", fontWeight = FontWeight.Bold)
+                }
+            }
         }
-
-        Text(
-            text = "Oops!",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.error
-        )
-
-        Text(
-            text = errorMessage,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium
-        )
     }
 }
 
@@ -687,7 +809,7 @@ fun getCurrentDateString(): String {
     return formatter.format(Date())
 }
 
-/* -------------------- ENHANCED TODAY LECTURE CARD -------------------- */
+/* -------------------- SLEEK TODAY LECTURE CARD -------------------- */
 @Composable
 fun EnhancedTodayLectureCard(
     item: TodayLecture,
@@ -695,8 +817,7 @@ fun EnhancedTodayLectureCard(
 ) {
     val isPresent = item.status == "PRESENT"
     val statusColor = if (isPresent) Color(0xFF10B981) else Color(0xFFEF4444)
-    val statusBgColor = statusColor.copy(alpha = 0.12f)
-
+    val statusBgColor = statusColor.copy(alpha = 0.08f)
     val scale by animateFloatAsState(
         targetValue = 1f,
         animationSpec = spring(
@@ -710,20 +831,19 @@ fun EnhancedTodayLectureCard(
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .padding(horizontal = 20.dp)
             .shadow(
-                elevation = 6.dp,
-                shape = RoundedCornerShape(24.dp),
-                spotColor = statusColor.copy(alpha = 0.2f)
+                elevation = 2.dp,
+                shape = RoundedCornerShape(20.dp),
+                spotColor = statusColor.copy(alpha = 0.1f)
             )
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface
         ),
         border = BorderStroke(
-            width = 1.5.dp,
-            color = statusColor.copy(alpha = 0.3f)
+            width = 1.dp,
+            color = statusColor.copy(alpha = 0.2f)
         )
     ) {
         Box(
@@ -737,164 +857,87 @@ fun EnhancedTodayLectureCard(
                             MaterialTheme.colorScheme.surface
                         ),
                         startX = 0f,
-                        endX = 1200f
+                        endX = 800f
                     )
                 )
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(20.dp),
+                    .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Enhanced Status Icon with Glow
                 Box(
                     modifier = Modifier
-                        .size(72.dp)
-                        .shadow(
-                            elevation = 12.dp,
-                            shape = CircleShape,
-                            spotColor = statusColor.copy(alpha = 0.5f)
-                        )
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    statusColor,
-                                    statusColor.copy(alpha = 0.85f)
-                                )
-                            )
-                        ),
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(statusColor.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = if (isPresent)
-                            Icons.Filled.CheckCircle
-                        else
-                            Icons.Filled.Cancel,
+                        imageVector = if (isPresent) Icons.Filled.CheckCircle else Icons.Filled.Cancel,
                         contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
+                        tint = statusColor,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
 
-                // Content Column
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    // Subject Name with Gradient
                     Text(
                         text = item.subjectName,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 19.sp,
+                        fontSize = 17.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    // Time Row with Enhanced Icon
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        shadowElevation = 1.dp
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
+                            Icon(
+                                Icons.Outlined.Schedule,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "${item.startTime} - ${item.endTime}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (!item.note.isNullOrBlank()) {
                                 Icon(
-                                    Icons.Filled.Schedule,
-                                    contentDescription = null,
+                                    imageVector = Icons.Outlined.EditNote,
+                                    contentDescription = "Has note",
                                     tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                             Text(
-                                text = "${item.startTime} - ${item.endTime}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp
+                                text = if (isPresent) "Present" else "Absent",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = statusColor,
+                                fontWeight = FontWeight.Bold
                             )
-                        }
-                    }
-
-                    // Status Badge Row
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Main Status Badge
-                        Surface(
-                            shape = RoundedCornerShape(14.dp),
-                            color = statusColor,
-                            shadowElevation = 3.dp,
-                            modifier = Modifier.shadow(
-                                elevation = 4.dp,
-                                shape = RoundedCornerShape(14.dp),
-                                spotColor = statusColor.copy(alpha = 0.4f)
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                )
-                                Text(
-                                    text = if (isPresent) "Present" else "Absent",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = Color.White,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 13.sp
-                                )
-                            }
-                        }
-
-                        // Note Indicator (if exists)
-                        if (!item.note.isNullOrBlank()) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .shadow(
-                                        elevation = 4.dp,
-                                        shape = CircleShape,
-                                        spotColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
-                                    )
-                                    .clip(CircleShape)
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(
-                                                MaterialTheme.colorScheme.tertiaryContainer,
-                                                MaterialTheme.colorScheme.secondaryContainer
-                                            )
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.EditNote,
-                                    contentDescription = "Has note",
-                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
                         }
                     }
                 }
@@ -920,7 +963,6 @@ fun EnhancedEmptyState() {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
             .shadow(
                 elevation = 4.dp,
                 shape = RoundedCornerShape(28.dp),
@@ -950,10 +992,9 @@ fun EnhancedEmptyState() {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
-                // Animated Icon Container
                 Box(
                     modifier = Modifier
-                        .size(140.dp)
+                        .size(120.dp)
                         .offset(y = floatOffset.dp)
                         .shadow(
                             elevation = 16.dp,
@@ -974,46 +1015,26 @@ fun EnhancedEmptyState() {
                     Icon(
                         imageVector = Icons.Outlined.EventNote,
                         contentDescription = null,
-                        modifier = Modifier.size(70.dp),
+                        modifier = Modifier.size(60.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
 
-                // Title
                 Text(
                     text = "No Lectures Today",
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.ExtraBold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center,
-                    fontSize = 24.sp
+                    textAlign = TextAlign.Center
                 )
 
-                // Subtitle
                 Text(
                     text = "Enjoy your day off! 🎉\nRelax and recharge for tomorrow.",
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
-                    lineHeight = 24.sp
+                    lineHeight = 20.sp
                 )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Decorative Element
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    repeat(3) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-                        )
-                    }
-                }
             }
         }
     }
@@ -1079,7 +1100,7 @@ fun ModernAttendanceDialog(
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
-                    ) { /* Prevent dismissal when clicking card */ },
+                    ) { /* Prevent dismissal */ },
                 shape = RoundedCornerShape(36.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
@@ -1099,7 +1120,6 @@ fun ModernAttendanceDialog(
                             )
                         )
                 ) {
-                    // Decorative background elements
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         drawCircle(
                             color = Color(0xFF667EEA).copy(alpha = 0.04f),
@@ -1119,7 +1139,6 @@ fun ModernAttendanceDialog(
                             .padding(28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Close Button
                         Box(
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1149,13 +1168,9 @@ fun ModernAttendanceDialog(
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
-
-                        // Animated Icon with pulse effect
                         AnimatedDialogIcon()
-
                         Spacer(modifier = Modifier.height(28.dp))
 
-                        // Title
                         Text(
                             text = "Mark Attendance",
                             style = MaterialTheme.typography.headlineMedium,
@@ -1167,7 +1182,6 @@ fun ModernAttendanceDialog(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        // Subject Name Badge
                         Surface(
                             shape = RoundedCornerShape(18.dp),
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
@@ -1202,7 +1216,6 @@ fun ModernAttendanceDialog(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Enhanced Time Card
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(22.dp),
@@ -1271,7 +1284,6 @@ fun ModernAttendanceDialog(
 
                         Spacer(modifier = Modifier.height(28.dp))
 
-                        // Enhanced Note Field
                         OutlinedTextField(
                             value = note,
                             onValueChange = onNoteChange,
@@ -1324,12 +1336,7 @@ fun ModernAttendanceDialog(
                                         "${note.length}/200",
                                         style = MaterialTheme.typography.labelSmall,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (note.length > 180)
-                                            AttendanceColors.Absent
-                                        else if (note.length > 150)
-                                            AttendanceColors.Warning
-                                        else
-                                            MaterialTheme.colorScheme.primary
+                                        color = if (note.length > 180) AttendanceColors.Absent else if (note.length > 150) AttendanceColors.Warning else MaterialTheme.colorScheme.primary
                                     )
                                 }
                             },
@@ -1345,12 +1352,10 @@ fun ModernAttendanceDialog(
 
                         Spacer(modifier = Modifier.height(32.dp))
 
-                        // Action Buttons
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            // Absent Button
                             ModernActionButton(
                                 text = "Absent",
                                 icon = Icons.Outlined.Close,
@@ -1361,7 +1366,6 @@ fun ModernAttendanceDialog(
                                 onClick = onAbsent
                             )
 
-                            // Present Button
                             ModernActionButton(
                                 text = "Present",
                                 icon = Icons.Filled.CheckCircle,
@@ -1403,7 +1407,6 @@ object AttendanceColors {
 @Composable
 private fun AnimatedDialogIcon() {
     val infiniteTransition = rememberInfiniteTransition(label = "dialog_icon")
-
     val rotation by infiniteTransition.animateFloat(
         initialValue = -10f,
         targetValue = 10f,
@@ -1413,7 +1416,6 @@ private fun AnimatedDialogIcon() {
         ),
         label = "rotation"
     )
-
     val scale by infiniteTransition.animateFloat(
         initialValue = 0.95f,
         targetValue = 1.05f,
@@ -1425,7 +1427,6 @@ private fun AnimatedDialogIcon() {
     )
 
     Box(contentAlignment = Alignment.Center) {
-        // Outer glow rings
         repeat(3) { index ->
             Box(
                 modifier = Modifier
@@ -1444,7 +1445,6 @@ private fun AnimatedDialogIcon() {
             )
         }
 
-        // Main icon container
         Box(
             modifier = Modifier
                 .size(110.dp)
@@ -1478,7 +1478,6 @@ private fun AnimatedDialogIcon() {
                 ),
             contentAlignment = Alignment.Center
         ) {
-            // Radial white overlay
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1498,9 +1497,7 @@ private fun AnimatedDialogIcon() {
                 tint = Color.White,
                 modifier = Modifier
                     .size(56.dp)
-                    .graphicsLayer {
-                        rotationZ = rotation
-                    }
+                    .graphicsLayer { rotationZ = rotation }
             )
         }
     }
@@ -1519,7 +1516,6 @@ private fun ModernActionButton(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-
     val buttonScale by animateFloatAsState(
         targetValue = if (isPressed) 0.95f else 1f,
         animationSpec = spring(
@@ -1644,10 +1640,7 @@ fun savePopupAttendance(
 
         val subjectSnap = tx.get(subjectRef)
         val total = (subjectSnap.getLong("totalClasses") ?: 0) + 1
-        val attended = if (status == "Present")
-            (subjectSnap.getLong("attendedClasses") ?: 0) + 1
-        else
-            subjectSnap.getLong("attendedClasses") ?: 0
+        val attended = if (status == "Present") (subjectSnap.getLong("attendedClasses") ?: 0) + 1 else subjectSnap.getLong("attendedClasses") ?: 0
 
         val attendanceData = mutableMapOf<String, Any>(
             "status" to status,
@@ -1670,10 +1663,55 @@ fun savePopupAttendance(
                 "attendedClasses" to attended
             )
         )
-    }.addOnCompleteListener {
-        onDone()
+    }.addOnCompleteListener { onDone() }
+}
+
+suspend fun saveDailySnapshot(
+    db: FirebaseFirestore,
+    userId: String,
+    todayLectures: List<TodayLecture>,
+    total: Int,
+    attended: Int
+) {
+    val todayDate = LocalDate.now().toString()
+
+    val snapshotRef = db.collection("users")
+        .document(userId)
+        .collection("dailySnapshot")
+        .document(todayDate)
+
+    val percentage = if (total == 0) 0.0 else (attended.toDouble() / total.toDouble()) * 100.0
+
+    // ✅ FIXED: Create a unique key using "SubjectName_StartTime"
+    // This ensures that two lectures of the same subject at different times are both saved.
+    val lectureMap = todayLectures.associate { lecture ->
+        val uniqueKey = "${lecture.subjectName}_${lecture.startTime.replace(":", "")}"
+        uniqueKey to mapOf(
+            "subjectName" to lecture.subjectName,
+            "status" to lecture.status,
+            "startTime" to lecture.startTime,
+            "endTime" to lecture.endTime,
+            "note" to (lecture.note ?: "")
+        )
+    }
+
+    val data = mapOf(
+        "date" to todayDate,
+        "totalClasses" to total,
+        "attendedClasses" to attended,
+        "percentage" to percentage,
+        "lectures" to lectureMap, // Now contains nested objects instead of just strings
+        "updatedAt" to FieldValue.serverTimestamp()
+    )
+
+    try {
+        snapshotRef.set(data).await()
+        Log.d("SNAPSHOT_SUCCESS", "Successfully saved snapshot with multiple same-subject lectures!")
+    } catch (e: Exception) {
+        Log.e("SNAPSHOT_ERROR", "Failed to save snapshot", e)
     }
 }
+
 /* -------------------- SKELETON LOADING COMPONENTS -------------------- */
 @Composable
 fun SkeletonSummaryCard() {
@@ -1709,14 +1747,18 @@ fun SkeletonSummaryCard() {
                     .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
             )
+
             Spacer(modifier = Modifier.height(24.dp))
+
             Box(
                 modifier = Modifier
                     .size(160.dp)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
             )
+
             Spacer(modifier = Modifier.height(24.dp))
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -1730,7 +1772,9 @@ fun SkeletonSummaryCard() {
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                         )
+
                         Spacer(modifier = Modifier.height(8.dp))
+
                         Box(
                             modifier = Modifier
                                 .width(60.dp)
@@ -1779,7 +1823,9 @@ fun SkeletonLectureCard() {
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
             )
+
             Spacer(modifier = Modifier.width(16.dp))
+
             Column(modifier = Modifier.weight(1f)) {
                 Box(
                     modifier = Modifier
@@ -1788,7 +1834,9 @@ fun SkeletonLectureCard() {
                         .clip(RoundedCornerShape(11.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                 )
+
                 Spacer(modifier = Modifier.height(10.dp))
+
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.5f)
@@ -1796,7 +1844,9 @@ fun SkeletonLectureCard() {
                         .clip(RoundedCornerShape(9.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                 )
+
                 Spacer(modifier = Modifier.height(10.dp))
+
                 Box(
                     modifier = Modifier
                         .width(100.dp)
@@ -1808,8 +1858,6 @@ fun SkeletonLectureCard() {
         }
     }
 }
-
-
 
 /* -------------------- MODERN ATTENDANCE SUMMARY CARD -------------------- */
 @Composable
@@ -1877,7 +1925,6 @@ fun ModernAttendanceSummaryCard(
                     )
                 )
         ) {
-            // Decorative background patterns
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val circleRadius = 100f
                 drawCircle(
@@ -1898,7 +1945,6 @@ fun ModernAttendanceSummaryCard(
                     .padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header Section
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1934,6 +1980,7 @@ fun ModernAttendanceSummaryCard(
                                 modifier = Modifier.size(26.dp)
                             )
                         }
+
                         Column {
                             Text(
                                 text = "Attendance",
@@ -1951,7 +1998,6 @@ fun ModernAttendanceSummaryCard(
                         }
                     }
 
-                    // Status Badge
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = statusColor.copy(alpha = 0.15f),
@@ -1981,12 +2027,10 @@ fun ModernAttendanceSummaryCard(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Circular Progress with 3D effect
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.size(220.dp)
                 ) {
-                    // Outer glow layers
                     repeat(3) { index ->
                         Canvas(
                             modifier = Modifier
@@ -2005,7 +2049,6 @@ fun ModernAttendanceSummaryCard(
                         }
                     }
 
-                    // Background track with gradient
                     Canvas(modifier = Modifier.size(190.dp)) {
                         drawCircle(
                             brush = Brush.radialGradient(
@@ -2018,7 +2061,6 @@ fun ModernAttendanceSummaryCard(
                         )
                     }
 
-                    // Animated progress arc
                     CircularProgressIndicator(
                         progress = { animatedPercentage.value / 100f },
                         modifier = Modifier.size(190.dp),
@@ -2028,7 +2070,6 @@ fun ModernAttendanceSummaryCard(
                         strokeCap = StrokeCap.Round
                     )
 
-                    // Inner shadow circle
                     Canvas(modifier = Modifier.size(150.dp)) {
                         drawCircle(
                             brush = Brush.radialGradient(
@@ -2040,7 +2081,6 @@ fun ModernAttendanceSummaryCard(
                         )
                     }
 
-                    // Center content
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -2074,7 +2114,6 @@ fun ModernAttendanceSummaryCard(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Enhanced Stats Row
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(20.dp),
@@ -2123,11 +2162,10 @@ fun ModernAttendanceSummaryCard(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Progress Message Card
                 if (percentage < 75) {
                     val lecturesNeeded = calculateLecturesNeededFor75Percent(attended, total)
                     MotivationalCard(
-                        icon = "🖕",
+                        icon = "💪",
                         title = "Keep Going!",
                         message = "Attend $lecturesNeeded more ${if (lecturesNeeded == 1) "class" else "classes"} to reach 75%",
                         color = AttendanceColors.Warning
@@ -2250,7 +2288,9 @@ private fun MotivationalCard(
                     color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 15.sp
                 )
+
                 Spacer(modifier = Modifier.height(2.dp))
+
                 Text(
                     text = message,
                     style = MaterialTheme.typography.bodyMedium,
@@ -2260,47 +2300,6 @@ private fun MotivationalCard(
                 )
             }
         }
-    }
-}
-
-
-@Composable
-private fun EnhancedStatItemMain(
-    label: String,
-    value: String,
-    icon: ImageVector,
-    color: Color
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(color.copy(alpha = 0.15f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-        Text(
-            text = value,
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            color = color
-        )
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.Medium
-        )
     }
 }
 
@@ -2318,5 +2317,6 @@ private fun calculateLecturesNeededFor75Percent(attended: Int, total: Int): Int 
         tempTotal++
         needed++
     }
+
     return needed
 }

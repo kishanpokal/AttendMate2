@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -47,8 +48,8 @@ data class NavItem(
 )
 
 /**
- * IMPROVED RESPONSIVE NAVIGATION BAR
- * Features: Perfect alignment, transparent glass design, smooth animations
+ * FLOATING TRANSLUCENT NAVIGATION BAR
+ * Features: True transparent glass, drop shadow, lifted pill design
  */
 @Composable
 fun AttendMateNavigationBar(
@@ -84,29 +85,32 @@ fun AttendMateNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
+            // Added bottom padding to lift it off the screen edge
+            .padding(horizontal = 20.dp)
+            .padding(bottom = 24.dp)
     ) {
         // Main navigation container
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .height(72.dp)
+                // Drop shadow to emphasize the floating effect
+                .shadow(
+                    elevation = 12.dp,
+                    shape = RoundedCornerShape(36.dp),
+                    ambientColor = if (isDark) Color.Black else Color.Gray.copy(alpha = 0.5f),
+                    spotColor = if (isDark) Color.Black else Color.Gray.copy(alpha = 0.5f)
+                )
+                .clip(RoundedCornerShape(36.dp))
         ) {
-            // Glass background with proper sizing
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(72.dp)
-                    .clip(RoundedCornerShape(36.dp))
-            ) {
-                TransparentGlassBackground(isDark = isDark)
-            }
+            // Glass background with lower alpha for transparency
+            TransparentGlassBackground(isDark = isDark)
 
-            // Navigation content with centered FAB space
+            // Navigation content
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(72.dp)
+                    .fillMaxSize()
                     .padding(horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -154,7 +158,7 @@ fun AttendMateNavigationBar(
             }
         }
 
-        // Floating Action Button - perfectly centered
+        // Floating Action Button - repositioned for the floating pill
         FloatingActionButton(
             isDark = isDark,
             onClick = {
@@ -163,7 +167,8 @@ fun AttendMateNavigationBar(
             },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .offset(y = (-40).dp)
+                // Adjusted offset to straddle the top of the pill perfectly
+                .offset(y = (-32).dp)
         )
     }
 }
@@ -171,18 +176,18 @@ fun AttendMateNavigationBar(
 @Composable
 private fun TransparentGlassBackground(isDark: Boolean) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Frosted glass effect
+        // Frosted glass effect - Alphas significantly reduced for background visibility
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
                         colors = if (isDark) listOf(
-                            Color(0xFF2C2C2E).copy(alpha = 0.85f),
-                            Color(0xFF1C1C1E).copy(alpha = 0.9f)
+                            Color(0xFF2C2C2E).copy(alpha = 0.45f), // Was 0.85f
+                            Color(0xFF1C1C1E).copy(alpha = 0.65f)  // Was 0.9f
                         ) else listOf(
-                            Color.White.copy(alpha = 0.85f),
-                            Color(0xFFF5F5F5).copy(alpha = 0.9f)
+                            Color.White.copy(alpha = 0.3f),      // Was 0.85f
+                            Color(0xFFF5F5F5).copy(alpha = 0.5f) // Was 0.9f
                         )
                     )
                 )
@@ -197,7 +202,7 @@ private fun TransparentGlassBackground(isDark: Boolean) {
                     Brush.horizontalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.White.copy(alpha = if (isDark) 0.15f else 0.4f),
+                            Color.White.copy(alpha = if (isDark) 0.2f else 0.5f),
                             Color.Transparent
                         )
                     )
@@ -209,11 +214,11 @@ private fun TransparentGlassBackground(isDark: Boolean) {
             modifier = Modifier
                 .fillMaxSize()
                 .border(
-                    width = 1.dp,
+                    width = 1.5.dp, // Slightly thicker border to define the glass edge
                     color = if (isDark)
-                        Color.White.copy(alpha = 0.1f)
+                        Color.White.copy(alpha = 0.15f)
                     else
-                        Color.Black.copy(alpha = 0.06f),
+                        Color.White.copy(alpha = 0.7f),
                     shape = RoundedCornerShape(36.dp)
                 )
         )
@@ -275,7 +280,7 @@ private fun NavIcon(
                             .background(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
-                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
                                         MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
                                         Color.Transparent
                                     )
@@ -292,7 +297,7 @@ private fun NavIcon(
                     tint = if (selected)
                         MaterialTheme.colorScheme.primary
                     else
-                        if (isDark) Color(0xFFAAAAAA) else Color(0xFF666666),
+                        if (isDark) Color(0xFFCCCCCC) else Color(0xFF444444),
                     modifier = Modifier.size(iconSize)
                 )
             }
@@ -328,8 +333,8 @@ private fun FloatingActionButton(
     val primaryColor = MaterialTheme.colorScheme.primary
 
     val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f,
-        targetValue = 0.8f,
+        initialValue = 0.4f,
+        targetValue = 0.7f,
         animationSpec = infiniteRepeatable(
             animation = tween(2000, easing = EaseInOutCubic),
             repeatMode = RepeatMode.Reverse
@@ -353,14 +358,14 @@ private fun FloatingActionButton(
     ) {
         // Animated glow
         Canvas(
-            modifier = Modifier.size(96.dp)
+            modifier = Modifier.size(88.dp)
         ) {
             val center = Offset(size.width / 2, size.height / 2)
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
                         primaryColor.copy(alpha = 0.3f * glowAlpha),
-                        primaryColor.copy(alpha = 0.15f * glowAlpha),
+                        primaryColor.copy(alpha = 0.1f * glowAlpha),
                         Color.Transparent
                     ),
                     center = center
@@ -373,7 +378,7 @@ private fun FloatingActionButton(
         // FAB button
         Box(
             modifier = Modifier
-                .size(68.dp)
+                .size(64.dp)
                 .scale(pressScale)
         ) {
             // Gradient background
@@ -381,11 +386,12 @@ private fun FloatingActionButton(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
+                    .shadow(8.dp, CircleShape) // Added shadow to FAB itself
                     .background(
                         Brush.linearGradient(
                             colors = listOf(
                                 primaryColor,
-                                primaryColor.copy(alpha = 0.9f)
+                                primaryColor.copy(alpha = 0.8f)
                             ),
                             start = Offset(0f, 0f),
                             end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
@@ -401,7 +407,7 @@ private fun FloatingActionButton(
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
-                                Color.White.copy(alpha = 0.25f),
+                                Color.White.copy(alpha = 0.3f),
                                 Color.Transparent,
                                 Color.Black.copy(alpha = 0.2f)
                             )
@@ -414,8 +420,8 @@ private fun FloatingActionButton(
                 modifier = Modifier
                     .fillMaxSize()
                     .border(
-                        width = 2.dp,
-                        color = Color.White.copy(alpha = 0.3f),
+                        width = 1.5.dp,
+                        color = Color.White.copy(alpha = 0.4f),
                         shape = CircleShape
                     )
             )
@@ -438,7 +444,7 @@ private fun FloatingActionButton(
                     imageVector = Icons.Default.Add,
                     contentDescription = "Add Attendance",
                     tint = Color.White,
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.size(28.dp)
                 )
             }
         }

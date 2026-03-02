@@ -86,6 +86,11 @@
             android:exported="false"
             tools:ignore="UnusedActivity" />
 
+        <activity
+            android:name=".ui.friends.FriendsActivity"
+            android:exported="false" />
+        <activity android:name=".ui.friends.FriendProfileActivity"
+            android:exported="false" />
 
     </application>
 

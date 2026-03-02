@@ -1,6 +1,5 @@
 package com.kishan.attendmate.ui.analytics
 
-import android.graphics.drawable.Icon
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,7 +9,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyScopeMarker
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
@@ -19,42 +17,42 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
-import androidx.compose.material3.SegmentedButtonDefaults.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.times
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.kishan.attendmate.ui.attendance.StatItem
+import com.google.firebase.firestore.Source
 import com.kishan.attendmate.ui.components.AttendMateNavigationBar
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.tasks.await
-import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.ChronoField
 import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.floor
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.ui.text.style.TextOverflow
-import kotlin.compareTo
 
 data class ResponsiveConfig(
     val screenWidth: Int,
@@ -77,64 +75,21 @@ data class ResponsiveConfig(
 fun rememberResponsiveConfig(): ResponsiveConfig {
     val configuration = LocalConfiguration.current
     val screenWidth = configuration.screenWidthDp
-    // Simple breakpoints: small, medium, large
     return remember(screenWidth) {
         when {
             screenWidth < 360 -> ResponsiveConfig(
-                screenWidth = screenWidth,
-                isPhone = true,
-                cornerRadiusLarge = 16.dp,
-                cornerRadiusMedium = 12.dp,
-                cornerRadiusSmall = 8.dp,
-                cardPadding = PaddingValues(12.dp),
-                itemSpacing = 8.dp,
-                iconSizeLarge = 28.dp,
-                iconSizeMedium = 18.dp,
-                iconSizeSmall = 14.dp,
-                titleSize = 16.sp,
-                bodySize = 13.sp,
-                labelSize = 11.sp,
-                calendarCellSize = 34.dp
+                screenWidth = screenWidth, isPhone = true, cornerRadiusLarge = 16.dp, cornerRadiusMedium = 12.dp, cornerRadiusSmall = 8.dp, cardPadding = PaddingValues(12.dp), itemSpacing = 8.dp, iconSizeLarge = 28.dp, iconSizeMedium = 18.dp, iconSizeSmall = 14.dp, titleSize = 16.sp, bodySize = 13.sp, labelSize = 11.sp, calendarCellSize = 34.dp
             )
             screenWidth < 720 -> ResponsiveConfig(
-                screenWidth = screenWidth,
-                isPhone = screenWidth < 420,
-                cornerRadiusLarge = 20.dp,
-                cornerRadiusMedium = 14.dp,
-                cornerRadiusSmall = 10.dp,
-                cardPadding = PaddingValues(16.dp),
-                itemSpacing = 12.dp,
-                iconSizeLarge = 34.dp,
-                iconSizeMedium = 20.dp,
-                iconSizeSmall = 16.dp,
-                titleSize = 18.sp,
-                bodySize = 14.sp,
-                labelSize = 12.sp,
-                calendarCellSize = 44.dp
+                screenWidth = screenWidth, isPhone = screenWidth < 420, cornerRadiusLarge = 20.dp, cornerRadiusMedium = 14.dp, cornerRadiusSmall = 10.dp, cardPadding = PaddingValues(16.dp), itemSpacing = 12.dp, iconSizeLarge = 34.dp, iconSizeMedium = 20.dp, iconSizeSmall = 16.dp, titleSize = 18.sp, bodySize = 14.sp, labelSize = 12.sp, calendarCellSize = 44.dp
             )
             else -> ResponsiveConfig(
-                screenWidth = screenWidth,
-                isPhone = false,
-                cornerRadiusLarge = 24.dp,
-                cornerRadiusMedium = 16.dp,
-                cornerRadiusSmall = 12.dp,
-                cardPadding = PaddingValues(20.dp),
-                itemSpacing = 16.dp,
-                iconSizeLarge = 40.dp,
-                iconSizeMedium = 24.dp,
-                iconSizeSmall = 18.dp,
-                titleSize = 20.sp,
-                bodySize = 16.sp,
-                labelSize = 13.sp,
-                calendarCellSize = 52.dp
+                screenWidth = screenWidth, isPhone = false, cornerRadiusLarge = 24.dp, cornerRadiusMedium = 16.dp, cornerRadiusSmall = 12.dp, cardPadding = PaddingValues(20.dp), itemSpacing = 16.dp, iconSizeLarge = 40.dp, iconSizeMedium = 24.dp, iconSizeSmall = 18.dp, titleSize = 20.sp, bodySize = 16.sp, labelSize = 13.sp, calendarCellSize = 52.dp
             )
         }
     }
 }
 
-/* ------------------------------------------------ */
-/* ACTIVITY */
-/* ------------------------------------------------ */
 class AnalyticsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -144,27 +99,17 @@ class AnalyticsActivity : ComponentActivity() {
                 Scaffold(
                     bottomBar = { AttendMateNavigationBar("analytics") }
                 ) { padding ->
-                    Box(Modifier.padding(padding)) {
-                        AnalyticsScreen()
-                    }
+                    Box(Modifier.padding(padding)) { AnalyticsScreen() }
                 }
             }
         }
     }
 }
 
-/* ------------------------------------------------ */
-/* DATA MODEL */
-/* ------------------------------------------------ */
 data class AnalyticsAttendance(
-    val subject: String,
-    val date: LocalDate,
-    val status: String // PRESENT / ABSENT
+    val subject: String, val date: LocalDate, val status: String
 )
 
-/* ------------------------------------------------ */
-/* CORE MATH LOGIC */
-/* ------------------------------------------------ */
 fun lecturesNeededFor75(present: Int, total: Int): Int {
     if (total == 0) return 0
     if (present.toFloat() / total >= 0.75f) return 0
@@ -177,22 +122,11 @@ fun maxBunkableLectures(present: Int, total: Int): Int {
 }
 
 fun subjectColor(percent: Int): Color = when {
-    percent >= 75 -> Color(0xFF4CAF50) // green
-    percent >= 60 -> Color(0xFFFFC107) // yellow
-    else -> Color(0xFFF44336) // red
+    percent >= 75 -> Color(0xFF4CAF50)
+    percent >= 60 -> Color(0xFFFFC107)
+    else -> Color(0xFFF44336)
 }
 
-data class SkipRecoveryRow(
-    val skipped: Int,
-    val percentageAfterSkip: Int,
-    val lecturesToRecover: Int
-)
-
-
-
-/* ------------------------------------------------ */
-/* SCREEN */
-/* ------------------------------------------------ */
 @Composable
 fun AnalyticsScreen() {
     val db = FirebaseFirestore.getInstance()
@@ -205,55 +139,51 @@ fun AnalyticsScreen() {
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                refreshKey++
-            }
+            if (event == Lifecycle.Event.ON_RESUME) refreshKey++
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    /* -------- FIRESTORE LOAD -------- */
+    /* -------- FIRESTORE LOAD (OFFLINE FIRST) -------- */
     LaunchedEffect(refreshKey) {
-        loading = true
-        val temp = mutableListOf<AnalyticsAttendance>()
-        val subjects = db.collection("users")
-            .document(uid)
-            .collection("subjects")
-            .get()
-            .await()
-        subjects.documents.forEach { subjectDoc ->
-            val subjectName = subjectDoc.getString("name") ?: return@forEach
-            val records = subjectDoc.reference
-                .collection("attendance")
-                .get()
-                .await()
-            records.documents.forEach { doc ->
-                val statusRaw = doc.getString("status") ?: "ABSENT"
-                val status = statusRaw.uppercase()
-                val date: LocalDate? = when (val rawDate = doc.get("date")) {
-                    is String -> runCatching { LocalDate.parse(rawDate) }.getOrNull()
-                    is Timestamp -> rawDate.toDate()
-                        .toInstant()
-                        .atZone(ZoneId.systemDefault())
-                        .toLocalDate()
-                    else -> null
-                }
-                date?.let {
-                    temp.add(
-                        AnalyticsAttendance(
-                            subject = subjectName,
-                            date = it,
-                            status = status
-                        )
-                    )
+        if (!loading && attendance.isNotEmpty()) loading = true
+
+        suspend fun fetchWithSource(source: Source) {
+            val temp = mutableListOf<AnalyticsAttendance>()
+            val subjects = db.collection("users").document(uid).collection("subjects").get(source).await()
+            for (subjectDoc in subjects.documents) {
+                val subjectName = subjectDoc.getString("name") ?: continue
+                val records = subjectDoc.reference.collection("attendance").get(source).await()
+                for (doc in records.documents) {
+                    val status = (doc.getString("status") ?: "ABSENT").uppercase()
+                    val date: LocalDate? = when (val rawDate = doc.get("date")) {
+                        is String -> runCatching { LocalDate.parse(rawDate) }.getOrNull()
+                        is Timestamp -> rawDate.toDate().toInstant().atZone(ZoneId.systemDefault()).toLocalDate()
+                        else -> null
+                    }
+                    if (date != null) temp.add(AnalyticsAttendance(subjectName, date, status))
                 }
             }
+            attendance = temp
         }
-        attendance = temp
-        loading = false
+
+        try {
+            // 1. Instant Cache Load
+            fetchWithSource(Source.CACHE)
+            loading = false
+        } catch (e: Exception) {
+            // Wait for server if cache is empty
+        }
+
+        try {
+            // 2. Silent Server Update
+            fetchWithSource(Source.SERVER)
+        } catch (e: Exception) {
+            // Network failed, rely on cached data
+        } finally {
+            loading = false
+        }
     }
 
     val total = attendance.size
@@ -262,77 +192,36 @@ fun AnalyticsScreen() {
     val neededFor75 = lecturesNeededFor75(present, total)
     val bunkable = maxBunkableLectures(present, total)
     val dateFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy")
-    // create responsive config for calendars/cards
     val config = rememberResponsiveConfig()
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(modifier = Modifier.fillMaxSize().background(
+        Brush.verticalGradient(
+            colors = listOf(
+                MaterialTheme.colorScheme.surface,
+                MaterialTheme.colorScheme.surfaceContainerLowest
+            )
+        )
+    )) {
         /* -------- TOP HEADER -------- */
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp
-        ) {
-            Column(
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Analytics,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                    Text(
-                        text = "Analytics",
-                        style = MaterialTheme.typography.headlineLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Text(
-                    text = "Attendance insights & predictions",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = loading,
-            enter = fadeIn(),
-            exit = fadeOut()
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(48.dp),
-                        strokeWidth = 4.dp
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "Analyzing your data...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+        Surface(modifier = Modifier.fillMaxWidth(), color = Color.Transparent) {
+            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Outlined.Analytics, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+                    }
+                    Column {
+                        Text("Analytics", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onSurface, fontSize = 26.sp)
+                        Text("Attendance insights & predictions", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
             }
         }
 
-        AnimatedVisibility(
-            visible = !loading,
-            enter = fadeIn() + slideInVertically(),
-            exit = fadeOut()
-        ) {
+        if (loading && attendance.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(strokeWidth = 3.dp)
+            }
+        } else {
             if (attendance.isEmpty()) {
                 EmptyAnalyticsState()
             } else {
@@ -340,98 +229,179 @@ fun AnalyticsScreen() {
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
-                    /* -------- OVERALL CARD -------- */
-                    item {
-                        ModernOverallCard(
-                            percentage = percentage,
-                            present = present,
-                            total = total,
-                            neededFor75 = neededFor75,
-                            bunkable = bunkable
-                        )
-                    }
-                    /* -------- SUBJECT BAR GRAPH -------- */
-                    item {
-                        SubjectBarGraph(attendance)
-                    }
-                    /* -------- CALENDAR -------- */
-                    item {
-                        // Use SmartAttendanceCalendar which will choose compact/regular based on config
-                        SmartAttendanceCalendar(config = config, attendance = attendance) { selectedDate = it }
-                    }
-                    /* -------- PIE CHART -------- */
-                    item {
-                        SubjectPieChart(attendance)
-                    }
-                    item {
-                        SkipAttendancePrediction(
-                            present = present,
-                            total = total
-                        )
-                    }
-                    // Bottom padding
+                    item { ModernOverallCard(percentage, present, total, neededFor75, bunkable) }
+                    item { AttendanceTrendLineChart(attendance) }
+                    item { SubjectBarGraph(attendance) }
+                    item { SmartAttendanceCalendar(config, attendance) { selectedDate = it } }
+                    item { SubjectPieChart(attendance) }
+                    item { SkipAttendancePrediction(present, total) }
                     item { Spacer(modifier = Modifier.height(8.dp)) }
                 }
             }
         }
     }
 
-    /* -------- DATE DIALOG -------- */
     selectedDate?.let { date ->
-        ModernDateDialog(
-            date = date,
-            attendance = attendance,
-            dateFormatter = dateFormatter,
-            onDismiss = { selectedDate = null }
-        )
+        ModernDateDialog(date, attendance, dateFormatter) { selectedDate = null }
+    }
+}
+
+@Composable
+fun EmptyAnalyticsState() {
+    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Box(modifier = Modifier.size(120.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Outlined.Analytics, null, modifier = Modifier.size(60.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+            }
+            Text("No Data Available", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
+            Text("Start tracking your attendance to see analytics here", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        }
     }
 }
 
 /* ------------------------------------------------ */
-/* EMPTY STATE */
+/* ADVANCED TREND LINE CHART */
 /* ------------------------------------------------ */
 @Composable
-fun EmptyAnalyticsState() {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        contentAlignment = Alignment.Center
+fun AttendanceTrendLineChart(attendance: List<AnalyticsAttendance>) {
+    val sortedDates = attendance.map { it.date }.distinct().sorted()
+    if (sortedDates.size < 2) return
+
+    val trendPoints = sortedDates.map { date ->
+        val upToDate = attendance.filter { !it.date.isAfter(date) }
+        val present = upToDate.count { it.status == "PRESENT" }
+        val total = upToDate.size
+        val percent = if (total > 0) (present.toFloat() / total * 100) else 0f
+        Pair(date, percent)
+    }
+
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val outlineColor = MaterialTheme.colorScheme.outlineVariant
+    val surfaceColor = MaterialTheme.colorScheme.surface
+
+    val expandAnimation = remember { Animatable(0f) }
+    LaunchedEffect(attendance) {
+        expandAnimation.animateTo(1f, animationSpec = tween(durationMillis = 1500, easing = FastOutSlowInEasing))
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().shadow(6.dp, RoundedCornerShape(24.dp)),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(120.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Analytics,
-                    contentDescription = null,
-                    modifier = Modifier.size(60.dp),
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                )
+        Column(Modifier.padding(24.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(colors = listOf(Color(0xFF8B5CF6), Color(0xFF6366F1)))), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Timeline, null, tint = Color.White, modifier = Modifier.size(26.dp))
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("All-Time Trend", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Since ${sortedDates.first().format(DateTimeFormatter.ofPattern("dd MMM yyyy"))}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
-            Text(
-                text = "No Data Available",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                textAlign = TextAlign.Center
-            )
-            Text(
-                text = "Start tracking your attendance to see analytics here",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Box(modifier = Modifier.fillMaxWidth().height(180.dp)) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val maxPercent = (trendPoints.maxOfOrNull { it.second } ?: 100f).coerceAtMost(100f)
+                    val minPercent = (trendPoints.minOfOrNull { it.second } ?: 0f).coerceAtLeast(0f)
+
+                    val yPadding = if (maxPercent == minPercent) 50f else (maxPercent - minPercent) * 0.2f
+                    val displayMax = (maxPercent + yPadding).coerceAtMost(100f)
+                    val displayMin = (minPercent - yPadding).coerceAtLeast(0f)
+                    val yRange = if (displayMax == displayMin) 100f else (displayMax - displayMin)
+
+                    val width = size.width
+                    val height = size.height
+                    val stepX = if (trendPoints.size > 1) width / (trendPoints.size - 1) else width
+
+                    // 1. Draw Professional Horizontal Grid Lines (25%, 50%, 75%, 100%)
+                    val gridSteps = listOf(25f, 50f, 75f, 100f)
+                    gridSteps.forEach { step ->
+                        val y = height - ((step - displayMin) / yRange * height)
+                        if (y in 0f..height) {
+                            drawLine(
+                                color = outlineColor.copy(alpha = 0.4f),
+                                start = Offset(0f, y),
+                                end = Offset(width, y),
+                                strokeWidth = 1.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)
+                            )
+                        }
+                    }
+
+                    // Map points
+                    val offsets = trendPoints.mapIndexed { index, pair ->
+                        val x = index * stepX
+                        val y = height - ((pair.second - displayMin) / yRange * height)
+                        Offset(x, y.toFloat())
+                    }
+
+                    val path = Path()
+                    path.moveTo(offsets.first().x, offsets.first().y)
+                    for (i in 1 until offsets.size) {
+                        val prev = offsets[i - 1]
+                        val curr = offsets[i]
+                        val controlPointX = (prev.x + curr.x) / 2
+                        path.cubicTo(controlPointX, prev.y, controlPointX, curr.y, curr.x, curr.y)
+                    }
+
+                    val fillPath = Path()
+                    fillPath.addPath(path)
+                    fillPath.lineTo(offsets.last().x, height)
+                    fillPath.lineTo(offsets.first().x, height)
+                    fillPath.close()
+
+                    clipRect(right = width * expandAnimation.value) {
+                        // Fill Gradient
+                        drawPath(
+                            path = fillPath,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(primaryColor.copy(alpha = 0.25f), Color.Transparent),
+                                startY = 0f, endY = height
+                            )
+                        )
+
+                        // Main Line Glow
+                        drawPath(
+                            path = path, color = primaryColor.copy(alpha = 0.3f),
+                            style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round)
+                        )
+
+                        // Main Line
+                        drawPath(
+                            path = path, color = primaryColor,
+                            style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round)
+                        )
+
+                        // Refined, smaller Professional Dots
+                        offsets.forEach { offset ->
+                            drawCircle(color = surfaceColor, radius = 2.5.dp.toPx(), center = offset)
+                            drawCircle(color = primaryColor, radius = 2.5.dp.toPx(), center = offset, style = Stroke(width = 1.5.dp.toPx()))
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val formatter = DateTimeFormatter.ofPattern("dd MMM")
+            val numLabels = 5
+            val labelIndices = if (trendPoints.size <= numLabels) trendPoints.indices.toList() else {
+                val step = trendPoints.size.toFloat() / (numLabels - 1)
+                (0 until numLabels).map { (it * step).toInt().coerceAtMost(trendPoints.lastIndex) }.distinct()
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                labelIndices.forEach { index ->
+                    Text(text = trendPoints[index].first.format(formatter), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f), fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                }
+            }
         }
     }
 }
+
 
 /* ------------------------------------------------ */
 /* MODERN OVERALL CARD */
@@ -447,18 +417,21 @@ fun ModernOverallCard(
     val primaryColor = MaterialTheme.colorScheme.primary
     val errorColor = MaterialTheme.colorScheme.error
     val successColor = Color(0xFF4CAF50)
+
     val animatedPercentage = remember { Animatable(0f) }
     LaunchedEffect(percentage) {
         animatedPercentage.animateTo(
             targetValue = percentage.toFloat(),
-            animationSpec = tween(durationMillis = 1000, easing = EaseOutCubic)
+            animationSpec = tween(durationMillis = 1200, easing = FastOutSlowInEasing)
         )
     }
+
     val statusColor = when {
         percentage >= 75 -> successColor
         percentage >= 60 -> Color(0xFFFFC107)
         else -> errorColor
     }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -539,7 +512,8 @@ fun ModernOverallCard(
                             modifier = Modifier.fillMaxSize(),
                             strokeWidth = 14.dp,
                             trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                            color = statusColor
+                            color = statusColor,
+                            strokeCap = StrokeCap.Round
                         )
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally
@@ -890,70 +864,76 @@ private fun EnhancedSubjectBar(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Progress Bar with 75% Marker
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(16.dp)
+        // Progress Bar with PERFECTLY aligned 75% Marker using BoxWithConstraints
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth()
         ) {
-            // Background bar
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-            )
+            val barWidth = maxWidth
 
-            // Progress bar with gradient
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(animatedProgress.value)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                color,
-                                color.copy(alpha = 0.8f)
-                            )
-                        )
-                    )
-            )
-
-            // 75% Threshold Line
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .width(2.dp)
-                    .offset(x = (0.75f * LocalConfiguration.current.screenWidthDp.dp) - 48.dp)
-                    .background(Color(0xFFEF4444))
-                    .align(Alignment.CenterStart)
-            )
-
-            // 75% Label
-            Box(
-                modifier = Modifier
-                    .offset(x = (0.75f * LocalConfiguration.current.screenWidthDp.dp) - 48.dp)
-                    .align(Alignment.BottomStart)
-            ) {
-                Surface(
-                    modifier = Modifier.offset(y = 22.dp),
-                    shape = RoundedCornerShape(4.dp),
-                    color = Color(0xFFEF4444)
+            Column {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(16.dp)
                 ) {
-                    Text(
-                        text = "75%",
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 10.sp
+                    // Background bar
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                     )
+
+                    // Progress bar with gradient
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(animatedProgress.value)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    colors = listOf(
+                                        color,
+                                        color.copy(alpha = 0.8f)
+                                    )
+                                )
+                            )
+                    )
+
+                    // 75% Threshold Line
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(2.dp)
+                            .offset(x = barWidth * 0.75f - 1.dp)
+                            .background(Color(0xFFEF4444))
+                    )
+                }
+
+                // 75% Label positioned right under the line
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    Surface(
+                        modifier = Modifier
+                            .offset(x = barWidth * 0.75f)
+                            .wrapContentWidth(align = Alignment.CenterHorizontally, unbounded = true)
+                            .padding(top = 4.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = Color(0xFFEF4444)
+                    ) {
+                        Text(
+                            text = "75%",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        )
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         // Detailed Stats Row
         Row(
@@ -1035,7 +1015,6 @@ private fun StatBadge(
     }
 }
 
-// Helper function to calculate lectures needed to reach 75%
 private fun calculateLecturesNeededFor75(present: Int, total: Int): Int {
     if (total == 0) return 0
     val currentPercent = (present.toFloat() / total) * 100
@@ -1056,9 +1035,6 @@ private fun calculateLecturesNeededFor75(present: Int, total: Int): Int {
 
 /* ------------------------------------------------ */
 /* CALENDAR - MODERN (USING JAVA.TIME) */
-/* ------------------------------------------------ */
-/* ------------------------------------------------ */
-/* IMPROVED RESPONSIVE CALENDAR */
 /* ------------------------------------------------ */
 @Composable
 fun AttendanceCalendar(
@@ -1087,7 +1063,7 @@ fun AttendanceCalendar(
         )
     ) {
         Column(Modifier.padding(config.cardPadding)) {
-            // Header - Responsive layout
+            // Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(config.itemSpacing),
@@ -1127,7 +1103,7 @@ fun AttendanceCalendar(
 
             Spacer(modifier = Modifier.height(config.itemSpacing))
 
-            // Month Navigation - Responsive
+            // Month Navigation
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -1177,7 +1153,7 @@ fun AttendanceCalendar(
 
             Spacer(modifier = Modifier.height(config.itemSpacing))
 
-            // Week Day Headers - Responsive
+            // Week Day Headers
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -1200,7 +1176,6 @@ fun AttendanceCalendar(
 
             Spacer(modifier = Modifier.height(config.itemSpacing / 2))
 
-            // Calendar Grid - Responsive height
             val gridHeight = (config.calendarCellSize + 6.dp) * 6
             LazyVerticalGrid(
                 columns = GridCells.Fixed(7),
@@ -1208,12 +1183,10 @@ fun AttendanceCalendar(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Empty cells for first week
                 items(firstDayOfWeek) {
                     Box(modifier = Modifier.size(config.calendarCellSize))
                 }
 
-                // Days of month
                 items(daysInMonth) { index ->
                     val date = firstDayOfMonth.plusDays(index.toLong())
                     val dayAttendance = attendance.filter { it.date == date }
@@ -1287,9 +1260,8 @@ fun AttendanceCalendar(
 
             Spacer(modifier = Modifier.height(config.itemSpacing))
 
-            // Legend - Fully Responsive Layout
+            // Legend
             if (config.isPhone) {
-                // Vertical stacked layout for small phones
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1299,24 +1271,11 @@ fun AttendanceCalendar(
                     verticalArrangement = Arrangement.spacedBy(config.itemSpacing / 2),
                     horizontalAlignment = Alignment.Start
                 ) {
-                    EnhancedLegendItem(
-                        config = config,
-                        color = Color(0xFF4CAF50),
-                        label = "Present"
-                    )
-                    EnhancedLegendItem(
-                        config = config,
-                        color = Color(0xFFF44336),
-                        label = "Absent"
-                    )
-                    EnhancedLegendItem(
-                        config = config,
-                        color = Color(0xFF0CFDCD),
-                        label = "Mixed"
-                    )
+                    EnhancedLegendItem(config, Color(0xFF4CAF50), "Present")
+                    EnhancedLegendItem(config, Color(0xFFF44336), "Absent")
+                    EnhancedLegendItem(config, Color(0xFF0CFDCD), "Mixed")
                 }
             } else {
-                // Horizontal layout for tablets and larger screens
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1325,21 +1284,9 @@ fun AttendanceCalendar(
                         .padding(config.itemSpacing),
                     horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    EnhancedLegendItem(
-                        config = config,
-                        color = Color(0xFF4CAF50),
-                        label = "Present"
-                    )
-                    EnhancedLegendItem(
-                        config = config,
-                        color = Color(0xFFF44336),
-                        label = "Absent"
-                    )
-                    EnhancedLegendItem(
-                        config = config,
-                        color = Color(0xFF0CFDCD),
-                        label = "Mixed"
-                    )
+                    EnhancedLegendItem(config, Color(0xFF4CAF50), "Present")
+                    EnhancedLegendItem(config, Color(0xFFF44336), "Absent")
+                    EnhancedLegendItem(config, Color(0xFF0CFDCD), "Mixed")
                 }
             }
         }
@@ -1378,9 +1325,6 @@ private fun EnhancedLegendItem(
     }
 }
 
-/* ------------------------------------------------ */
-/* ALTERNATIVE: ULTRA-COMPACT CALENDAR FOR VERY SMALL SCREENS */
-/* ------------------------------------------------ */
 @Composable
 fun CompactAttendanceCalendar(
     config: ResponsiveConfig,
@@ -1394,10 +1338,6 @@ fun CompactAttendanceCalendar(
     val firstDayOfMonth = currentMonth.atDay(1)
     val daysInMonth = currentMonth.lengthOfMonth()
 
-    // --- CHANGE 1: Update Logic for Sunday Start ---
-    // Monday is 1, Sunday is 7.
-    // 7 % 7 = 0 (Sunday is now index 0)
-    // 1 % 7 = 1 (Monday is now index 1)
     val firstDayOfWeek = firstDayOfMonth.dayOfWeek.value % 7
 
     val title = currentMonth.format(DateTimeFormatter.ofPattern("MMM yyyy"))
@@ -1413,8 +1353,6 @@ fun CompactAttendanceCalendar(
         )
     ) {
         Column(Modifier.padding(config.cardPadding)) {
-            // ... (Header and Month Navigation code remains exactly the same) ...
-
             // Compact Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -1509,13 +1447,10 @@ fun CompactAttendanceCalendar(
 
             Spacer(modifier = Modifier.height(config.itemSpacing / 2))
 
-            // --- CHANGE 2: Update Week Headers ---
-            // Compact Week Headers (Sunday to Saturday)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                // Changed list to start with "S" (Sunday)
                 listOf("S", "M", "T", "W", "T", "F", "S").forEach { day ->
                     Box(
                         modifier = Modifier.size(config.calendarCellSize * 0.9f),
@@ -1534,9 +1469,7 @@ fun CompactAttendanceCalendar(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Compact Calendar Grid
             val compactCellSize = config.calendarCellSize * 0.9f
-            // We usually need 6 rows to cover all month variations
             val gridHeight = (compactCellSize + 4.dp) * 6
 
             LazyVerticalGrid(
@@ -1545,7 +1478,6 @@ fun CompactAttendanceCalendar(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // Empty boxes for days before the 1st of the month
                 items(firstDayOfWeek) {
                     Box(modifier = Modifier.size(compactCellSize))
                 }
@@ -1623,7 +1555,6 @@ fun CompactAttendanceCalendar(
 
             Spacer(modifier = Modifier.height(config.itemSpacing / 2))
 
-            // Legend remains the same...
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1633,21 +1564,9 @@ fun CompactAttendanceCalendar(
                 verticalArrangement = Arrangement.spacedBy(config.itemSpacing / 3),
                 horizontalAlignment = Alignment.Start
             ) {
-                CompactLegendItem(
-                    config = config,
-                    color = Color(0xFF4CAF50),
-                    label = "Present"
-                )
-                CompactLegendItem(
-                    config = config,
-                    color = Color(0xFFF44336),
-                    label = "Absent"
-                )
-                CompactLegendItem(
-                    config = config,
-                    color = Color(0xFF0CFDCD),
-                    label = "Mixed"
-                )
+                CompactLegendItem(config, Color(0xFF4CAF50), "Present")
+                CompactLegendItem(config, Color(0xFFF44336), "Absent")
+                CompactLegendItem(config, Color(0xFF0CFDCD), "Mixed")
             }
         }
     }
@@ -1684,16 +1603,12 @@ private fun CompactLegendItem(
     }
 }
 
-/* ------------------------------------------------ */
-/* SMART CALENDAR SELECTOR - CHOOSES BEST LAYOUT */
-/* ------------------------------------------------ */
 @Composable
 fun SmartAttendanceCalendar(
     config: ResponsiveConfig,
     attendance: List<AnalyticsAttendance>,
     onDateClick: (LocalDate) -> Unit
 ) {
-    // Use compact version for very small screens, normal for others
     if (config.screenWidth < 360) {
         CompactAttendanceCalendar(config, attendance, onDateClick)
     } else {
@@ -1701,10 +1616,8 @@ fun SmartAttendanceCalendar(
     }
 }
 
-
-
 /* ------------------------------------------------ */
-/* PIE CHART - MODERN */
+/* PIE CHART - MODERN (ANIMATED) */
 /* ------------------------------------------------ */
 @Composable
 fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
@@ -1712,20 +1625,22 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
     val total = attendance.size.toFloat().coerceAtLeast(1f)
     val colors = remember {
         listOf(
-            Color(0xFF6366F1), // Indigo
-            Color(0xFF8B5CF6), // Purple
-            Color(0xFFEC4899), // Pink
-            Color(0xFFF59E0B), // Amber
-            Color(0xFF10B981), // Emerald
-            Color(0xFF3B82F6), // Blue
-            Color(0xFFEF4444), // Red
-            Color(0xFF14B8A6), // Teal
-            Color(0xFFF97316), // Orange
-            Color(0xFF06B6D4)  // Cyan
+            Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFFEC4899),
+            Color(0xFFF59E0B), Color(0xFF10B981), Color(0xFF3B82F6),
+            Color(0xFFEF4444), Color(0xFF14B8A6), Color(0xFFF97316),
+            Color(0xFF06B6D4)
         )
     }
 
-    // Get theme colors outside Canvas
+    // Expanding pie animation
+    val animProgress = remember { Animatable(0f) }
+    LaunchedEffect(attendance) {
+        animProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 1500, easing = FastOutSlowInEasing)
+        )
+    }
+
     val surfaceColor = MaterialTheme.colorScheme.surfaceContainerLow
     val surfaceColor2 = MaterialTheme.colorScheme.surface
     val outlineColor = MaterialTheme.colorScheme.outline
@@ -1752,10 +1667,7 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                         .clip(RoundedCornerShape(14.dp))
                         .background(
                             Brush.linearGradient(
-                                colors = listOf(
-                                    Color(0xFF6366F1),
-                                    Color(0xFF8B5CF6)
-                                )
+                                colors = listOf(Color(0xFF6366F1), Color(0xFF8B5CF6))
                             )
                         ),
                     contentAlignment = Alignment.Center
@@ -1785,7 +1697,7 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // Enhanced Pie Chart with 3D effect
+            // Animated Pie Chart with 3D effect
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1800,13 +1712,15 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                     val centerY = size.height / 2
                     val radius = size.minDimension / 2.6f
 
-                    // Draw shadow/3D effect
+                    // Draw shadow/3D effect incrementally
                     grouped.entries.forEachIndexed { index, entry ->
-                        val sweep = (entry.value.size / total) * 360f
+                        val targetSweep = (entry.value.size / total) * 360f
+                        val currentSweep = targetSweep * animProgress.value
+
                         drawArc(
                             color = colors[index % colors.size].copy(alpha = 0.3f),
                             startAngle = startAngle,
-                            sweepAngle = sweep,
+                            sweepAngle = currentSweep,
                             useCenter = true,
                             topLeft = androidx.compose.ui.geometry.Offset(
                                 centerX - radius + 4.dp.toPx(),
@@ -1814,13 +1728,14 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                             ),
                             size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
                         )
-                        startAngle += sweep
+                        startAngle += currentSweep
                     }
 
-                    // Draw main pie chart
+                    // Reset start angle for main pie slices
                     startAngle = -90f
                     grouped.entries.forEachIndexed { index, entry ->
-                        val sweep = (entry.value.size / total) * 360f
+                        val targetSweep = (entry.value.size / total) * 360f
+                        val currentSweep = targetSweep * animProgress.value
 
                         // Main arc
                         drawArc(
@@ -1833,7 +1748,7 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                                 radius = radius
                             ),
                             startAngle = startAngle,
-                            sweepAngle = sweep,
+                            sweepAngle = currentSweep,
                             useCenter = true,
                             topLeft = androidx.compose.ui.geometry.Offset(
                                 centerX - radius,
@@ -1842,8 +1757,8 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                             size = androidx.compose.ui.geometry.Size(radius * 2, radius * 2)
                         )
 
-                        // Add separator lines between slices
-                        if (sweep > 5) {
+                        // Add separator lines between slices (only if they are large enough and fully revealed)
+                        if (currentSweep > 5) {
                             val angle = Math.toRadians((startAngle).toDouble())
                             val lineEndX = centerX + (radius * kotlin.math.cos(angle)).toFloat()
                             val lineEndY = centerY + (radius * kotlin.math.sin(angle)).toFloat()
@@ -1854,8 +1769,7 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                                 strokeWidth = 2.dp.toPx()
                             )
                         }
-
-                        startAngle += sweep
+                        startAngle += currentSweep
                     }
 
                     // Center donut hole with gradient
@@ -1885,7 +1799,7 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = "${attendance.size}",
+                        text = "${(attendance.size * animProgress.value).toInt()}",
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary
@@ -1979,7 +1893,7 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxHeight()
-                                        .fillMaxWidth(percentage / 100f)
+                                        .fillMaxWidth((percentage / 100f) * animProgress.value) // Animate list bars too
                                         .clip(RoundedCornerShape(4.dp))
                                         .background(
                                             Brush.horizontalGradient(
@@ -2743,4 +2657,3 @@ private fun lecturesNeededToReach75(present: Int, total: Int, skip: Int): Int {
 
     return lecturesNeeded
 }
-
