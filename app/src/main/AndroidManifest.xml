@@ -6,8 +6,13 @@
     <!-- ===================================================== -->
     <!-- Permissions -->
     <!-- ===================================================== -->
+    
+    <!-- Required for AdMob to fetch ads -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
+        android:name=".AttendMateApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -16,6 +21,17 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.AttendMate">
+
+        <!-- AdMob Application ID (Test ID) -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713"/>
+
+        <!-- Resolve manifest merger conflict between AdMob and Firebase Analytics -->
+        <property
+            android:name="android.adservices.AD_SERVICES_CONFIG"
+            android:resource="@xml/gma_ad_services_config"
+            tools:replace="android:resource" />
 
         <!-- ===================================================== -->
         <!-- ENTRY / LAUNCHER -->
@@ -64,6 +80,25 @@
         <!-- ===================================================== -->
         <activity android:name=".ui.analytics.AnalyticsActivity" android:exported="false" />
         <activity android:name=".ui.settings.SettingsActivity" android:exported="false" />
+
+        <!-- ===================================================== -->
+        <!-- AI CHAT -->
+        <!-- ===================================================== -->
+        <activity android:name=".ui.ai.AiChatActivity" android:exported="false" />
+
+        <!-- ===================================================== -->
+        <!-- WIDGET -->
+        <!-- ===================================================== -->
+        <receiver
+            android:name=".ui.widget.TotalAttendanceWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/total_attendance_widget_info" />
+        </receiver>
 
         <!-- ===================================================== -->
         <!-- LECTURE NOTIFICATIONS -->

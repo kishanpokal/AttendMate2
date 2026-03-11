@@ -64,36 +64,54 @@ fun EntryScreen(onNavigate: (Class<*>) -> Unit) {
     // 1. Ring draws itself representing a completing clock/timeline
     val ringSweep by animateFloatAsState(
         targetValue = if (startAnimation) 360f else 0f,
-        animationSpec = tween(durationMillis = 1000, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 1500, delayMillis = 200, easing = EaseInOutCubic),
         label = "ring_sweep"
     )
 
     // 2. Logo pops in with a spring effect
     val logoScale by animateFloatAsState(
-        targetValue = if (startAnimation) 1f else 0.5f,
+        targetValue = if (startAnimation) 1f else 0f,
         animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
+            dampingRatio = 0.6f, // Slightly more bouncy
             stiffness = Spring.StiffnessLow
         ),
         label = "logo_scale"
     )
 
-    // 3. Text slides up and fades in slightly after the logo
+    // 3. Text slides up and fades in
     val textOffset by animateDpAsState(
-        targetValue = if (startAnimation) 0.dp else 24.dp,
-        animationSpec = tween(durationMillis = 800, delayMillis = 400, easing = EaseOutCubic),
+        targetValue = if (startAnimation) 0.dp else 40.dp,
+        animationSpec = tween(durationMillis = 1000, delayMillis = 600, easing = EaseOutBack),
         label = "text_offset"
     )
     val textAlpha by animateFloatAsState(
         targetValue = if (startAnimation) 1f else 0f,
-        animationSpec = tween(durationMillis = 800, delayMillis = 400, easing = LinearEasing),
+        animationSpec = tween(durationMillis = 800, delayMillis = 600, easing = LinearEasing),
         label = "text_alpha"
+    )
+
+    val textScale by animateFloatAsState(
+        targetValue = if (startAnimation) 1f else 0.8f,
+        animationSpec = tween(durationMillis = 1000, delayMillis = 600, easing = EaseOutBack),
+        label = "text_scale"
+    )
+
+    // Pulsing glow for the background
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val glowPulse by infiniteTransition.animateFloat(
+        initialValue = 0.8f,
+        targetValue = 1.2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = EaseInOutSine),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow_pulse"
     )
 
     LaunchedEffect(Unit) {
         startAnimation = true
         // Allow animations to finish before checking auth and navigating
-        delay(2200)
+        delay(2500)
 
         val user = FirebaseAuth.getInstance().currentUser
         if (user == null) {
@@ -108,8 +126,11 @@ fun EntryScreen(onNavigate: (Class<*>) -> Unit) {
             .fillMaxSize()
             .background(
                 Brush.radialGradient(
-                    colors = listOf(bgCenter, bgEdge),
-                    radius = 1200f
+                    colors = listOf(
+                        bgCenter.copy(alpha = 1f), 
+                        bgEdge
+                    ),
+                    radius = 1200f * glowPulse
                 )
             ),
         contentAlignment = Alignment.Center
@@ -153,6 +174,7 @@ fun EntryScreen(onNavigate: (Class<*>) -> Unit) {
                 modifier = Modifier
                     .offset(y = textOffset)
                     .alpha(textAlpha)
+                    .scale(textScale)
             ) {
                 Text(
                     text = "AttendMate",

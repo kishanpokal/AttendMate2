@@ -85,24 +85,24 @@ fun AttendMateNavigationBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            // Added bottom padding to lift it off the screen edge
-            .padding(horizontal = 20.dp)
-            .padding(bottom = 24.dp)
+            // Increased bottom padding to lift it higher off the screen edge
+            .padding(horizontal = 24.dp)
+            .padding(bottom = 32.dp)
     ) {
         // Main navigation container
         Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(72.dp)
-                // Drop shadow to emphasize the floating effect
+                .height(68.dp) // Slightly slimmer
+                // Increased drop shadow
                 .shadow(
-                    elevation = 12.dp,
-                    shape = RoundedCornerShape(36.dp),
-                    ambientColor = if (isDark) Color.Black else Color.Gray.copy(alpha = 0.5f),
-                    spotColor = if (isDark) Color.Black else Color.Gray.copy(alpha = 0.5f)
+                    elevation = 20.dp,
+                    shape = RoundedCornerShape(34.dp),
+                    ambientColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f),
+                    spotColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f)
                 )
-                .clip(RoundedCornerShape(36.dp))
+                .clip(RoundedCornerShape(34.dp))
         ) {
             // Glass background with lower alpha for transparency
             TransparentGlassBackground(isDark = isDark)
@@ -111,7 +111,7 @@ fun AttendMateNavigationBar(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -135,7 +135,7 @@ fun AttendMateNavigationBar(
                 }
 
                 // Center space for FAB
-                Spacer(modifier = Modifier.width(72.dp))
+                Spacer(modifier = Modifier.width(64.dp))
 
                 // Right side icons
                 Row(
@@ -168,7 +168,7 @@ fun AttendMateNavigationBar(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 // Adjusted offset to straddle the top of the pill perfectly
-                .offset(y = (-32).dp)
+                .offset(y = (-30).dp)
         )
     }
 }
@@ -176,19 +176,15 @@ fun AttendMateNavigationBar(
 @Composable
 private fun TransparentGlassBackground(isDark: Boolean) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Frosted glass effect - Alphas significantly reduced for background visibility
+        val color1 = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.35f else 0.5f)
+        val color2 = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.5f else 0.7f)
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = if (isDark) listOf(
-                            Color(0xFF2C2C2E).copy(alpha = 0.45f), // Was 0.85f
-                            Color(0xFF1C1C1E).copy(alpha = 0.65f)  // Was 0.9f
-                        ) else listOf(
-                            Color.White.copy(alpha = 0.3f),      // Was 0.85f
-                            Color(0xFFF5F5F5).copy(alpha = 0.5f) // Was 0.9f
-                        )
+                        colors = listOf(color1, color2)
                     )
                 )
         )
@@ -202,7 +198,7 @@ private fun TransparentGlassBackground(isDark: Boolean) {
                     Brush.horizontalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color.White.copy(alpha = if (isDark) 0.2f else 0.5f),
+                            Color.White.copy(alpha = if (isDark) 0.2f else 0.4f),
                             Color.Transparent
                         )
                     )
@@ -214,12 +210,9 @@ private fun TransparentGlassBackground(isDark: Boolean) {
             modifier = Modifier
                 .fillMaxSize()
                 .border(
-                    width = 1.5.dp, // Slightly thicker border to define the glass edge
-                    color = if (isDark)
-                        Color.White.copy(alpha = 0.15f)
-                    else
-                        Color.White.copy(alpha = 0.7f),
-                    shape = RoundedCornerShape(36.dp)
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isDark) 0.1f else 0.15f),
+                    shape = RoundedCornerShape(34.dp)
                 )
         )
     }
@@ -297,7 +290,7 @@ private fun NavIcon(
                     tint = if (selected)
                         MaterialTheme.colorScheme.primary
                     else
-                        if (isDark) Color(0xFFCCCCCC) else Color(0xFF444444),
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier.size(iconSize)
                 )
             }

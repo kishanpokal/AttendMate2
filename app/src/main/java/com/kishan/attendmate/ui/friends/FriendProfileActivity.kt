@@ -1,9 +1,11 @@
 package com.kishan.attendmate.ui.friends
 
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -67,6 +69,7 @@ class FriendProfileActivity : ComponentActivity() {
 /* ══════════════════════════════════════════════════════
    SCREEN
 ══════════════════════════════════════════════════════ */
+@RequiresApi(Build.VERSION_CODES.O)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FriendProfileScreen(friendUid: String, onBack: () -> Unit) {

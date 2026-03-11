@@ -35,10 +35,38 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun AttendMateTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = androidx.compose.runtime.remember { com.kishan.attendmate.util.PreferencesManager(context) }
+    
+    val themePrefState = androidx.compose.runtime.remember { 
+        androidx.compose.runtime.mutableStateOf(prefs.getThemePreference()) 
+    }
+
+    androidx.compose.runtime.DisposableEffect(prefs) {
+        val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == com.kishan.attendmate.util.PreferencesManager.KEY_THEME) {
+                themePrefState.value = prefs.getThemePreference()
+            }
+        }
+        val sharedPrefs = context.getSharedPreferences(
+            com.kishan.attendmate.util.PreferencesManager.PREFS_NAME, 
+            android.content.Context.MODE_PRIVATE
+        )
+        sharedPrefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            sharedPrefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+
+    val darkTheme = when (themePrefState.value) {
+        com.kishan.attendmate.util.PreferencesManager.THEME_LIGHT -> false
+        com.kishan.attendmate.util.PreferencesManager.THEME_DARK -> true
+        else -> isSystemInDarkTheme()
+    }
+
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme,
         typography = Typography,
