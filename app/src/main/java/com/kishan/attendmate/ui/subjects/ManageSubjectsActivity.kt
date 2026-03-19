@@ -379,10 +379,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                         }
                     }
 
-                    // 📌 Bottom Banner Ad
-                    com.kishan.attendmate.ui.components.BannerAd(
-                            modifier = Modifier.align(Alignment.BottomCenter)
-                    )
+
                 }
             }
         }

@@ -121,7 +121,7 @@ dependencies {
     implementation ("androidx.glance:glance-material3:1.0.0")
 
     /* ---------------- ADMOB ---------------- */
-    implementation("com.google.android.gms:play-services-ads:23.0.0")
+    // AdMob removed
 
     /* ---------------- AI (Rule-based, no API needed) ---------------- */
     // No external AI SDK required — the AI assistant is fully offline and rule-based

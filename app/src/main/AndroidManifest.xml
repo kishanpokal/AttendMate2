@@ -22,16 +22,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.AttendMate">
 
-        <!-- AdMob Application ID (Test ID) -->
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713"/>
 
-        <!-- Resolve manifest merger conflict between AdMob and Firebase Analytics -->
-        <property
-            android:name="android.adservices.AD_SERVICES_CONFIG"
-            android:resource="@xml/gma_ad_services_config"
-            tools:replace="android:resource" />
 
         <!-- ===================================================== -->
         <!-- ENTRY / LAUNCHER -->
@@ -76,10 +67,11 @@
         <activity android:name=".ui.attendance.EditAttendanceActivity" android:exported="false" />
 
         <!-- ===================================================== -->
-        <!-- ANALYTICS / SETTINGS -->
+        <!-- ANALYTICS / SETTINGS / INTEGRATION -->
         <!-- ===================================================== -->
         <activity android:name=".ui.analytics.AnalyticsActivity" android:exported="false" />
         <activity android:name=".ui.settings.SettingsActivity" android:exported="false" />
+        <activity android:name=".ui.settings.CollegeSyncActivity" android:exported="false" />
 
         <!-- ===================================================== -->
         <!-- AI CHAT -->

@@ -99,8 +99,7 @@ class MainActivity : ComponentActivity() {
                 // 🔔 Ensure notification channels exist
                 createNotificationChannels()
 
-                // 📌 Initialize Google Mobile Ads SDK
-                com.google.android.gms.ads.MobileAds.initialize(this) {}
+
 
                 enableEdgeToEdge()
 
@@ -593,10 +592,7 @@ fun HomeScreen() {
                         }
                 }
 
-                // 📌 Bottom Banner Ad
-                com.kishan.attendmate.ui.components.BannerAd(
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                )
+
         }
 
         /* -------------------- POPUP -------------------- */

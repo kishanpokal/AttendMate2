@@ -81,7 +81,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
     @Composable
     private fun WidgetUI(data: AttendanceData) {
         val context = LocalContext.current
-        val colorPrimary = Color(0xFF6366F1) // Indigo Primary
         val colorSurface = Color(0xFF1E2235) // Premium dark blue-gray surface
 
         val percentageFormatted = String.format(Locale.getDefault(), "%.1f%%", data.percentage)
@@ -97,7 +96,7 @@ class TotalAttendanceWidget : GlanceAppWidget() {
             else -> Color(0xFFFF5252) // Vibrant Red
         }
 
-        Row(
+        Column(
             modifier = GlanceModifier
                 .fillMaxSize()
                 .background(ColorProvider(colorSurface))
@@ -109,67 +108,56 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                         }
                     )
                 ),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.Start
         ) {
-            // Left Column (Percentage)
-            Column(
-                modifier = GlanceModifier.defaultWeight(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalAlignment = Alignment.Start
+            // Title
+            Text(
+                text = "Total Attendance",
+                style = TextStyle(
+                    color = ColorProvider(Color.White.copy(alpha = 0.7f)),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            )
+            
+            Spacer(modifier = GlanceModifier.height(8.dp))
+            
+            // Percentage
+            Text(
+                text = percentageFormatted,
+                style = TextStyle(
+                    color = ColorProvider(statusColor),
+                    fontSize = 36.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            )
+            
+            Spacer(modifier = GlanceModifier.height(8.dp))
+            
+            // Details Row: Status pill + fraction
+            Row(
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                // Status Text
                 Text(
-                    text = "Attendance",
+                    text = statusText,
                     style = TextStyle(
-                        color = ColorProvider(Color.White.copy(alpha = 0.8f)),
+                        color = ColorProvider(statusColor),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                
+                Spacer(modifier = GlanceModifier.width(8.dp))
+                
+                // Fraction Text
+                Text(
+                    text = "${data.attendedClasses}/${data.totalClasses} Classes",
+                    style = TextStyle(
+                        color = ColorProvider(Color.White.copy(alpha = 0.9f)),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium
-                    )
-                )
-                Spacer(modifier = GlanceModifier.height(4.dp))
-                Text(
-                    text = percentageFormatted,
-                    style = TextStyle(
-                        color = ColorProvider(colorPrimary),
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-            }
-            
-            // Right Column (Details and Status)
-            Column(
-                modifier = GlanceModifier.defaultWeight(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalAlignment = Alignment.End
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(modifier = GlanceModifier.size(6.dp).background(ColorProvider(statusColor))) {}
-                    Spacer(modifier = GlanceModifier.width(4.dp))
-                    Text(
-                        text = statusText,
-                        style = TextStyle(
-                            color = ColorProvider(statusColor),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                }
-                Spacer(modifier = GlanceModifier.height(8.dp))
-                Text(
-                    text = "${data.attendedClasses} / ${data.totalClasses}",
-                    style = TextStyle(
-                        color = ColorProvider(Color.White),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                Text(
-                    text = "Classes",
-                    style = TextStyle(
-                        color = ColorProvider(Color.White.copy(alpha = 0.6f)),
-                        fontSize = 10.sp
                     )
                 )
             }

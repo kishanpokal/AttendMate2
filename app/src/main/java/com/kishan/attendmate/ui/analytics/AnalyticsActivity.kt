@@ -1,5 +1,10 @@
 package com.kishan.attendmate.ui.analytics
 
+import android.content.Intent
+import androidx.compose.ui.platform.LocalContext
+import java.text.SimpleDateFormat
+import java.util.Date
+
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -141,7 +146,7 @@ class AnalyticsActivity : ComponentActivity() {
                 Scaffold(
                         bottomBar = {
                             Column {
-                                com.kishan.attendmate.ui.components.BannerAd()
+
                                 AttendMateNavigationBar("analytics")
                             }
                         }
@@ -2398,6 +2403,32 @@ fun ModernDateDialog(
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
+                
+                val context = LocalContext.current
+                val dateFormatter = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+                val formattedDate = dateFormatter.format(
+                    Date.from(date.atStartOfDay(ZoneId.systemDefault()).toInstant())
+                )
+
+                Button(
+                    onClick = {
+                        val intent = Intent(context, com.kishan.attendmate.ui.attendance.AttendanceListActivity::class.java).apply {
+                            putExtra("filterDate", formattedDate)
+                        }
+                        context.startActivity(intent)
+                        onDismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors =
+                        ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                ) { Text("View Full Attendance List") }
+
+                Spacer(modifier = Modifier.height(8.dp))
+                
                 // Close Button
                 Button(
                         onClick = onDismiss,

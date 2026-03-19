@@ -76,6 +76,10 @@ private fun readTimeAsString(
 class AttendanceListActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 1. Extract the filterDate from Intent if it exists
+        val filterDate = intent.getStringExtra("filterDate") ?: ""
+        
         enableEdgeToEdge()
         setContent {
             AttendMateTheme {
@@ -98,6 +102,7 @@ class AttendanceListActivity : ComponentActivity() {
                             )
                     ) {
                         AttendanceListScreen(
+                            initialSearchQuery = filterDate,
                             onEdit = { subjectId, attendanceId ->
                                 startActivity(
                                     Intent(
@@ -138,6 +143,7 @@ data class FilterOption(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AttendanceListScreen(
+    initialSearchQuery: String = "",
     onEdit: (String, String) -> Unit
 ) {
     val auth = FirebaseAuth.getInstance()
@@ -152,7 +158,9 @@ fun AttendanceListScreen(
     var loading by remember { mutableStateOf(true) }
     var selectedAttendance by remember { mutableStateOf<AttendanceItem?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
-    var searchQuery by remember { mutableStateOf("") }
+    
+    // 2. Initialize search query with the passed value
+    var searchQuery by remember { mutableStateOf(initialSearchQuery) }
 
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -672,6 +680,7 @@ fun ModernAttendanceDialog(attendance: AttendanceItem, onDismiss: () -> Unit, on
     val isPresent = attendance.status == "PRESENT"
     val statusColor = if (isPresent) Color(0xFF10B981) else Color(0xFFEF4444)
     val formattedDate = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(attendance.date)
+    var isDeleting by remember { mutableStateOf(false) }
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(modifier = Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
@@ -711,12 +720,29 @@ fun ModernAttendanceDialog(attendance: AttendanceItem, onDismiss: () -> Unit, on
                     // Buttons
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedButton(
-                            onClick = onDelete,
+                            onClick = {
+                                if (!isDeleting) {
+                                    isDeleting = true
+                                    onDelete()
+                                }
+                            },
                             modifier = Modifier.weight(1f).height(50.dp),
                             shape = RoundedCornerShape(14.dp),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                        ) { Text("Delete", fontWeight = FontWeight.Bold) }
+                        ) {
+                            AnimatedContent(targetState = isDeleting, label = "delete_anim") { deleting ->
+                                if (deleting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        color = MaterialTheme.colorScheme.error,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Text("Delete", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
 
                         Button(
                             onClick = onEdit,

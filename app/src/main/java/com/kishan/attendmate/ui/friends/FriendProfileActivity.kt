@@ -82,6 +82,7 @@ fun FriendProfileScreen(friendUid: String, onBack: () -> Unit) {
     var totalClasses by remember { mutableIntStateOf(0) }
     var attendedClasses by remember { mutableIntStateOf(0) }
     var todayLectures by remember { mutableStateOf<List<FriendLecture>>(emptyList()) }
+    var isTodaySnapshot by remember { mutableStateOf(false) }
     var loading by remember { mutableStateOf(true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
@@ -103,28 +104,44 @@ fun FriendProfileScreen(friendUid: String, onBack: () -> Unit) {
             username = userDoc.getString("username") ?: "User"
             email = userDoc.getString("email") ?: ""
 
-            val snapDoc = db.collection("users").document(friendUid)
+            var snapDoc = db.collection("users").document(friendUid)
                 .collection("dailySnapshot").document(todayId).get().await()
+                
+            if (!snapDoc.exists()) {
+                val recentSnaps = db.collection("users").document(friendUid)
+                    .collection("dailySnapshot")
+                    .get()
+                    .await()
+                if (!recentSnaps.isEmpty) {
+                    snapDoc = recentSnaps.documents.maxByOrNull { it.id } ?: recentSnaps.documents[0]
+                }
+            }
 
             if (snapDoc.exists()) {
+                isTodaySnapshot = (snapDoc.id == todayId)
                 percentage = snapDoc.getDouble("percentage") ?: 0.0
                 totalClasses = snapDoc.getLong("totalClasses")?.toInt() ?: 0
                 attendedClasses = snapDoc.getLong("attendedClasses")?.toInt() ?: 0
 
-                // Parse the nested objects correctly
-                val map = snapDoc.get("lectures") as? Map<String, Any> ?: emptyMap()
-                todayLectures = map.mapNotNull { (_, value) ->
-                    val data = value as? Map<String, String> ?: return@mapNotNull null
-                    FriendLecture(
-                        subjectName = data["subjectName"] ?: "Unknown",
-                        status = data["status"] ?: "ABSENT",
-                        startTime = data["startTime"] ?: "--:--",
-                        endTime = data["endTime"] ?: "--:--"
-                    )
-                }.sortedBy { it.startTime }
+                if (isTodaySnapshot) {
+                    // Parse the nested objects correctly
+                    val map = snapDoc.get("lectures") as? Map<String, Any> ?: emptyMap()
+                    todayLectures = map.mapNotNull { (_, value) ->
+                        val data = value as? Map<String, String> ?: return@mapNotNull null
+                        FriendLecture(
+                            subjectName = data["subjectName"] ?: "Unknown",
+                            status = data["status"] ?: "ABSENT",
+                            startTime = data["startTime"] ?: "--:--",
+                            endTime = data["endTime"] ?: "--:--"
+                        )
+                    }.sortedBy { it.startTime }
+                } else {
+                    todayLectures = emptyList()
+                }
             }
-        } catch (_: Exception) {
-            errorMsg = "Unable to load profile. Check your connection."
+        } catch (e: Exception) {
+            android.util.Log.e("FriendProfile", "Load error", e)
+            errorMsg = "Unable to load profile: ${e.message}"
         } finally {
             loading = false
         }
@@ -188,7 +205,8 @@ fun FriendProfileScreen(friendUid: String, onBack: () -> Unit) {
                         percentage = percentage.toFloat(),
                         totalClasses = totalClasses,
                         attendedClasses = attendedClasses,
-                        todayLectures = todayLectures
+                        todayLectures = todayLectures,
+                        isTodaySnapshot = isTodaySnapshot
                     )
                 }
             }
@@ -207,7 +225,8 @@ fun ProfileContentScreen(
     percentage: Float,
     totalClasses: Int,
     attendedClasses: Int,
-    todayLectures: List<FriendLecture>
+    todayLectures: List<FriendLecture>,
+    isTodaySnapshot: Boolean
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
@@ -243,46 +262,48 @@ fun ProfileContentScreen(
         }
 
         /* ── Today's Lectures Section Header ── */
-        item {
-            var visible by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) { delay(200); visible = true }
-            AnimatedVisibility(
-                visible = visible,
-                enter = fadeIn(tween(300))
-            ) {
-                ProfileSectionHeader(
-                    icon = Icons.AutoMirrored.Outlined.EventNote,
-                    title = "Today's Lectures",
-                    subtitle = "${todayLectures.size} ${if (todayLectures.size == 1) "class" else "classes"} scheduled"
-                )
-            }
-        }
-
-        /* ── Lectures ── */
-        if (todayLectures.isEmpty()) {
+        if (isTodaySnapshot) {
             item {
                 var visible by remember { mutableStateOf(false) }
-                LaunchedEffect(Unit) { delay(260); visible = true }
+                LaunchedEffect(Unit) { delay(200); visible = true }
                 AnimatedVisibility(
                     visible = visible,
-                    enter = fadeIn() + expandVertically()
+                    enter = fadeIn(tween(300))
                 ) {
-                    NoLecturesToday()
+                    ProfileSectionHeader(
+                        icon = Icons.AutoMirrored.Outlined.EventNote,
+                        title = "Today's Lectures",
+                        subtitle = "${todayLectures.size} ${if (todayLectures.size == 1) "class" else "classes"} scheduled"
+                    )
                 }
             }
-        } else {
-            itemsIndexed(todayLectures, key = { _, lecture -> "${lecture.subjectName}_${lecture.startTime}" }) { index, lecture ->
-                var visible by remember { mutableStateOf(false) }
-                LaunchedEffect(lecture) { delay(260 + index * 60L); visible = true }
 
-                AnimatedVisibility(
-                    visible = visible,
-                    enter = slideInHorizontally(
-                        animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow),
-                        initialOffsetX = { -(it * 0.35f).toInt() }
-                    ) + fadeIn(tween(220))
-                ) {
-                    FriendLectureCard(lecture = lecture)
+            /* ── Lectures ── */
+            if (todayLectures.isEmpty()) {
+                item {
+                    var visible by remember { mutableStateOf(false) }
+                    LaunchedEffect(Unit) { delay(260); visible = true }
+                    AnimatedVisibility(
+                        visible = visible,
+                        enter = fadeIn() + expandVertically()
+                    ) {
+                        NoLecturesToday()
+                    }
+                }
+            } else {
+                itemsIndexed(todayLectures, key = { _, lecture -> "${lecture.subjectName}_${lecture.startTime}" }) { index, lecture ->
+                    var visible by remember { mutableStateOf(false) }
+                    LaunchedEffect(lecture) { delay(260 + index * 60L); visible = true }
+
+                    AnimatedVisibility(
+                        visible = visible,
+                        enter = slideInHorizontally(
+                            animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessMediumLow),
+                            initialOffsetX = { -(it * 0.35f).toInt() }
+                        ) + fadeIn(tween(220))
+                    ) {
+                        FriendLectureCard(lecture = lecture)
+                    }
                 }
             }
         }

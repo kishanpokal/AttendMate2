@@ -200,6 +200,24 @@ private fun SettingsPage() {
 
                                 Spacer(Modifier.height(24.dp))
 
+                                SettingsSection("Integration", Icons.Default.Sync)
+
+                                SettingsItem(
+                                        icon = Icons.Default.CloudDownload,
+                                        title = "College Attendance Sync",
+                                        subtitle = "Sync attendance directly from college portal",
+                                        onClick = {
+                                                context.startActivity(
+                                                        Intent(
+                                                                context,
+                                                                CollegeSyncActivity::class.java
+                                                        )
+                                                )
+                                        }
+                                )
+
+                                Spacer(Modifier.height(24.dp))
+
                                 SettingsSection("Friends", Icons.Default.Group)
 
                                 SettingsItem(
@@ -252,10 +270,7 @@ private fun SettingsPage() {
                                 )
                         }
 
-                        // 📌 Bottom Banner Ad
-                        com.kishan.attendmate.ui.components.BannerAd(
-                                modifier = Modifier.align(Alignment.BottomCenter)
-                        )
+
                 }
         }
 
