@@ -21,7 +21,9 @@ object NlpEngine {
 
     data class ExtractedEntities(
         val subjectHint: String? = null,       // raw text fragment that looks like a subject
+        val subject2: String? = null,          // second subject for comparison
         val dateHint: String? = null,           // raw date fragment
+        val monthHint: Int? = null,             // 0-indexed month
         val statusHint: String? = null,         // "present" / "absent"
         val percentageHint: Int? = null,        // e.g. 85 from "set goal 85%"
         val timeRangeHint: String? = null       // e.g. "9am to 10am"
@@ -37,6 +39,9 @@ object NlpEngine {
         // ── New advanced intents ──
         PREDICTION, STUDY_TIPS, WEEKLY_SUMMARY, GOAL_SETTING,
         MOTIVATION, TREND_ANALYSIS, PATTERN_ANALYSIS, SMART_QA,
+        COMPARE_SUBJECTS, MONTHLY_REPORT, SUBJECT_SKIP_CALC,
+        GET_STREAK, GET_BEST_SUBJECT, GET_WORST_SUBJECT,
+        EXAM_MODE_CHECK, CLARIFY,
         UNKNOWN
     }
 
@@ -74,10 +79,16 @@ object NlpEngine {
                 intent to (base + contextBonus).coerceAtMost(1f)
             }
 
-        val (bestIntent, bestScore) = scores.maxByOrNull { it.second } ?: (NlpIntent.UNKNOWN to 0f)
+        val sortedScores = scores.sortedByDescending { it.second }
+        val bestIntent = sortedScores.firstOrNull()?.first ?: NlpIntent.UNKNOWN
+        var bestScore = sortedScores.firstOrNull()?.second ?: 0f
+        val secondBestScore = sortedScores.getOrNull(1)?.second ?: 0f
+
+        bestScore = confidenceBoost(bestScore, secondBestScore, bestIntent, lastIntent)
+
         val finalIntent = if (bestScore < 0.15f) NlpIntent.UNKNOWN else bestIntent
 
-        val entities  = extractEntities(lower, tokens, subjectNames)
+        val entities  = extractEntities(lower, tokens, subjectNames, finalIntent)
         val sentiment = detectSentiment(tokens, expanded)
 
         return NlpResult(finalIntent, bestScore, entities, sentiment)
@@ -103,6 +114,13 @@ object NlpEngine {
 
     private fun stem(word: String): String {
         var w = word
+        if (w == "classes") return "class"
+        if (w.startsWith("lectur")) return "lect"
+        if (w == "attended" || w == "attending") return "attend"
+        if (w == "predicted") return "predict"
+        if (w == "analyzing") return "analyz"
+        if (w == "comparing") return "compar"
+
         // Step 1: plurals / past tense
         if (w.endsWith("sses")) w = w.dropLast(2)
         else if (w.endsWith("ies")) w = w.dropLast(2)
@@ -171,7 +189,19 @@ object NlpEngine {
         "mark" to "mark", "record" to "mark", "log" to "mark", "add" to "mark",
         // Week
         "week" to "weekly", "7days" to "weekly", "last7" to "weekly",
-        "past7" to "weekly", "thisweek" to "weekly"
+        "past7" to "weekly", "thisweek" to "weekly",
+        // New intents
+        "compare" to "compare", "versus" to "compare", "vs" to "compare",
+        "difference" to "compare", "better" to "compare",
+        "monthly" to "monthly", "last month" to "monthly",
+        "this month" to "monthly", "30 days" to "monthly",
+        "skip budget" to "skipbudget", "how many can" to "skipbudget",
+        "safe to bunk" to "skipbudget", "afford" to "skipbudget",
+        "streak" to "streak", "row" to "streak", "consecutive" to "streak",
+        "worst subject" to "worst", "weakest" to "worst", "failing" to "worst",
+        "best subject" to "best", "strongest" to "best", "highest" to "best",
+        "exam" to "exam", "debarred" to "exam", "eligible" to "exam",
+        "detained" to "exam"
     )
 
     private fun synonymExpand(word: String): String = SYNONYMS[word] ?: word
@@ -350,6 +380,54 @@ object NlpEngine {
             Signal("rules", 0.4f), Signal("policy", 0.4f),
             Signal("consequence", 0.5f), Signal("benefit", 0.4f),
             Signal("why attendance", 0.8f), Signal("attendance important", 0.7f)
+        ),
+        
+        NlpIntent.COMPARE_SUBJECTS to listOf(
+            Signal("compare", 0.9f), Signal("vs", 0.9f), Signal("versus", 0.9f),
+            Signal("compare subjects", 1f), Signal("which better", 0.8f),
+            Signal("difference between", 0.8f), Signal("compare attendance", 1f)
+        ),
+        
+        NlpIntent.MONTHLY_REPORT to listOf(
+            Signal("monthly", 0.8f), Signal("monthly report", 1f),
+            Signal("this month", 0.8f), Signal("last month", 0.8f),
+            Signal("30 day", 0.7f), Signal("month summary", 0.9f),
+            Signal("monthly summary", 1f)
+        ),
+        
+        NlpIntent.SUBJECT_SKIP_CALC to listOf(
+            Signal("skip budget", 1f), Signal("skipbudget", 0.9f),
+            Signal("how many can miss", 0.9f), Signal("safe to bunk", 0.9f),
+            Signal("how many can bunk", 0.9f), Signal("can afford", 0.8f),
+            Signal("how many more", 0.6f), Signal("bunk calculator", 1f),
+            Signal("miss calculator", 1f)
+        ),
+        
+        NlpIntent.GET_STREAK to listOf(
+            Signal("streak", 0.9f), Signal("consecutive", 0.8f),
+            Signal("in a row", 0.9f), Signal("my streak", 1f),
+            Signal("current streak", 1f), Signal("longest streak", 0.9f)
+        ),
+        
+        NlpIntent.GET_BEST_SUBJECT to listOf(
+            Signal("best subject", 1f), Signal("top subject", 1f),
+            Signal("strongest", 0.8f), Signal("highest attendance", 0.9f),
+            Signal("which subject best", 1f), Signal("where doing best", 0.9f)
+        ),
+        
+        NlpIntent.GET_WORST_SUBJECT to listOf(
+            Signal("worst subject", 1f), Signal("weakest", 0.8f),
+            Signal("lowest attendance", 0.9f), Signal("which subject worst", 1f),
+            Signal("failing in", 0.8f), Signal("danger zone", 0.7f),
+            Signal("critical subject", 0.9f), Signal("at risk", 0.7f)
+        ),
+        
+        NlpIntent.EXAM_MODE_CHECK to listOf(
+            Signal("exam", 0.7f), Signal("debarred", 0.9f),
+            Signal("eligible", 0.7f), Signal("detained", 0.9f),
+            Signal("exam eligible", 1f), Signal("sit exam", 0.9f),
+            Signal("allowed exam", 0.9f), Signal("pass semester", 0.7f),
+            Signal("debar", 0.9f)
         )
     )
 
@@ -378,20 +456,38 @@ object NlpEngine {
 
     /* ═══════════════════ ENTITY EXTRACTION ═══════════════════ */
 
-    private fun extractEntities(lower: String, tokens: List<String>, subjectNames: List<String>): ExtractedEntities {
-        // Subject hint: find best fuzzy match
+    private fun extractEntities(lower: String, tokens: List<String>, subjectNames: List<String>, finalIntent: NlpIntent): ExtractedEntities {
         var subjectHint: String? = null
-        for (sn in subjectNames) {
-            if (lower.contains(sn.lowercase())) {
-                subjectHint = sn; break
-            }
-        }
-        if (subjectHint == null) {
-            // Try partial match
+        var subject2: String? = null
+        
+        if (finalIntent == NlpIntent.COMPARE_SUBJECTS) {
+            val matches = mutableListOf<String>()
             for (sn in subjectNames) {
-                val words = sn.lowercase().split(Regex("\\s+"))
-                if (words.any { w -> tokens.any { t -> levenshtein(t, w) <= 2 && w.length > 3 } }) {
+                if (lower.contains(sn.lowercase())) {
+                    matches.add(sn)
+                } else {
+                    val words = sn.lowercase().split(Regex("\\s+"))
+                    if (words.any { w -> tokens.any { t -> levenshtein(t, w) <= 2 && w.length > 3 } }) {
+                        matches.add(sn)
+                    }
+                }
+            }
+            if (matches.isNotEmpty()) subjectHint = matches[0]
+            if (matches.size > 1) subject2 = matches.first { it != subjectHint }
+        } else {
+            // Subject hint: find best fuzzy match
+            for (sn in subjectNames) {
+                if (lower.contains(sn.lowercase())) {
                     subjectHint = sn; break
+                }
+            }
+            if (subjectHint == null) {
+                // Try partial match
+                for (sn in subjectNames) {
+                    val words = sn.lowercase().split(Regex("\\s+"))
+                    if (words.any { w -> tokens.any { t -> levenshtein(t, w) <= 2 && w.length > 3 } }) {
+                        subjectHint = sn; break
+                    }
                 }
             }
         }
@@ -403,6 +499,14 @@ object NlpEngine {
             else if (lower.contains("tomorrow")) "tomorrow"
             else null
 
+        // Month hint
+        val monthNames = listOf("january" to 0, "february" to 1, "march" to 2, "april" to 3, "may" to 4, "june" to 5, "july" to 6, "august" to 7, "september" to 8, "october" to 9, "november" to 10, "december" to 11,
+                                "jan" to 0, "feb" to 1, "mar" to 2, "apr" to 3, "jun" to 5, "jul" to 6, "aug" to 7, "sep" to 8, "sept" to 8, "oct" to 9, "nov" to 10, "dec" to 11)
+        var monthHint: Int? = null
+        for ((name, index) in monthNames) {
+            if (tokens.contains(name)) { monthHint = index; break }
+        }
+
         // Status hint
         val statusHint = when {
             lower.contains("present") -> "present"
@@ -411,13 +515,27 @@ object NlpEngine {
         }
 
         // Percentage hint
-        val pctHint = Regex("(\\d{1,3})\\s*%").find(lower)?.groupValues?.get(1)?.toIntOrNull()
+        val pctWords = mapOf("ten" to 10, "twenty" to 20, "thirty" to 30, "forty" to 40, "fifty" to 50, "sixty" to 60, "seventy" to 70, "eighty" to 80, "ninety" to 90, "seventy five" to 75, "eighty five" to 85, "ninety five" to 95)
+        var pctHint = Regex("(\\d{1,3})\\s*%").find(lower)?.groupValues?.get(1)?.toIntOrNull()
+        if (pctHint == null) {
+            for ((word, num) in pctWords) {
+                if (lower.contains("$word percent") || lower.contains(word)) { pctHint = num; break }
+            }
+        }
 
         // Time range hint
-        val timeHint = Regex("(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)\\s*(?:-|to)\\s*(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?)", RegexOption.IGNORE_CASE)
-            .find(lower)?.value
+        val timeHintMatch = Regex("(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|in the morning|in the evening|in the afternoon)?)\\s*(?:-|to)\\s*(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|in the morning|in the evening|in the afternoon)?)", RegexOption.IGNORE_CASE)
+            .find(lower)
+        
+        var timeHint: String? = timeHintMatch?.value
+        
+        // Also match single times like "4 pm" or "9 in the morning" if no range matched
+        if (timeHint == null) {
+            val singleTimeRegex = Regex("(?:at |around |by )?(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm|in the morning|in the evening|in the afternoon)|half past \\d{1,2})", RegexOption.IGNORE_CASE)
+            timeHint = singleTimeRegex.find(lower)?.groupValues?.getOrNull(1)
+        }
 
-        return ExtractedEntities(subjectHint, dateHint, statusHint, pctHint, timeHint)
+        return ExtractedEntities(subjectHint, subject2, dateHint, monthHint, statusHint, pctHint, timeHint)
     }
 
     /* ═══════════════════ SENTIMENT DETECTION ═══════════════════ */
@@ -445,14 +563,26 @@ object NlpEngine {
     private val CONFIRM_NO_SET  = setOf("no", "n", "cancel", "nah", "nope", "stop", "nevermind", "abort", "dont", "don't")
 
     private fun quick(intent: NlpIntent, confidence: Float, lower: String, subjects: List<String>): NlpResult =
-        NlpResult(intent, confidence, extractEntities(lower, tokenize(lower), subjects), Sentiment.NEUTRAL)
+        NlpResult(intent, confidence, extractEntities(lower, tokenize(lower), subjects, intent), Sentiment.NEUTRAL)
+
+    private fun confidenceBoost(bestScore: Float, secondBestScore: Float, bestIntent: NlpIntent, lastIntent: NlpIntent?): Float {
+        if (bestScore < 0.25f && (bestScore - secondBestScore) <= 0.05f) {
+            if (lastIntent != null && intentGroup(bestIntent) == intentGroup(lastIntent)) {
+                return bestScore + 0.1f
+            }
+        }
+        return bestScore
+    }
 
     private fun intentGroup(intent: NlpIntent): Int = when (intent) {
         NlpIntent.SUBJECT_SUMMARY, NlpIntent.ATTENDANCE_FOR_DATE, NlpIntent.OVERALL_ANALYSIS -> 1
         NlpIntent.MARK_ATTENDANCE, NlpIntent.MARK_BULK_ATTENDANCE -> 2
         NlpIntent.DELETE_ATTENDANCE -> 3
         NlpIntent.TIMETABLE, NlpIntent.NEXT_CLASS -> 4
-        NlpIntent.PREDICTION, NlpIntent.TREND_ANALYSIS, NlpIntent.PATTERN_ANALYSIS -> 5
+        NlpIntent.PREDICTION, NlpIntent.TREND_ANALYSIS, NlpIntent.PATTERN_ANALYSIS, 
+        NlpIntent.COMPARE_SUBJECTS, NlpIntent.MONTHLY_REPORT, NlpIntent.SUBJECT_SKIP_CALC,
+        NlpIntent.GET_STREAK, NlpIntent.GET_BEST_SUBJECT, NlpIntent.GET_WORST_SUBJECT,
+        NlpIntent.EXAM_MODE_CHECK -> 5
         NlpIntent.STUDY_TIPS, NlpIntent.MOTIVATION, NlpIntent.GOAL_SETTING -> 6
         else -> 0
     }

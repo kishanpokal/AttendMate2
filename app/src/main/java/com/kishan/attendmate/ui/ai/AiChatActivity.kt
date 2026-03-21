@@ -1,5 +1,6 @@
 package com.kishan.attendmate.ui.ai
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Build
 import android.os.VibrationEffect
@@ -33,8 +34,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -52,6 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.firebase.auth.FirebaseAuth
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.delay
+import kotlin.math.ceil
 
 class AiChatActivity : ComponentActivity() {
 
@@ -103,7 +103,8 @@ fun AiChatScreen(viewModel: AiChatViewModel, onNavigateBack: () -> Unit) {
         prevSize.intValue = messages.size
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background.copy(alpha = 0.8f))) {
+        AnimatedMeshBackground() // ── Pro-level animated background ──
 
         Column(modifier = Modifier.fillMaxSize()) {
 
@@ -121,17 +122,21 @@ fun AiChatScreen(viewModel: AiChatViewModel, onNavigateBack: () -> Unit) {
                     .weight(1f)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(16.dp) // increased spacing for breathing room
             ) {
                 item { Spacer(modifier = Modifier.height(8.dp)) }
 
                 itemsIndexed(messages) { index, message ->
                     val shouldAnimate = !message.isUser && index == messages.lastIndex &&
-                                        uiState == AiChatUiState.Success
+                            uiState == AiChatUiState.Success
 
                     AnimatedVisibility(
                         visible = true,
-                        enter   = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn()
+                        enter   = slideInVertically(
+                            initialOffsetY = { it / 2 },
+                            animationSpec = spring(dampingRatio = 0.65f, stiffness = 400f)
+                        ) + fadeIn(tween(400)),
+                        modifier = Modifier.animateItem() // smooth item repositioning
                     ) {
                         MessageBubble(
                             message       = message,
@@ -200,6 +205,49 @@ fun AiChatScreen(viewModel: AiChatViewModel, onNavigateBack: () -> Unit) {
                 }
             )
         }
+    }
+}
+
+/* ──────────────────────────────────────────
+   Animated Mesh Background
+────────────────────────────────────────── */
+
+@Composable
+private fun AnimatedMeshBackground() {
+    val infiniteTransition = rememberInfiniteTransition(label = "mesh")
+    val offset1 by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "off1"
+    )
+    val offset2 by infiniteTransition.animateFloat(
+        initialValue = 1f, targetValue = 0f,
+        animationSpec = infiniteRepeatable(tween(25000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "off2"
+    )
+
+    val primary = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
+    val secondary = MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f)
+    val tertiary = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f)
+
+    Canvas(modifier = Modifier.fillMaxSize().blur(60.dp)) {
+        val w = size.width
+        val h = size.height
+        drawCircle(
+            brush = Brush.radialGradient(listOf(primary, Color.Transparent)),
+            radius = w * 0.85f,
+            center = Offset(w * offset1, h * 0.2f)
+        )
+        drawCircle(
+            brush = Brush.radialGradient(listOf(secondary, Color.Transparent)),
+            radius = w * 0.95f,
+            center = Offset(w * 0.8f, h * offset2)
+        )
+        drawCircle(
+            brush = Brush.radialGradient(listOf(tertiary, Color.Transparent)),
+            radius = w * 0.75f,
+            center = Offset(w * (1 - offset1), h * 0.8f)
+        )
     }
 }
 
@@ -350,11 +398,11 @@ private fun TypingIndicator() {
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp, 18.dp, 18.dp, 4.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-            shadowElevation = 2.dp
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            shadowElevation = 6.dp
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -362,22 +410,23 @@ private fun TypingIndicator() {
                     val alpha by infiniteTransition.animateFloat(
                         initialValue = 0.3f, targetValue = 1f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(600),
+                            animation = tween(400, easing = FastOutSlowInEasing),
                             repeatMode = RepeatMode.Reverse,
-                            initialStartOffset = StartOffset(index * 200)
+                            initialStartOffset = StartOffset(index * 150)
                         ), label = "dot_$index"
                     )
-                    val scale by infiniteTransition.animateFloat(
-                        initialValue = 0.7f, targetValue = 1f,
+                    val offsetY by infiniteTransition.animateFloat(
+                        initialValue = 0f, targetValue = -6f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(600),
+                            animation = tween(400, easing = FastOutSlowInEasing),
                             repeatMode = RepeatMode.Reverse,
-                            initialStartOffset = StartOffset(index * 200)
-                        ), label = "dot_scale_$index"
+                            initialStartOffset = StartOffset(index * 150)
+                        ), label = "dot_offset_$index"
                     )
                     Box(
                         modifier = Modifier
-                            .size((8 * scale).dp)
+                            .offset(y = offsetY.dp)
+                            .size(8.dp)
                             .clip(CircleShape)
                             .background(MaterialTheme.colorScheme.primary.copy(alpha = alpha))
                     )
@@ -420,6 +469,13 @@ fun MessageBubble(
                 MessageType.WEEKLY_SUMMARY_CARD  -> WeeklySummaryCard(message)
                 MessageType.GOAL_CARD            -> GoalSettingCard(message)
                 MessageType.TREND_CARD           -> TrendAnalysisCard(message)
+                // ── Advanced Analytics Cards ──
+                MessageType.COMPARE_CARD         -> CompareCard(message)
+                MessageType.MONTHLY_REPORT_CARD  -> MonthlyReportCard(message)
+                MessageType.SKIP_BUDGET_CARD     -> SkipBudgetCard(message)
+                MessageType.STREAK_CARD          -> StreakCard(message)
+                MessageType.SUBJECT_RANKING_CARD -> SubjectRankingCard(message)
+                MessageType.EXAM_STATUS_CARD     -> ExamStatusCard(message)
                 else -> {
                     // Standard text bubble
                     if (!isUser) {
@@ -615,7 +671,6 @@ private fun CircularProgressRing(progress: Float, color: Color) {
 private fun TimetableCard(message: ChatMessage) {
     val slots   = message.timetableData ?: return
     val primary = MaterialTheme.colorScheme.primary
-    val now     = remember { java.time.LocalTime.now() }
 
     Surface(
         shape         = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
@@ -720,7 +775,7 @@ private fun AnalysisCard(message: ChatMessage) {
                 HorizontalDivider(color = Color(0xFFF44336).copy(0.2f))
                 Text("⚠️ Subjects at Risk", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFF44336))
                 data.atRisk.forEach { s ->
-                    val needed = Math.ceil((0.75 * s.total - s.attended) / 0.25).toInt().coerceAtLeast(0)
+                    val needed = ceil((0.75 * s.total - s.attended) / 0.25).toInt().coerceAtLeast(0)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(s.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("${s.percentage}% · need $needed more", style = MaterialTheme.typography.bodySmall, color = Color(0xFFF44336))
@@ -904,8 +959,7 @@ private fun GlassInputBar(
             ) {
                 BasicInputField(
                     value       = inputText,
-                    onValueChange = onTextChange,
-                    placeholder = "Ask anything…"
+                    onValueChange = onTextChange
                 )
             }
 
@@ -941,7 +995,7 @@ private fun GlassInputBar(
 }
 
 @Composable
-private fun BasicInputField(value: String, onValueChange: (String) -> Unit, placeholder: String) {
+private fun BasicInputField(value: String, onValueChange: (String) -> Unit) {
     androidx.compose.foundation.text.BasicTextField(
         value          = value,
         onValueChange  = onValueChange,
@@ -954,7 +1008,7 @@ private fun BasicInputField(value: String, onValueChange: (String) -> Unit, plac
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         decorationBox = { innerTextField ->
             if (value.isEmpty()) {
-                Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.6f), style = MaterialTheme.typography.bodyLarge)
+                Text("Ask anything...", color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.6f), style = MaterialTheme.typography.bodyLarge)
             }
             innerTextField()
         }
@@ -992,6 +1046,29 @@ fun parseMarkdown(text: String): AnnotatedString {
 /* ──────────────────────────────────────────
    Haptic Feedback
 ────────────────────────────────────────── */
+
+enum class HapticType { SOFT, MEDIUM }
+
+@SuppressLint("MissingPermission")
+fun triggerHaptic(context: Context, type: HapticType) {
+    try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+            val vibrator = manager?.defaultVibrator
+            val effect = when (type) {
+                HapticType.SOFT   -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
+                HapticType.MEDIUM -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
+            }
+            vibrator?.vibrate(effect)
+        } else {
+            @Suppress("DEPRECATION")
+            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            val duration = if (type == HapticType.SOFT) 30L else 60L
+            vibrator?.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
+        }
+    } catch (_: Exception) { /* Safe ignore */ }
+}
+
 /* ──────────────────────────────────────────
    Prediction Card
 ────────────────────────────────────────── */
@@ -999,7 +1076,6 @@ fun parseMarkdown(text: String): AnnotatedString {
 @Composable
 private fun PredictionCard(message: ChatMessage) {
     val predictions = message.predictionData ?: return
-    val primary = MaterialTheme.colorScheme.primary
 
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
@@ -1216,31 +1292,247 @@ private fun TrendAnalysisCard(message: ChatMessage) {
 }
 
 /* ──────────────────────────────────────────
-   Haptics
+   Advanced Analytics Cards
 ────────────────────────────────────────── */
 
-enum class HapticType { SOFT, MEDIUM }
+@Composable
+private fun CompareCard(message: ChatMessage) {
+    val data = message.compareData?.result ?: return
+    Column(modifier = Modifier.widthIn(max = 320.dp)) {
+        BotTextBubble(message.copy(text = message.text), false)
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // Headers
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(data.subjectA.take(12) + if(data.subjectA.length>12)".." else "", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary.copy(0.15f)) {
+                        Text("vs", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontWeight = FontWeight.Black)
+                    }
+                    Text(data.subjectB.take(12) + if(data.subjectB.length>12)".." else "", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+                }
 
-fun triggerHaptic(context: Context, type: HapticType) {
-    try {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val manager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-            val vibrator = manager?.defaultVibrator
-            val effect = when (type) {
-                HapticType.SOFT   -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_CLICK)
-                HapticType.MEDIUM -> VibrationEffect.createPredefined(VibrationEffect.EFFECT_HEAVY_CLICK)
-            }
-            vibrator?.vibrate(effect)
-        } else {
-            @Suppress("DEPRECATION")
-            val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            val duration = if (type == HapticType.SOFT) 30L else 60L
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator?.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator?.vibrate(duration)
+                HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(0.15f))
+
+                // Attendance Pct
+                CompareRow("Attendance", "${data.pctA}%", "${data.pctB}%", data.pctA > data.pctB, data.pctB > data.pctA)
+                // Trend
+                CompareRow("Trend", data.trendA.name, data.trendB.name, data.trendA < data.trendB, data.trendB < data.trendA)
+
+                Text(data.recommendation, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-    } catch (_: Exception) { /* Safe ignore */ }
+    }
+}
+
+@Composable
+private fun CompareRow(label: String, val1: String, val2: String, v1Better: Boolean, v2Better: Boolean) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        val c1 = if (v1Better) Color(0xFF22C55E) else MaterialTheme.colorScheme.onSurfaceVariant
+        val c2 = if (v2Better) Color(0xFF22C55E) else MaterialTheme.colorScheme.onSurfaceVariant
+
+        Text(val1, style = MaterialTheme.typography.bodyLarge, color = c1, fontWeight = if (v1Better) FontWeight.ExtraBold else FontWeight.Medium, modifier = Modifier.weight(1f))
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.6f), fontWeight = FontWeight.Bold)
+        Text(val2, style = MaterialTheme.typography.bodyLarge, color = c2, fontWeight = if (v2Better) FontWeight.ExtraBold else FontWeight.Medium, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+    }
+}
+
+@Composable
+private fun MonthlyReportCard(message: ChatMessage) {
+    val data = message.monthlyReportData?.report ?: return
+    Column(modifier = Modifier.widthIn(max = 300.dp)) {
+        BotTextBubble(message.copy(text = message.text), false)
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            shadowElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("🗓️ ${data.monthName} Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    StatChip("📅", "${data.totalClasses}", "Classes")
+                    StatChip("✅", "${data.subjects.sumOf { it.present }}", "Attended")
+                    StatChip("📊", "${data.overallPct}%", "Rate")
+                }
+                Spacer(modifier = Modifier.height(14.dp))
+                if (data.bestSubject.isNotEmpty()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("⭐ Best: ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFEAB308))
+                        Text(data.bestSubject, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (data.worstSubject.isNotEmpty()) {
+                    Spacer(Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("⚠️ Needs work: ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                        Text(data.worstSubject, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SkipBudgetCard(message: ChatMessage) {
+    val data = message.skipBudgetData?.budget ?: return
+    Column(modifier = Modifier.widthIn(max = 300.dp)) {
+        BotTextBubble(message.copy(text = message.text), false)
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(data.subject, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(100.dp)) {
+                    val color = if (data.canSkip > 0) Color(0xFF22C55E) else Color(0xFFEF4444)
+                    val animatedProgress by animateFloatAsState(targetValue = data.currentPct / 100f, animationSpec = spring(dampingRatio = 0.7f), label = "skip_prog")
+                    Canvas(modifier = Modifier.size(100.dp)) {
+                        drawArc(color.copy(0.15f), 0f, 360f, false, style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round))
+                        drawArc(color, -90f, 360f * animatedProgress, false, style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round))
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("${data.canSkip}", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black, color = color)
+                        Text("Skips Left", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                // Glassy pill for target info
+                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.onSurface.copy(0.05f)) {
+                    Text("Target: ${data.targetPct}% • Current: ${data.currentPct}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(8.dp))
+                }
+
+                if (data.canSkip < 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Attend ${-data.canSkip} more classes to reach target!", style = MaterialTheme.typography.labelMedium, color = Color(0xFFEF4444), fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StreakCard(message: ChatMessage) {
+    val data = message.streakData ?: return
+    Column(modifier = Modifier.widthIn(max = 300.dp)) {
+        BotTextBubble(message.copy(text = message.text), false)
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            shadowElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(
+                    modifier = Modifier.size(64.dp).clip(CircleShape).background(if (data.isOnPresentStreak) Color(0xFF22C55E).copy(0.15f) else Color(0xFFEF4444).copy(0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val scale by animateFloatAsState(targetValue = 1.1f, animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "pulse")
+                    Text(if (data.isOnPresentStreak) "🔥" else "🧊", fontSize = (28 * scale).sp)
+                }
+                Column {
+                    if (data.isOnPresentStreak) {
+                        Text("${data.currentPresentStreak} Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color(0xFF22C55E))
+                        Text("Active Present Streak!", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    } else {
+                        Text("${data.currentAbsentStreak} Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color(0xFFEF4444))
+                        Text("Active Absent Streak", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.onSurface.copy(0.06f)) {
+                        Text("All-Time Best: ${data.longestPresentStreak} 🔥", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(6.dp, 4.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubjectRankingCard(message: ChatMessage) {
+    val data = message.rankingData?.ranking ?: return
+    Column(modifier = Modifier.widthIn(max = 300.dp)) {
+        BotTextBubble(message.copy(text = message.text), false)
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            shadowElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                data.forEachIndexed { index, rank ->
+                    val color = when (index) {
+                        0 -> Color(0xFFFFD700) // Gold
+                        1 -> Color(0xFFC0C0C0) // Silver
+                        2 -> Color(0xFFCD7F32) // Bronze
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(color.copy(0.08f)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("#${index + 1}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = color, modifier = Modifier.width(36.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(rank.first, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+                            val riskColor = when(rank.third) {
+                                PredictionEngine.RiskStatus.SAFE -> Color(0xFF22C55E)
+                                PredictionEngine.RiskStatus.WARNING -> Color(0xFFF97316)
+                                PredictionEngine.RiskStatus.CRITICAL -> Color(0xFFEF4444)
+                            }
+                            Text(rank.third.name, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = riskColor)
+                        }
+                        Text("${rank.second}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ExamStatusCard(message: ChatMessage) {
+    val data = message.examStatusData?.subjects ?: return
+    Column(modifier = Modifier.widthIn(max = 300.dp)) {
+        BotTextBubble(message.copy(text = message.text), false)
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+            shadowElevation = 6.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                data.forEach { sub ->
+                    val color = if (sub.isEligible) Color(0xFF22C55E) else Color(0xFFEF4444)
+                    val bgColor = color.copy(0.12f)
+                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(bgColor).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(color).padding(4.dp), contentAlignment = Alignment.Center) {
+                            Icon(if (sub.isEligible) Icons.Filled.Check else Icons.Filled.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(sub.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+                            if (!sub.isEligible) {
+                                Text("Need ${sub.classesNeeded} more classes", style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+                            } else {
+                                Text("Eligible (${sub.pct}%)", style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

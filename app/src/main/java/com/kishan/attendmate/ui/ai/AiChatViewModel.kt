@@ -40,6 +40,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     // Pending state for confirmation flow
     private var pendingMarksList: List<PendingMarkAttendance>? = null
     private var pendingDeletesList: List<PendingDeleteAttendance>? = null
+    private var pendingClarification: String? = null
 
     // Conversation context for multi-turn memory
     private val conversationCtx = ConversationContext()
@@ -85,19 +86,26 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     private fun updateSuggestionsAfterIntent(lastIntent: Intent) {
         _currentSuggestions.value = when (lastIntent) {
             Intent.TIMETABLE         -> listOf("Mark all present today", "Show my attendance", "Predict my attendance", "Mark present now")
-            Intent.SUBJECT_SUMMARY   -> listOf("Study tips", "Show my trend", "Predict my attendance", "When do I miss most?")
-            Intent.OVERALL_ANALYSIS  -> listOf("Predict my attendance", "Show my trend", "Weekly summary", "Motivate me")
+            Intent.SUBJECT_SUMMARY   -> listOf("Study tips", "Show my trend", "Predict my attendance", "Skip budget")
+            Intent.OVERALL_ANALYSIS  -> listOf("Predict my attendance", "Compare subjects", "Weekly summary", "Motivate me")
             Intent.MARK_ATTENDANCE   -> listOf("Show my attendance", "Mark all present today", "Weekly summary", "Analysis")
             Intent.MARK_BULK_ATTENDANCE -> listOf("Show my attendance", "Analysis", "Weekly summary", "Show my trend")
             Intent.DELETE_ATTENDANCE -> listOf("Show my attendance", "Mark all present today", "Analysis", "My schedule today")
             Intent.PREDICTION        -> listOf("Show my trend", "Study tips", "Weekly summary", "Set goal 85%")
             Intent.STUDY_TIPS        -> listOf("Predict my attendance", "Analysis", "Motivate me", "Show my trend")
-            Intent.WEEKLY_SUMMARY    -> listOf("Predict my attendance", "Show my trend", "When do I miss most?", "Study tips")
+            Intent.WEEKLY_SUMMARY    -> listOf("Monthly report", "Show my trend", "When do I miss most?", "Study tips")
             Intent.GOAL_SETTING      -> listOf("Show my attendance", "Predict my attendance", "Study tips", "Motivate me")
             Intent.MOTIVATION        -> listOf("Show my attendance", "Study tips", "Mark all present today", "Set goal 85%")
             Intent.TREND_ANALYSIS    -> listOf("Predict my attendance", "When do I miss most?", "Weekly summary", "Study tips")
-            Intent.PATTERN_ANALYSIS  -> listOf("Show my trend", "Predict my attendance", "Study tips", "Weekly summary")
+            Intent.PATTERN_ANALYSIS  -> listOf("Show my trend", "Predict my attendance", "Study tips", "Monthly report")
             Intent.SMART_QA          -> listOf("Show my attendance", "Predict my attendance", "Study tips", "Analysis")
+            Intent.COMPARE_SUBJECTS  -> listOf("Best subject", "Worst subject", "Monthly report", "Study tips")
+            Intent.MONTHLY_REPORT    -> listOf("Weekly summary", "Show my trend", "Analyze pattern", "Predict my attendance")
+            Intent.SUBJECT_SKIP_CALC -> listOf("Set goal 85%", "Show my attendance", "Study tips", "Predict my attendance")
+            Intent.GET_STREAK        -> listOf("When do I miss most?", "Show my attendance", "Study tips", "Motivate me")
+            Intent.GET_BEST_SUBJECT  -> listOf("Worst subject", "Show my trend", "Weekly summary", "Motivate me")
+            Intent.GET_WORST_SUBJECT -> listOf("Best subject", "Study tips", "Predict my attendance", "Skip budget")
+            Intent.EXAM_MODE_CHECK   -> listOf("Study tips", "Predict my attendance", "Show my attendance", "Motivate me")
             else                     -> getTimeBasedSuggestions()
         }
     }
@@ -110,7 +118,10 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         OVERALL_ANALYSIS, MARK_BULK_ATTENDANCE, MARK_ATTENDANCE,
         DELETE_ATTENDANCE, CONFIRM_YES, CONFIRM_NO, WHATIF, NEXT_CLASS,
         PREDICTION, STUDY_TIPS, WEEKLY_SUMMARY, GOAL_SETTING,
-        MOTIVATION, TREND_ANALYSIS, PATTERN_ANALYSIS, SMART_QA, UNKNOWN
+        MOTIVATION, TREND_ANALYSIS, PATTERN_ANALYSIS, SMART_QA,
+        COMPARE_SUBJECTS, MONTHLY_REPORT, SUBJECT_SKIP_CALC,
+        GET_STREAK, GET_BEST_SUBJECT, GET_WORST_SUBJECT,
+        EXAM_MODE_CHECK, CLARIFY, UNKNOWN
     }
 
     private fun nlpToLegacy(nlp: NlpEngine.NlpIntent): Intent = when (nlp) {
@@ -135,6 +146,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         NlpEngine.NlpIntent.TREND_ANALYSIS -> Intent.TREND_ANALYSIS
         NlpEngine.NlpIntent.PATTERN_ANALYSIS -> Intent.PATTERN_ANALYSIS
         NlpEngine.NlpIntent.SMART_QA -> Intent.SMART_QA
+        NlpEngine.NlpIntent.COMPARE_SUBJECTS -> Intent.COMPARE_SUBJECTS
+        NlpEngine.NlpIntent.MONTHLY_REPORT -> Intent.MONTHLY_REPORT
+        NlpEngine.NlpIntent.SUBJECT_SKIP_CALC -> Intent.SUBJECT_SKIP_CALC
+        NlpEngine.NlpIntent.GET_STREAK -> Intent.GET_STREAK
+        NlpEngine.NlpIntent.GET_BEST_SUBJECT -> Intent.GET_BEST_SUBJECT
+        NlpEngine.NlpIntent.GET_WORST_SUBJECT -> Intent.GET_WORST_SUBJECT
+        NlpEngine.NlpIntent.EXAM_MODE_CHECK -> Intent.EXAM_MODE_CHECK
+        NlpEngine.NlpIntent.CLARIFY -> Intent.CLARIFY
         NlpEngine.NlpIntent.UNKNOWN -> Intent.UNKNOWN
     }
 
@@ -157,6 +176,23 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 // Fetch subject names for NLP entity extraction
                 val subjects = fetchSubjects(userId)
                 val subjectNames = subjects.values.toList()
+
+                if (pendingClarification != null) {
+                    val pIntent = pendingClarification
+                    pendingClarification = null
+                    
+                    val nlpResult = NlpEngine.analyse(userMessage, subjectNames = subjectNames)
+                    val s1 = nlpResult.entities.subjectHint ?: userMessage
+                    val s2 = nlpResult.entities.subject2 ?: conversationCtx.lastSubject
+                    
+                    val entities = NlpEngine.ExtractedEntities(subjectHint = s1, subject2 = s2)
+                    
+                    when (pIntent) {
+                        "COMPARE" -> handleCompareSubjects(userId, entities, subjects)
+                        "SKIP_BUDGET" -> handleSkipBudget(userId, entities, subjects)
+                    }
+                    return@launch
+                }
 
                 // Use NLP Engine for intent classification
                 val hasPending = pendingMarksList != null || pendingDeletesList != null
@@ -197,7 +233,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 } else userMessage
 
                 when (intent) {
-                    Intent.GREETING  -> handleGreeting(nlpResult.sentiment)
+                    Intent.GREETING  -> handleGreeting(userId, nlpResult.sentiment)
                     Intent.HELP      -> reply(getHelpText())
                     Intent.SUBJECT_SUMMARY      -> handleSubjectSummary(userId, effectiveInput)
                     Intent.ATTENDANCE_FOR_DATE  -> handleAttendanceForDate(userId, effectiveInput)
@@ -219,7 +255,15 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     Intent.TREND_ANALYSIS       -> handleTrend(userId)
                     Intent.PATTERN_ANALYSIS     -> handlePattern(userId, effectiveInput)
                     Intent.SMART_QA             -> handleSmartQA(userMessage)
-                    Intent.UNKNOWN              -> handleUnknown(userMessage)
+                    Intent.COMPARE_SUBJECTS     -> handleCompareSubjects(userId, nlpResult.entities, subjects)
+                    Intent.MONTHLY_REPORT       -> handleMonthlyReport(userId, subjects)
+                    Intent.SUBJECT_SKIP_CALC    -> handleSkipBudget(userId, nlpResult.entities, subjects)
+                    Intent.GET_STREAK           -> handleGetStreak(userId, nlpResult.entities, subjects)
+                    Intent.GET_BEST_SUBJECT     -> handleGetBestSubject(userId, subjects)
+                    Intent.GET_WORST_SUBJECT    -> handleGetWorstSubject(userId, subjects)
+                    Intent.EXAM_MODE_CHECK      -> handleExamModeCheck(userId, subjects)
+                    Intent.CLARIFY              -> handleUnknown(userId, userMessage)
+                    Intent.UNKNOWN              -> handleUnknown(userId, userMessage)
                 }
             } catch (e: Exception) {
                 Log.e("AiChat", "Error processing message", e)
@@ -255,7 +299,13 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         studyTipsData: StudyTipsCardData? = null,
         weeklySummaryData: PredictionEngine.WeeklySummaryData? = null,
         goalData: GoalCardData? = null,
-        trendData: List<PredictionEngine.SubjectTrend>? = null
+        trendData: List<PredictionEngine.SubjectTrend>? = null,
+        compareData: CompareCardData? = null,
+        monthlyReportData: MonthlyReportCardData? = null,
+        skipBudgetData: SkipBudgetCardData? = null,
+        streakData: StreakCardData? = null,
+        rankingData: SubjectRankingCardData? = null,
+        examStatusData: ExamStatusCardData? = null
     ) {
         messages.add(
             ChatMessage(
@@ -271,7 +321,13 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 studyTipsData = studyTipsData,
                 weeklySummaryData = weeklySummaryData,
                 goalData = goalData,
-                trendData = trendData
+                trendData = trendData,
+                compareData = compareData,
+                monthlyReportData = monthlyReportData,
+                skipBudgetData = skipBudgetData,
+                streakData = streakData,
+                rankingData = rankingData,
+                examStatusData = examStatusData
             )
         )
         _uiState.value = AiChatUiState.Success
@@ -975,7 +1031,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     /* ════════════════════ NEW ADVANCED HANDLERS ════════════════════ */
 
-    private fun handleGreeting(sentiment: NlpEngine.Sentiment) {
+    private suspend fun handleGreeting(userId: String, sentiment: NlpEngine.Sentiment) {
         val hour = LocalTime.now().hour
         val timeGreet = when {
             hour in 5..11  -> "Good morning"
@@ -987,6 +1043,22 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             NlpEngine.Sentiment.FRUSTRATED -> " I sense you're having a tough time. I'm here to help! 💙"
             NlpEngine.Sentiment.NEGATIVE   -> " Let's make things better together! 🌟"
             else -> " How can I help you with your attendance today? 😊"
+        }
+        val subjects = runCatching { fetchSubjects(userId) }.getOrDefault(emptyMap())
+        if (subjects.isNotEmpty()) {
+            var total = 0
+            var attended = 0
+            for ((id, _) in subjects) {
+                val doc = db.collection("users").document(userId).collection("subjects").document(id).get().await()
+                total += doc.getLong("totalClasses")?.toInt() ?: 0
+                attended += doc.getLong("attendedClasses")?.toInt() ?: 0
+            }
+            if (total > 0) {
+                val overall = (attended * 100f / total).roundToInt()
+                val remark = if (overall >= 75) "Great job, it's above 75%!" else "Let's work on getting it above 75%."
+                reply("👋 $timeGreet! Your overall attendance is **$overall%**. $remark $moodReply")
+                return
+            }
         }
         reply("👋 $timeGreet!$moodReply")
     }
@@ -1202,10 +1274,17 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun handleUnknown(input: String) {
+    private suspend fun handleUnknown(userId: String, input: String) {
         // Try knowledge base as fallback
         val qaResult = KnowledgeBase.findBestAnswer(input)
         if (qaResult != null) { reply(qaResult.first); return }
+
+        val subjects = fetchSubjects(userId)
+        val matched = findSubjectFuzzy(input, subjects)
+        if (matched != null) {
+            reply("🤔 I didn't quite understand, but it looks like you mentioned **${matched.value}**.\nTry saying:\n- 'Show attendance for ${matched.value}'\n- 'Predict ${matched.value}'\n- 'Study tips for ${matched.value}'")
+            return
+        }
 
         reply("🤔 I didn't quite understand that. Here's what I can do:\n\n" +
               "📊 \"Show my attendance\" — Stats\n" +
@@ -1218,6 +1297,178 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
               "🎯 \"Set goal 85%\" — Goal Setting\n" +
               "❓ \"Why is 75% important?\" — Q&A\n" +
               "✏️ \"Mark Present\" — Actions")
+    }
+
+    private suspend fun handleCompareSubjects(userId: String, entities: NlpEngine.ExtractedEntities, subjects: Map<String, String>) {
+        val s1Name = entities.subjectHint
+        val s2Name = entities.subject2 ?: conversationCtx.lastSubject
+
+        if (s1Name == null || s2Name == null || s1Name == s2Name) {
+            pendingClarification = "COMPARE"
+            reply("Which two subjects do you want to compare? Example: 'Compare Maths vs Physics'")
+            return
+        }
+
+        val s1Entry = findSubjectFuzzy(s1Name, subjects)
+        val s2Entry = findSubjectFuzzy(s2Name, subjects)
+
+        if (s1Entry == null || s2Entry == null) {
+            reply("Couldn't find one or both of those subjects. Please check the spellings.")
+            return
+        }
+
+        val recordsA = fetchAttendanceRecords(userId, s1Entry.key)
+        val recordsB = fetchAttendanceRecords(userId, s2Entry.key)
+
+        val docA = db.collection("users").document(userId).collection("subjects").document(s1Entry.key).get().await()
+        val docB = db.collection("users").document(userId).collection("subjects").document(s2Entry.key).get().await()
+
+        val pctA = calculatePct(docA.getLong("attendedClasses")?.toInt() ?: 0, docA.getLong("totalClasses")?.toInt() ?: 0)
+        val pctB = calculatePct(docB.getLong("attendedClasses")?.toInt() ?: 0, docB.getLong("totalClasses")?.toInt() ?: 0)
+
+        val result = PredictionEngine.compareSubjects(recordsA, s1Entry.value, pctA, recordsB, s2Entry.value, pctB)
+
+        reply(
+            text = "Here is the comparison between **${s1Entry.value}** and **${s2Entry.value}**:",
+            type = MessageType.COMPARE_CARD,
+            compareData = CompareCardData(result)
+        )
+    }
+
+    private fun calculatePct(attended: Int, total: Int): Int {
+        return if (total > 0) (attended * 100f / total).roundToInt() else 0
+    }
+
+    private suspend fun handleMonthlyReport(userId: String, subjects: Map<String, String>) {
+        if (subjects.isEmpty()) { reply("📭 No subjects found."); return }
+        val allRecords = mutableMapOf<String, List<PredictionEngine.AttendanceRecord>>()
+        for ((id, name) in subjects) {
+            allRecords[name] = fetchAttendanceRecords(userId, id)
+        }
+        val report = PredictionEngine.getMonthlyReport(allRecords)
+        reply(
+            text = "Here is your **${report.monthName}** attendance report:",
+            type = MessageType.MONTHLY_REPORT_CARD,
+            monthlyReportData = MonthlyReportCardData(report)
+        )
+    }
+
+    private suspend fun handleSkipBudget(userId: String, entities: NlpEngine.ExtractedEntities, subjects: Map<String, String>) {
+        val sName = entities.subjectHint ?: conversationCtx.lastSubject
+        if (sName == null) {
+            pendingClarification = "SKIP_BUDGET"
+            reply("For which subject do you want to check the skip budget?")
+            return
+        }
+        val match = findSubjectFuzzy(sName, subjects) ?: run { reply("Subject not found."); return }
+        
+        val doc = db.collection("users").document(userId).collection("subjects").document(match.key).get().await()
+        val total = doc.getLong("totalClasses")?.toInt() ?: 0
+        val attended = doc.getLong("attendedClasses")?.toInt() ?: 0
+        val target = entities.percentageHint ?: 75
+        val records = fetchAttendanceRecords(userId, match.key)
+        
+        val budget = PredictionEngine.calculateSkipBudget(records, match.value, calculatePct(attended, total), target)
+        reply(
+            text = "Skip budget details for **${match.value}**:",
+            type = MessageType.SKIP_BUDGET_CARD,
+            skipBudgetData = SkipBudgetCardData(budget)
+        )
+    }
+
+    private suspend fun handleGetStreak(userId: String, entities: NlpEngine.ExtractedEntities, subjects: Map<String, String>) {
+        val sName = entities.subjectHint ?: conversationCtx.lastSubject
+        val targetSubject = if (sName != null) findSubjectFuzzy(sName, subjects) else null
+        
+        if (targetSubject != null) {
+            val records = fetchAttendanceRecords(userId, targetSubject.key)
+            val analysis = PredictionEngine.analyzePatterns(records, targetSubject.value)
+            
+            val cp = if (analysis.isPositiveStreak) analysis.currentStreak else 0
+            val ca = if (!analysis.isPositiveStreak) analysis.currentStreak else 0
+            
+            reply(
+                text = "Streak stats for **${targetSubject.value}**:",
+                type = MessageType.STREAK_CARD,
+                streakData = StreakCardData(cp, analysis.longestStreak, ca, analysis.isPositiveStreak)
+            )
+        } else {
+            // Overall
+            val allRecords = subjects.flatMap { fetchAttendanceRecords(userId, it.key) }.sortedByDescending { it.date }
+            var currentP = 0; var currentA = 0; var longestP = 0; var tempP = 0
+            val isPos = allRecords.firstOrNull()?.isPresent == true
+            
+            if (isPos) {
+                for (r in allRecords) { if (r.isPresent) currentP++ else break }
+            } else {
+                for (r in allRecords) { if (!r.isPresent) currentA++ else break }
+            }
+            
+            for (r in allRecords.reversed()) {
+                if (r.isPresent) tempP++ else { longestP = kotlin.math.max(longestP, tempP); tempP = 0 }
+            }
+            longestP = kotlin.math.max(longestP, tempP)
+            
+            reply(
+                text = "Your **overall** streak stats across all subjects:",
+                type = MessageType.STREAK_CARD,
+                streakData = StreakCardData(currentP, longestP, currentA, isPos)
+            )
+        }
+    }
+
+    private suspend fun handleGetBestSubject(userId: String, subjects: Map<String, String>) {
+        if (subjects.isEmpty()) { reply("📭 No subjects found."); return }
+        val counts = mutableMapOf<String, Pair<Int, Int>>()
+        for ((id, name) in subjects) {
+            val doc = db.collection("users").document(userId).collection("subjects").document(id).get().await()
+            counts[name] = Pair(doc.getLong("attendedClasses")?.toInt() ?: 0, doc.getLong("totalClasses")?.toInt() ?: 0)
+        }
+        val rank = PredictionEngine.getSubjectRanking(counts)
+        val best = rank.firstOrNull()
+        reply(
+            text = "🏆 Your best subject is **${best?.first}** with **${best?.second}%** attendance!",
+            type = MessageType.SUBJECT_RANKING_CARD,
+            rankingData = SubjectRankingCardData(rank.take(3))
+        )
+    }
+
+    private suspend fun handleGetWorstSubject(userId: String, subjects: Map<String, String>) {
+        if (subjects.isEmpty()) { reply("📭 No subjects found."); return }
+        val counts = mutableMapOf<String, Pair<Int, Int>>()
+        for ((id, name) in subjects) {
+            val doc = db.collection("users").document(userId).collection("subjects").document(id).get().await()
+            counts[name] = Pair(doc.getLong("attendedClasses")?.toInt() ?: 0, doc.getLong("totalClasses")?.toInt() ?: 0)
+        }
+        val rank = PredictionEngine.getSubjectRanking(counts).reversed()
+        val worst = rank.firstOrNull()
+        reply(
+            text = "⚠️ You are struggling most in **${worst?.first}** with **${worst?.second}%** attendance.",
+            type = MessageType.SUBJECT_RANKING_CARD,
+            rankingData = SubjectRankingCardData(rank.take(3))
+        )
+    }
+
+    private suspend fun handleExamModeCheck(userId: String, subjects: Map<String, String>) {
+        if (subjects.isEmpty()) { reply("📭 No subjects found."); return }
+        val examStatus = mutableListOf<SubjectExamStatus>()
+        var safe = 0
+        for ((id, name) in subjects) {
+            val doc = db.collection("users").document(userId).collection("subjects").document(id).get().await()
+            val total = doc.getLong("totalClasses")?.toInt() ?: 0
+            val attended = doc.getLong("attendedClasses")?.toInt() ?: 0
+            val pct = calculatePct(attended, total)
+            val isEligible = pct >= 75
+            val needed = if (!isEligible) kotlin.math.ceil((0.75 * total - attended) / 0.25).toInt() else 0
+            if (isEligible) safe++
+            examStatus.add(SubjectExamStatus(name, pct, isEligible, needed))
+        }
+        
+        reply(
+            text = "📋 **Exam Eligibility Check**\nYou are safe in $safe out of ${subjects.size} subjects.",
+            type = MessageType.EXAM_STATUS_CARD,
+            examStatusData = ExamStatusCardData(examStatus)
+        )
     }
 
     /* ════════════════════ HELPER: Fetch Attendance Records ════════════════════ */

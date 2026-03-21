@@ -14,7 +14,14 @@ enum class MessageType {
     STUDY_TIPS_CARD,
     WEEKLY_SUMMARY_CARD,
     GOAL_CARD,
-    TREND_CARD
+    TREND_CARD,
+    // ── New advanced analytic cards ──
+    COMPARE_CARD,
+    MONTHLY_REPORT_CARD,
+    SKIP_BUDGET_CARD,
+    STREAK_CARD,
+    SUBJECT_RANKING_CARD,
+    EXAM_STATUS_CARD
 }
 
 /* ────────────────── Chat Message ────────────────── */
@@ -33,7 +40,14 @@ data class ChatMessage(
     val studyTipsData: StudyTipsCardData? = null,
     val weeklySummaryData: PredictionEngine.WeeklySummaryData? = null,
     val goalData: GoalCardData? = null,
-    val trendData: List<PredictionEngine.SubjectTrend>? = null
+    val trendData: List<PredictionEngine.SubjectTrend>? = null,
+    // ── New analytic payloads ──
+    val compareData: CompareCardData? = null,
+    val monthlyReportData: MonthlyReportCardData? = null,
+    val skipBudgetData: SkipBudgetCardData? = null,
+    val streakData: StreakCardData? = null,
+    val rankingData: SubjectRankingCardData? = null,
+    val examStatusData: ExamStatusCardData? = null
 )
 
 /* ────────────────── Rich Data Payloads ────────────────── */
@@ -103,6 +117,41 @@ data class GoalCardData(
     val totalClasses: Int,
     val attendedClasses: Int,
     val isAchieved: Boolean
+)
+
+/* ────────────────── NEW: Analytics Card Data ────────────────── */
+
+data class CompareCardData(
+    val result: PredictionEngine.ComparisonResult
+)
+
+data class MonthlyReportCardData(
+    val report: PredictionEngine.MonthlyReport
+)
+
+data class SkipBudgetCardData(
+    val budget: PredictionEngine.SkipBudget
+)
+
+data class StreakCardData(
+    val currentPresentStreak: Int,
+    val longestPresentStreak: Int,
+    val currentAbsentStreak: Int,
+    val isOnPresentStreak: Boolean
+)
+
+data class SubjectRankingCardData(
+    val ranking: List<Triple<String, Int, PredictionEngine.RiskStatus>>
+)
+
+data class ExamStatusCardData(
+    val subjects: List<SubjectExamStatus>
+)
+
+data class SubjectExamStatus(
+    val name: String, val pct: Int,
+    val isEligible: Boolean,
+    val classesNeeded: Int  // 0 if already eligible
 )
 
 /* ────────────────── UI State ────────────────── */

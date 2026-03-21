@@ -136,6 +136,42 @@ object KnowledgeBase {
             "• Both present and absent count toward total.\n" +
             "• The what-if calculator uses: `(attended ÷ total) ≥ 0.75` to check safety.\n" +
             "• Safe misses = `floor((attended - 0.75 × total) / 0.75)`"
+        ),
+        QaEntry(
+            listOf("proxy", "fake", "friend", "someone", "else", "mark", "for"),
+            "Can I ask a friend to mark proxy attendance?",
+            "🚫 **Proxy Attendance**\n\n" +
+            "• Marking proxy attendance (having someone else mark you present) is considered a serious academic offense.\n" +
+            "• If caught, you may face disciplinary action, including suspension or cancellation of attendance for the entire semester.\n" +
+            "• Many colleges now use biometrics or location-based tracking to prevent this.\n" +
+            "• It's not worth the risk!"
+        ),
+        QaEntry(
+            listOf("condonation", "condone", "fine", "fee", "pardon", "leniency"),
+            "What is attendance condonation?",
+            "⚖️ **Attendance Condonation**\n\n" +
+            "• Condonation is a formal pardon granted for a slight shortage in attendance (usually between 65% and 75%).\n" +
+            "• It typically requires a valid reason (like a medical issue) and approval from the Head of Department or Principal.\n" +
+            "• Often, you have to pay a condonation fee.\n" +
+            "• It is not guaranteed and is usually granted only once or twice during your degree."
+        ),
+        QaEntry(
+            listOf("debar", "debarred", "detained", "exam", "not", "allowed"),
+            "What does exam debarment mean?",
+            "🛑 **Exam Debarment**\n\n" +
+            "• If your attendance is below the required threshold (usually 75%) and cannot be condoned, you will be debarred.\n" +
+            "• This means you cannot sit for the current semester's final exams.\n" +
+            "• You may have to repeat the semester or clear the subjects as arrears/backlogs later.\n" +
+            "• Keep tracking your attendance to avoid this!"
+        ),
+        QaEntry(
+            listOf("semester", "duration", "how", "long", "weeks", "months"),
+            "What is the typical semester duration?",
+            "⏱️ **Semester Duration**\n\n" +
+            "• A typical college semester lasts for about **14 to 16 weeks** of actual teaching.\n" +
+            "• This usually translates to around 90 working days.\n" +
+            "• Exams and holidays are usually outside of this 14-16 week period.\n" +
+            "• This means you have a limited number of classes per subject to maintain your 75%!"
         )
     )
 
@@ -184,7 +220,8 @@ object KnowledgeBase {
 
         val threshold = 0.4f
         return if (bestScore >= threshold && bestEntry != null) {
-            Pair(bestEntry.answer, bestScore)
+            val ans = if (bestScore >= 0.8f) "Confidence: High\n" + bestEntry.answer else bestEntry.answer
+            Pair(ans, bestScore)
         } else null
     }
 

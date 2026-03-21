@@ -71,6 +71,38 @@ object PredictionEngine {
         val pct: Int
     )
 
+    data class ComparisonResult(
+        val subjectA: String, val pctA: Int, val trendA: TrendDirection,
+        val subjectB: String, val pctB: Int, val trendB: TrendDirection,
+        val winner: String, val loser: String, val gap: Int,
+        val recommendation: String
+    )
+
+    data class MonthlyReport(
+        val monthName: String,
+        val overallPct: Int,
+        val totalClasses: Int,
+        val subjects: List<SubjectMonthEntry>,
+        val bestSubject: String,
+        val worstSubject: String,
+        val comparedToLastMonth: Int  // +5 means 5% better
+    )
+
+    data class SubjectMonthEntry(
+        val name: String, val present: Int,
+        val absent: Int, val pct: Int,
+        val status: RiskStatus
+    )
+
+    enum class RiskStatus { SAFE, WARNING, CRITICAL }
+
+    data class SkipBudget(
+        val subject: String, val currentPct: Int, val targetPct: Int,
+        val canSkip: Int, val mustAttend: Int,
+        val safeSkipsPerWeek: Float, val status: RiskStatus,
+        val totalClasses: Int, val attended: Int
+    )
+
     enum class TrendDirection {
         IMPROVING, DECLINING, STABLE;
 
@@ -104,7 +136,7 @@ object PredictionEngine {
         daysAhead: Int = 30
     ): SubjectPrediction {
         if (records.size < 3) {
-            return SubjectPrediction(subjectName, currentPct, currentPct, TrendDirection.STABLE, riskScore(currentPct, TrendDirection.STABLE), records.size)
+            return SubjectPrediction(subjectName, currentPct, currentPct, TrendDirection.STABLE, riskScore(currentPct, TrendDirection.STABLE, records.size), records.size)
         }
 
         val sorted = records.sortedBy { it.date }
@@ -143,7 +175,7 @@ object PredictionEngine {
             currentPct = currentPct,
             predictedPct = predictedPct,
             trend = trend,
-            riskScore = riskScore(currentPct, trend),
+            riskScore = riskScore(currentPct, trend, records.size),
             daysAnalyzed = records.size
         )
     }
@@ -301,9 +333,130 @@ object PredictionEngine {
         )
     }
 
+    /* ═══════════════════ NEW ADVANCED FEATURES ═══════════════════ */
+
+    fun compareSubjects(
+        recordsA: List<AttendanceRecord>, subjectA: String, pctA: Int,
+        recordsB: List<AttendanceRecord>, subjectB: String, pctB: Int
+    ): ComparisonResult {
+        val trendA = analyzeTrend(recordsA, pctA, subjectA).trend
+        val trendB = analyzeTrend(recordsB, pctB, subjectB).trend
+        
+        val gap = kotlin.math.abs(pctA - pctB)
+        val winner = if (pctA >= pctB) subjectA else subjectB
+        val loser = if (pctA >= pctB) subjectB else subjectA
+        val loserPct = if (pctA >= pctB) pctB else pctA
+        val loserTrend = if (pctA >= pctB) trendB else trendA
+
+        val recommendation = when {
+            loserTrend == TrendDirection.DECLINING -> "⚠️ Focus on $loser urgently — it's declining and $gap% behind"
+            loserPct < 60 -> "🚨 $loser is in the critical zone. Attend every class immediately."
+            else -> "💡 $loser needs attention — $gap% gap to close"
+        }
+
+        return ComparisonResult(
+            subjectA, pctA, trendA,
+            subjectB, pctB, trendB,
+            winner, loser, gap, recommendation
+        )
+    }
+
+    fun getMonthlyReport(
+        allRecords: Map<String, List<AttendanceRecord>>,
+        month: Int = LocalDate.now().monthValue - 1
+    ): MonthlyReport {
+        val currentYear = LocalDate.now().year
+        val entries = mutableListOf<SubjectMonthEntry>()
+        var overallPresent = 0
+        var overallTotal = 0
+        var lastMonthPresent = 0
+        var lastMonthTotal = 0
+
+        val targetMonthValue = month + 1 // java.time uses 1-12
+        val lastMonthValue = if (targetMonthValue == 1) 12 else targetMonthValue - 1
+        val lastMonthYear = if (targetMonthValue == 1) currentYear - 1 else currentYear
+
+        for ((name, records) in allRecords) {
+            val thisMonthRecs = records.filter { it.date.monthValue == targetMonthValue && it.date.year == currentYear }
+            val lastMonthRecs = records.filter { it.date.monthValue == lastMonthValue && it.date.year == lastMonthYear }
+
+            val p = thisMonthRecs.count { it.isPresent }
+            val t = thisMonthRecs.size
+            val a = t - p
+            if (t > 0) {
+                val pct = (p * 100f / t).roundToInt()
+                val status = when {
+                    pct >= 75 -> RiskStatus.SAFE
+                    pct >= 60 -> RiskStatus.WARNING
+                    else -> RiskStatus.CRITICAL
+                }
+                entries.add(SubjectMonthEntry(name, p, a, pct, status))
+                overallPresent += p
+                overallTotal += t
+            }
+            
+            lastMonthPresent += lastMonthRecs.count { it.isPresent }
+            lastMonthTotal += lastMonthRecs.size
+        }
+
+        val overallPct = if (overallTotal > 0) (overallPresent * 100f / overallTotal).roundToInt() else 0
+        val lastMonthPct = if (lastMonthTotal > 0) (lastMonthPresent * 100f / lastMonthTotal).roundToInt() else 0
+        val compared = overallPct - lastMonthPct
+        
+        val sorted = entries.sortedByDescending { it.pct }
+        val best = sorted.firstOrNull()?.name ?: "None"
+        val worst = sorted.lastOrNull()?.name ?: "None"
+        
+        val monthNameRaw = java.time.Month.of(targetMonthValue).name
+        val monthName = monthNameRaw.lowercase().replaceFirstChar { it.uppercase() }
+
+        return MonthlyReport(monthName, overallPct, overallTotal, sorted, best, worst, compared)
+    }
+
+    fun calculateSkipBudget(
+        records: List<AttendanceRecord>, subjectName: String,
+        currentPct: Int, targetPct: Int = 75
+    ): SkipBudget {
+        val total = records.size
+        val attended = records.count { it.isPresent }
+        
+        val canSkip = kotlin.math.max(0, kotlin.math.floor((attended - targetPct / 100.0 * total) / (targetPct / 100.0)).toInt())
+        val mustAttend = if (currentPct < targetPct) {
+            kotlin.math.ceil((targetPct / 100.0 * total - attended) / (1.0 - targetPct / 100.0)).toInt()
+        } else 0
+        
+        val currentWeek = kotlin.runCatching { LocalDate.now().get(java.time.temporal.WeekFields.ISO.weekOfYear()) }.getOrDefault(8)
+        val remainingWeeks = 8 // Defaulting to 8 because how do we know the semester start?
+        
+        val safeSkipsPerWeek = (canSkip.toFloat() / remainingWeeks).let { kotlin.math.round(it * 10) / 10f }
+        
+        val status = when {
+            canSkip > 5 -> RiskStatus.SAFE
+            canSkip in 1..5 -> RiskStatus.WARNING
+            else -> RiskStatus.CRITICAL
+        }
+        
+        return SkipBudget(subjectName, currentPct, targetPct, canSkip, mustAttend, safeSkipsPerWeek, status, total, attended)
+    }
+
+    fun getSubjectRanking(
+        allSubjects: Map<String, Pair<Int, Int>>  // name → (attended, total)
+    ): List<Triple<String, Int, RiskStatus>> {
+        return allSubjects.map { (name, counts) ->
+            val (attended, total) = counts
+            val pct = if (total > 0) (attended * 100f / total).roundToInt() else 0
+            val status = when {
+                pct >= 75 -> RiskStatus.SAFE
+                pct >= 60 -> RiskStatus.WARNING
+                else -> RiskStatus.CRITICAL
+            }
+            Triple(name, pct, status)
+        }.sortedByDescending { it.second }
+    }
+
     /* ═══════════════════ RISK SCORE ═══════════════════ */
 
-    private fun riskScore(currentPct: Int, trend: TrendDirection): Int {
+    private fun riskScore(currentPct: Int, trend: TrendDirection, totalClasses: Int = 10): Int {
         val baseRisk = when {
             currentPct >= 85 -> 10
             currentPct >= 75 -> 30
@@ -316,7 +469,11 @@ object PredictionEngine {
             TrendDirection.DECLINING -> +15
             TrendDirection.STABLE    -> 0
         }
-        return (baseRisk + trendMod).coerceIn(0, 100)
+        var risk = baseRisk + trendMod
+        if (totalClasses < 5) {
+            risk = (risk * 0.5f).roundToInt()
+        }
+        return risk.coerceIn(0, 100)
     }
 
     /* ═══════════════════ STUDY TIPS GENERATOR ═══════════════════ */
