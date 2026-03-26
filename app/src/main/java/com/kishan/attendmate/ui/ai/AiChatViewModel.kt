@@ -52,20 +52,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     init {
         messages.add(
             ChatMessage(
-                text = "👋 Hello! I'm your **AttendMate AI Assistant**.\n\n" +
+                text = "ur AI bestie is online and locked in fr 💜\n\n" +
                         "I understand natural language — just ask me anything!\n\n" +
-                        "📊 **Attendance** — \"Show my attendance\", \"How's my Math?\"\n" +
-                        "📈 **Predict** — \"Predict my attendance\", \"Where will I end up?\"\n" +
-                        "📉 **Trends** — \"Show my trend\", \"Am I improving?\"\n" +
-                        "🔍 **Patterns** — \"When do I miss most?\"\n" +
-                        "🏆 **Weekly** — \"Weekly summary\", \"How was my week?\"\n" +
-                        "💡 **Tips** — \"Study tips for Math\", \"How to improve?\"\n" +
-                        "💪 **Motivation** — \"Motivate me\", \"I feel lazy\"\n" +
-                        "🎯 **Goals** — \"Set goal 85% for Math\"\n" +
-                        "❓ **Q&A** — \"Why is 75% important?\"\n" +
-                        "✏️ **Actions** — \"Mark present\", \"Delete attendance\"\n" +
-                        "🗓️ **Schedule** — \"My schedule today\"\n\n" +
-                        "I also understand follow-ups like \"What about Math?\" 🧠",
+                        "📊 **Attendance** — \"show my attendance bestie\"\n" +
+                        "🎓 **College** — \"my attendance in clg\"\n" +
+                        "📈 **Predict** — \"Predict my attendance\"\n" +
+                        "📉 **Trends** — \"Show my trend\"\n" +
+                        "💀 **Alerts** — \"DBMS is lowkey cooked\"\n" +
+                        "🗓️ **Schedule** — \"My schedule today\"",
                 isUser = false
             )
         )
@@ -76,10 +70,10 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     private fun getTimeBasedSuggestions(): List<String> {
         val hour = LocalTime.now().hour
         return when {
-            hour in 6..10  -> listOf("My schedule today", "Mark all present today", "Predict my attendance", "Weekly summary")
-            hour in 11..14 -> listOf("Mark present now", "Show my attendance", "Study tips", "Weekly summary")
-            hour in 15..18 -> listOf("Show my attendance", "Show my trend", "Predict my attendance", "Motivate me")
-            else           -> listOf("Analysis", "Weekly summary", "Show my trend", "When do I miss most?")
+            hour in 6..10  -> listOf("My schedule today", "show my attendance bestie", "🫡 skip budget", "my attendance in clg")
+            hour in 11..14 -> listOf("Mark present now", "show my attendance bestie", "Study tips", "my attendance in clg")
+            hour in 15..18 -> listOf("show my attendance bestie", "Show my trend", "Predict my attendance", "DBMS is lowkey cooked")
+            else           -> listOf("Analysis", "🫡 skip budget", "Show my trend", "When do I miss most?")
         }
     }
 
@@ -121,7 +115,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         MOTIVATION, TREND_ANALYSIS, PATTERN_ANALYSIS, SMART_QA,
         COMPARE_SUBJECTS, MONTHLY_REPORT, SUBJECT_SKIP_CALC,
         GET_STREAK, GET_BEST_SUBJECT, GET_WORST_SUBJECT,
-        EXAM_MODE_CHECK, CLARIFY, UNKNOWN
+        EXAM_MODE_CHECK, CLARIFY, COLLEGE_ATTENDANCE, UNKNOWN
     }
 
     private fun nlpToLegacy(nlp: NlpEngine.NlpIntent): Intent = when (nlp) {
@@ -153,6 +147,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         NlpEngine.NlpIntent.GET_BEST_SUBJECT -> Intent.GET_BEST_SUBJECT
         NlpEngine.NlpIntent.GET_WORST_SUBJECT -> Intent.GET_WORST_SUBJECT
         NlpEngine.NlpIntent.EXAM_MODE_CHECK -> Intent.EXAM_MODE_CHECK
+        NlpEngine.NlpIntent.COLLEGE_ATTENDANCE -> Intent.COLLEGE_ATTENDANCE
         NlpEngine.NlpIntent.CLARIFY -> Intent.CLARIFY
         NlpEngine.NlpIntent.UNKNOWN -> Intent.UNKNOWN
     }
@@ -262,6 +257,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     Intent.GET_BEST_SUBJECT     -> handleGetBestSubject(userId, subjects)
                     Intent.GET_WORST_SUBJECT    -> handleGetWorstSubject(userId, subjects)
                     Intent.EXAM_MODE_CHECK      -> handleExamModeCheck(userId, subjects)
+                    Intent.COLLEGE_ATTENDANCE   -> handleCollegeAttendance(userId)
                     Intent.CLARIFY              -> handleUnknown(userId, userMessage)
                     Intent.UNKNOWN              -> handleUnknown(userId, userMessage)
                 }
@@ -305,7 +301,8 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         skipBudgetData: SkipBudgetCardData? = null,
         streakData: StreakCardData? = null,
         rankingData: SubjectRankingCardData? = null,
-        examStatusData: ExamStatusCardData? = null
+        examStatusData: ExamStatusCardData? = null,
+        collegeSyncData: CollegeSyncCardData? = null
     ) {
         messages.add(
             ChatMessage(
@@ -327,7 +324,8 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                 skipBudgetData = skipBudgetData,
                 streakData = streakData,
                 rankingData = rankingData,
-                examStatusData = examStatusData
+                examStatusData = examStatusData,
+                collegeSyncData = collegeSyncData
             )
         )
         _uiState.value = AiChatUiState.Success
@@ -663,7 +661,7 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             if (startTime.isEmpty() || endTime.isEmpty()) {
                 // Find all slots for this subject on this day
                 val subjectSlots = timetableSnap.documents
-                    .filter { it.getString("subjectId") == matchedSubject?.key }
+                    .filter { it.getString("subjectId") == matchedSubject.key }
                     .sortedBy { it.getString("startTime") ?: "" }
 
                 // Pick the closest slot to current time
@@ -799,6 +797,150 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             text = "✏️ Please confirm bulk mark for **$dateStr**:",
             type = MessageType.CONFIRM_MARK,
             pendingMarks = pendingList
+        )
+    }
+
+    private suspend fun handleCollegeAttendance(userId: String) {
+        // Load scraped data
+        val context = getApplication<Application>().applicationContext
+        val file = java.io.File(context.filesDir, "scraped_attendance.json")
+        if (!file.exists()) {
+            reply("📭 I couldn't find any college data. Please go to the College Sync screen, login, and sync your attendance first!")
+            return
+        }
+
+        val scrapedRecords = try {
+            val arr = org.json.JSONArray(file.readText())
+            val list = mutableListOf<com.kishan.attendmate.ui.settings.CollegeAttendanceRecord>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(com.kishan.attendmate.ui.settings.CollegeAttendanceRecord(
+                    subject = obj.optString("subject", ""),
+                    date = obj.optString("date", ""),
+                    fromTime = obj.optString("fromTime", ""),
+                    toTime = obj.optString("toTime", ""),
+                    topic = obj.optString("topic", ""),
+                    status = obj.optString("status", "")
+                ))
+            }
+            list
+        } catch (e: Exception) {
+            reply("❌ Error reading your college data. Try syncing again.")
+            return
+        }
+
+        if (scrapedRecords.isEmpty()) {
+            reply("📭 Your college attendance data is empty.")
+            return
+        }
+
+        // Calculate overall college percentages
+        val totalScraped = scrapedRecords.size
+        val attendedScraped = scrapedRecords.count { it.status.equals("Present", true) }
+        val overallPct = if (totalScraped > 0) (attendedScraped * 100) / totalScraped else 0
+
+        // load app data
+        val appData = mutableListOf<com.kishan.attendmate.ui.settings.CollegeAttendanceRecord>()
+        try {
+            val subjectsSnap = db.collection("users").document(userId).collection("subjects").get().await()
+            val timeFmt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            val dateFmt = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+
+            for (doc in subjectsSnap.documents) {
+                val subName = doc.getString("name") ?: continue
+                val attSnap = doc.reference.collection("attendance").get().await()
+                for (attDoc in attSnap.documents) {
+                    val status = attDoc.getString("status") ?: continue
+                    val note = attDoc.getString("note") ?: ""
+                    
+                    val stStr = readTimeField(attDoc, "startTime")
+                    val etStr = readTimeField(attDoc, "endTime")
+                    val stParsed = runCatching { LocalTime.parse(stStr.padStart(5, '0')) }.getOrNull()
+                    val stFormatted = if (stParsed != null) timeFmt.format(java.util.Date.from(stParsed.atDate(LocalDate.now()).atZone(java.time.ZoneId.systemDefault()).toInstant())) else stStr
+                    val etParsed = runCatching { LocalTime.parse(etStr.padStart(5, '0')) }.getOrNull()
+                    val etFormatted = if (etParsed != null) timeFmt.format(java.util.Date.from(etParsed.atDate(LocalDate.now()).atZone(java.time.ZoneId.systemDefault()).toInstant())) else etStr
+
+                    var dString = ""
+                    val dVal = attDoc.get("date")
+                    if (dVal is Timestamp) {
+                        dString = dateFmt.format(dVal.toDate())
+                    } else if (dVal is String) {
+                        val parsed = runCatching { LocalDate.parse(dVal) }.getOrNull()
+                        if (parsed != null) dString = dateFmt.format(java.util.Date.from(parsed.atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()))
+                    }
+                    
+                    if (dString.isNotBlank() && stFormatted.isNotBlank() && etFormatted.isNotBlank()) {
+                        appData.add(
+                            com.kishan.attendmate.ui.settings.CollegeAttendanceRecord(
+                                subject = subName,
+                                date = dString,
+                                fromTime = stFormatted,
+                                toTime = etFormatted,
+                                topic = note,
+                                status = status
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AiChat", "Failed to load app records for comparison", e)
+        }
+
+        // Generate mapping
+        val allScrapedSubjects = scrapedRecords.map { it.subject }.distinct()
+        val appToScrapedMap = appData.map { it.subject }.distinct().associateWith { appSubj ->
+            val cleanApp = appSubj.lowercase().replace(Regex("[^a-z0-9]"), "")
+            var bestMatch: String? = null
+            for (ss in allScrapedSubjects) {
+                val cleanScraped = ss.lowercase().replace(Regex("[^a-z0-9]"), "")
+                if (cleanApp == cleanScraped || cleanScraped.contains(cleanApp) || cleanApp.contains(cleanScraped)) {
+                    bestMatch = ss; break
+                }
+            }
+            bestMatch ?: appSubj
+        }
+
+        val mismatches = mutableListOf<String>()
+        val collegeMissing = mutableListOf<String>()
+        val matchedAppRecords = mutableListOf<com.kishan.attendmate.ui.settings.CollegeAttendanceRecord>()
+
+        for (scraped in scrapedRecords) {
+            val potentialAppSubjects = appToScrapedMap.filter { it.value == scraped.subject }.keys
+            val matchedApp = appData.find { app ->
+                potentialAppSubjects.contains(app.subject) &&
+                app.date == scraped.date &&
+                app.fromTime == scraped.fromTime &&
+                app.toTime == scraped.toTime
+            }
+            if (matchedApp != null) {
+                matchedAppRecords.add(matchedApp)
+                if (!matchedApp.status.equals(scraped.status, true)) {
+                    mismatches.add("❗ **${scraped.subject}** on ${scraped.date}: College says **${scraped.status}**, App says **${matchedApp.status}**")
+                }
+            } else {
+                collegeMissing.add("🚨 **${scraped.subject}** on ${scraped.date}: Exists in college, missing in App")
+            }
+        }
+
+        val unmatchedAppRecords = appData.filter { it !in matchedAppRecords }
+        val appMissing = unmatchedAppRecords.map { app ->
+            "🤔 **${app.subject}** on ${app.date}: Exists in App, missing in college"
+        }
+
+        val summaryText = "Your overall college system attendance is **$overallPct%**.\n\n" +
+            "You have **${mismatches.size}** mismatched records, **${collegeMissing.size}** missing from the app, and **${appMissing.size}** missing from the college."
+
+        reply(
+            text = "Here's the exclusive scoop on your college attendance 🔥",
+            type = MessageType.COLLEGE_SYNC_CARD,
+            collegeSyncData = CollegeSyncCardData(
+                overallCollegePct = overallPct,
+                mismatches = mismatches,
+                appMissing = appMissing,
+                collegeMissing = collegeMissing,
+                syncSummaryText = summaryText
+            )
         )
     }
 
@@ -1578,24 +1720,33 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
     private fun getHelpText(): String = """
         ✨ **AttendMate AI — Full Command Guide**
         
-        📊 **ATTENDANCE**
+        📊 **ATTENDANCE TRACKING**
         • "Show my attendance" — All subjects overview
         • "Attendance in [Subject]" — Specific stats
-        • "Attendance on 2026-03-10" — Date history
+        • "Attendance on [Date/Today]" — Date history
+        • "My attendance in clg" — College portal sync status
         
-        🧠 **AI INSIGHTS**
-        • "Predict my attendance" — End-of-semester forecast
-        • "Show my trend" — Improvement/decline analysis
-        • "When do I miss most?" — Day-of-week patterns
+        🧠 **AI INSIGHTS & REPORTS**
+        • "Analysis" — Deep dive overall report
         • "Weekly summary" — Last 7 days overview
-        • "Analysis" — Deep dive report
+        • "Monthly report" — 30-day attendance report
+        • "When do I miss most?" — Day-of-week patterns
+        • "Show my trend" — Improvement/decline analysis
+        • "Compare [Subj A] vs [Subj B]" — Subject comparison
         
-        🔮 **PLANNING**
-        • "How many can I miss in Math?" — Safe-to-miss count
-        • "Set goal 85% for Math" — Set targets
+        🔮 **PREDICTIONS & PLANNING**
+        • "Predict my attendance" — End-of-semester forecast
+        • "Skip budget" / "How many can I miss in Math?" — Safe-to-miss count
+        • "Set goal 85% for Math" — Set targets & track them
         • "Study tips for Math" — Personalized advice
         • "Motivate me" — Data-driven encouragement
         
+        🏆 **RANKINGS & STREAKS**
+        • "My current streak" — Consecutive classes attended
+        • "Best subject" — Highest attendance subject
+        • "Worst subject" — Lowest attendance / critical subjects
+        • "Am I exam eligible?" — Exam debarment status
+
         🗓️ **SCHEDULE**
         • "My schedule today" — Today's classes
         • "Next class" — Upcoming lecture
@@ -1606,9 +1757,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         • "Mark all present except Math" — With exclusions
         • "Delete attendance for today" — Undo records
         
-        ❓ **Q&A**
-        • "Why is 75% important?" — Attendance knowledge
-        • "What happens if attendance drops?" — Consequences
+        ❓ **KNOWLEDGE & Q&A**
+        • "Why is 75% important?" — General knowledge
+        • "What happens if attendance drops?" — Rules/policies
         
         💡 **PRO TIPS**
         🔄 Follow-ups work: "What about Math?" after any query

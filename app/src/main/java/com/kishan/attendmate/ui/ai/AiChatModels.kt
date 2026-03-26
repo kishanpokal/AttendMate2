@@ -21,7 +21,8 @@ enum class MessageType {
     SKIP_BUDGET_CARD,
     STREAK_CARD,
     SUBJECT_RANKING_CARD,
-    EXAM_STATUS_CARD
+    EXAM_STATUS_CARD,
+    COLLEGE_SYNC_CARD
 }
 
 /* ────────────────── Chat Message ────────────────── */
@@ -47,7 +48,8 @@ data class ChatMessage(
     val skipBudgetData: SkipBudgetCardData? = null,
     val streakData: StreakCardData? = null,
     val rankingData: SubjectRankingCardData? = null,
-    val examStatusData: ExamStatusCardData? = null
+    val examStatusData: ExamStatusCardData? = null,
+    val collegeSyncData: CollegeSyncCardData? = null
 )
 
 /* ────────────────── Rich Data Payloads ────────────────── */
@@ -152,6 +154,16 @@ data class SubjectExamStatus(
     val name: String, val pct: Int,
     val isEligible: Boolean,
     val classesNeeded: Int  // 0 if already eligible
+)
+
+/* ────────────────── NEW: College Sync Card Data ────────────────── */
+
+data class CollegeSyncCardData(
+    val overallCollegePct: Int,
+    val mismatches: List<String>,
+    val appMissing: List<String>,
+    val collegeMissing: List<String>,
+    val syncSummaryText: String
 )
 
 /* ────────────────── UI State ────────────────── */

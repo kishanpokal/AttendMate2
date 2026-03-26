@@ -42,6 +42,7 @@ object NlpEngine {
         COMPARE_SUBJECTS, MONTHLY_REPORT, SUBJECT_SKIP_CALC,
         GET_STREAK, GET_BEST_SUBJECT, GET_WORST_SUBJECT,
         EXAM_MODE_CHECK, CLARIFY,
+        COLLEGE_ATTENDANCE,
         UNKNOWN
     }
 
@@ -201,7 +202,9 @@ object NlpEngine {
         "worst subject" to "worst", "weakest" to "worst", "failing" to "worst",
         "best subject" to "best", "strongest" to "best", "highest" to "best",
         "exam" to "exam", "debarred" to "exam", "eligible" to "exam",
-        "detained" to "exam"
+        "detained" to "exam",
+        "college" to "clg", "portal" to "clg", "system" to "clg", "sync" to "clg",
+        "mismatch" to "mismatch", "mismatched" to "mismatch", "mismatches" to "mismatch"
     )
 
     private fun synonymExpand(word: String): String = SYNONYMS[word] ?: word
@@ -428,6 +431,14 @@ object NlpEngine {
             Signal("exam eligible", 1f), Signal("sit exam", 0.9f),
             Signal("allowed exam", 0.9f), Signal("pass semester", 0.7f),
             Signal("debar", 0.9f)
+        ),
+        
+        NlpIntent.COLLEGE_ATTENDANCE to listOf(
+            Signal("clg", 0.9f), Signal("mismatch", 0.9f),
+            Signal("college attendance", 1f), Signal("my attendance in clg", 1f),
+            Signal("clg system", 0.9f), Signal("in app and not in clg", 1f),
+            Signal("in clg and not in app", 1f), Signal("sync data", 0.8f),
+            Signal("portal", 0.7f)
         )
     )
 

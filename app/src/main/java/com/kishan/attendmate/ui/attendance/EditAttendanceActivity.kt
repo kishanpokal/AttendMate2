@@ -1,5 +1,6 @@
 package com.kishan.attendmate.ui.attendance
 
+import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.os.Bundle
 import android.widget.Toast
@@ -41,22 +42,19 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.kishan.attendmate.ui.theme.AttendMateTheme
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
 /* ---------------- SAFE TIME PARSER ---------------- */
-private fun parseTimeToCalendar(
-    raw: Any?,
-    baseDate: Calendar
-): Calendar {
+private fun parseTimeToCalendar(raw: Any?, baseDate: Calendar): Calendar {
     val cal = baseDate.clone() as Calendar
     when (raw) {
-        is Timestamp -> {
-            cal.timeInMillis = raw.toDate().time
-        }
+        is Timestamp -> cal.timeInMillis = raw.toDate().time
         is String -> {
             val parts = raw.split(":")
             if (parts.size == 2) {
@@ -65,7 +63,6 @@ private fun parseTimeToCalendar(
             }
         }
     }
-    // CRITICAL: reset noise
     cal.set(Calendar.SECOND, 0)
     cal.set(Calendar.MILLISECOND, 0)
     return cal
@@ -105,89 +102,84 @@ fun EditAttendanceScreen(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
     val auth = FirebaseAuth.getInstance()
     val db = FirebaseFirestore.getInstance()
-
     val userId = auth.currentUser?.uid ?: return
 
-    val STATUS_PRESENT = "PRESENT"
-    val STATUS_ABSENT = "ABSENT"
-
     /* ---------- STATE ---------- */
-    var subjectName by remember { mutableStateOf("") }
+    var allSubjects by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) } // id to name
+    var selectedSubjectId by remember { mutableStateOf(subjectId) }
+    var selectedSubjectName by remember { mutableStateOf("") }
     var lectureDate by remember { mutableStateOf(Calendar.getInstance()) }
     var startTime by remember { mutableStateOf<Calendar?>(null) }
     var endTime by remember { mutableStateOf<Calendar?>(null) }
-    var status by remember { mutableStateOf("Present") }
-    var oldStatus by remember { mutableStateOf("Present") }
+    var status by remember { mutableStateOf("PRESENT") }
+    var oldStatus by remember { mutableStateOf("PRESENT") }
+    var oldSubjectId by remember { mutableStateOf(subjectId) }
+    var note by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
     var isSaving by remember { mutableStateOf(false) }
-    var note by remember { mutableStateOf("") }
-    var hasChanges by remember { mutableStateOf(false) }
+    var showSubjectDropdown by remember { mutableStateOf(false) }
 
-    val dateFormatter = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-    val timeFormatter = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+    val dateFormatter = remember { SimpleDateFormat("EEE, dd MMM yyyy", Locale.getDefault()) }
+    val timeFormatter = remember { SimpleDateFormat("hh:mm a", Locale.getDefault()) }
 
-    val subjectRef = db.collection("users")
-        .document(userId)
-        .collection("subjects")
-        .document(subjectId)
+    val userRef = db.collection("users").document(userId)
 
-    val attendanceRef = subjectRef
-        .collection("attendance")
-        .document(attendanceId)
-
-    /* ---------- LOAD DATA FROM FIRESTORE ---------- */
+    /* ---------- LOAD DATA ---------- */
     LaunchedEffect(Unit) {
         try {
-            val subjectSnap = subjectRef.get().await()
-            subjectName = subjectSnap.getString("name") ?: ""
+            // Load all subjects for dropdown
+            val subjectsSnap = userRef.collection("subjects").get().await()
+            allSubjects = subjectsSnap.documents.map { it.id to (it.getString("name") ?: "") }
 
-            val attendanceSnap = attendanceRef.get().await()
+            // Load attendance record
+            val attendanceSnap = userRef
+                .collection("subjects").document(subjectId)
+                .collection("attendance").document(attendanceId)
+                .get().await()
+
             val date = (attendanceSnap.getTimestamp("date") ?: Timestamp.now()).toDate()
             lectureDate.timeInMillis = date.time
 
-            val rawStart = attendanceSnap.get("startTime")
-            startTime = if (rawStart != null) parseTimeToCalendar(rawStart, lectureDate) else null
+            startTime = attendanceSnap.get("startTime")
+                ?.let { parseTimeToCalendar(it, lectureDate) }
+            endTime = attendanceSnap.get("endTime")
+                ?.let { parseTimeToCalendar(it, lectureDate) }
 
-            val rawEnd = attendanceSnap.get("endTime")
-            endTime = if (rawEnd != null) parseTimeToCalendar(rawEnd, lectureDate) else null
-
-            val rawStatus = attendanceSnap.getString("status") ?: STATUS_ABSENT
-            status = rawStatus.uppercase(Locale.getDefault())
+            status = (attendanceSnap.getString("status") ?: "ABSENT").uppercase()
             oldStatus = status
+            oldSubjectId = subjectId
 
             note = attendanceSnap.getString("note") ?: ""
 
-            isLoading = false
+            selectedSubjectName = allSubjects.firstOrNull { it.first == subjectId }?.second ?: ""
         } catch (e: Exception) {
-            isLoading = false
             Toast.makeText(context, "Failed to load attendance", Toast.LENGTH_LONG).show()
             onBack()
+        } finally {
+            isLoading = false
         }
     }
 
-    /* ---------- TRACK CHANGES ---------- */
-    LaunchedEffect(status, startTime, endTime, note) {
-        hasChanges = true
+    /* ---------- DERIVED ---------- */
+    val durationMinutes = remember(startTime, endTime) {
+        if (startTime != null && endTime != null)
+            ((endTime!!.timeInMillis - startTime!!.timeInMillis) / 60000).toInt()
+        else null
     }
 
-    /* ---------------- UI ---------------- */
+    /* ---------------- SCAFFOLD ---------------- */
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onBack()
-                        }
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
+                    IconButton(onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onBack()
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 title = {
@@ -195,757 +187,630 @@ fun EditAttendanceScreen(
                         Text(
                             "Edit Attendance",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
+                            fontSize = 19.sp
                         )
                         Text(
-                            "Update lecture details",
+                            "All fields are editable",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
-                        )
-                    }
-                },
-                actions = {
-                    if (hasChanges && !isLoading) {
-                        AssistChip(
-                            onClick = { },
-                            label = {
-                                Text(
-                                    "Modified",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Filled.Edit,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            },
-                            colors = AssistChipDefaults.assistChipColors(
-                                containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                                labelColor = MaterialTheme.colorScheme.onTertiaryContainer,
-                                leadingIconContentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                            ),
-                            border = null
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 11.sp
                         )
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
+                    containerColor = MaterialTheme.colorScheme.surface
                 ),
-                modifier = Modifier.shadow(
-                    elevation = 2.dp,
-                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                )
+                modifier = Modifier.shadow(2.dp)
             )
         }
     ) { padding ->
+
+        /* ---------- LOADING ---------- */
         if (isLoading) {
             Box(
-                modifier = Modifier
+                Modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface,
-                                MaterialTheme.colorScheme.surfaceContainerLowest
-                            )
-                        )
-                    ),
+                    .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    CircularProgressIndicator(
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(48.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Text(
-                        "Loading attendance data...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    CircularProgressIndicator(strokeWidth = 3.dp, modifier = Modifier.size(48.dp))
+                    Text("Loading...", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             return@Scaffold
         }
 
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface,
-                                MaterialTheme.colorScheme.surfaceContainerLowest
-                            )
-                        )
-                    )
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
+
+            /* ═══════ 1. SUBJECT SELECTOR ═══════ */
+            SectionCard(
+                icon = Icons.Outlined.Book,
+                title = "Subject",
+                accent = MaterialTheme.colorScheme.primary
             ) {
-                /* ---------- HERO CARD ---------- */
-                EditHeroCard()
-
-                /* ---------- SUBJECT (LOCKED) ---------- */
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn() + slideInVertically()
+                ExposedDropdownMenuBox(
+                    expanded = showSubjectDropdown,
+                    onExpandedChange = { showSubjectDropdown = it }
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        EditSectionHeader(
-                            icon = Icons.Outlined.Book,
-                            title = "Subject Information",
-                            subtitle = "This cannot be changed"
-                        )
-                        LockedInfoCard(
-                            icon = Icons.Filled.Book,
-                            label = "Subject",
-                            value = subjectName
-                        )
+                    OutlinedTextField(
+                        value = selectedSubjectName,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Select Subject") },
+                        trailingIcon = {
+                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = showSubjectDropdown)
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.Book,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .menuAnchor()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = showSubjectDropdown,
+                        onDismissRequest = { showSubjectDropdown = false }
+                    ) {
+                        allSubjects.forEach { (id, name) ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (id == selectedSubjectId)
+                                                        MaterialTheme.colorScheme.primary
+                                                    else
+                                                        MaterialTheme.colorScheme.outline
+                                                )
+                                        )
+                                        Text(
+                                            name,
+                                            fontWeight = if (id == selectedSubjectId)
+                                                FontWeight.SemiBold else FontWeight.Normal
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    selectedSubjectId = id
+                                    selectedSubjectName = name
+                                    showSubjectDropdown = false
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                },
+                                trailingIcon = if (id == selectedSubjectId) {
+                                    {
+                                        Icon(
+                                            Icons.Filled.CheckCircle,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                } else null
+                            )
+                        }
                     }
                 }
+            }
 
-                /* ---------- LECTURE DETAILS ---------- */
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn() + slideInVertically() + expandVertically()
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        EditSectionHeader(
-                            icon = Icons.Outlined.CalendarMonth,
-                            title = "Lecture Details",
-                            subtitle = "Date is locked, time is editable"
-                        )
-
-                        /* ---------- DATE (LOCKED) ---------- */
-                        LockedInfoCard(
-                            icon = Icons.Filled.CalendarMonth,
-                            label = "Lecture Date",
-                            value = dateFormatter.format(lectureDate.time)
-                        )
-
-                        /* ---------- TIME ROW ---------- */
-                        EditTimeSelector(
-                            lectureDate = lectureDate,
-                            startTime = startTime,
-                            endTime = endTime,
-                            timeFormatter = timeFormatter,
-                            onStartTimeClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                val current = startTime ?: lectureDate
-                                TimePickerDialog(
-                                    context,
-                                    { _, h, min ->
-                                        startTime = (startTime ?: lectureDate.clone() as Calendar).apply {
-                                            set(Calendar.HOUR_OF_DAY, h)
-                                            set(Calendar.MINUTE, min)
-                                            set(Calendar.SECOND, 0)
-                                            set(Calendar.MILLISECOND, 0)
-                                        }
-                                    },
-                                    current.get(Calendar.HOUR_OF_DAY),
-                                    current.get(Calendar.MINUTE),
-                                    true
-                                ).show()
+            /* ═══════ 2. DATE PICKER ═══════ */
+            SectionCard(
+                icon = Icons.Outlined.CalendarMonth,
+                title = "Lecture Date",
+                accent = MaterialTheme.colorScheme.secondary
+            ) {
+                EditableClickCard(
+                    icon = Icons.Filled.CalendarMonth,
+                    label = "Tap to change date",
+                    value = dateFormatter.format(lectureDate.time),
+                    accentColor = MaterialTheme.colorScheme.secondary,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        DatePickerDialog(
+                            context,
+                            { _, year, month, day ->
+                                val newCal = lectureDate.clone() as Calendar
+                                newCal.set(year, month, day)
+                                lectureDate = newCal
+                                // Re-align start/end times to the new date
+                                startTime = startTime?.let {
+                                    val c = newCal.clone() as Calendar
+                                    c.set(Calendar.HOUR_OF_DAY, it.get(Calendar.HOUR_OF_DAY))
+                                    c.set(Calendar.MINUTE, it.get(Calendar.MINUTE))
+                                    c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
+                                    c
+                                }
+                                endTime = endTime?.let {
+                                    val c = newCal.clone() as Calendar
+                                    c.set(Calendar.HOUR_OF_DAY, it.get(Calendar.HOUR_OF_DAY))
+                                    c.set(Calendar.MINUTE, it.get(Calendar.MINUTE))
+                                    c.set(Calendar.SECOND, 0); c.set(Calendar.MILLISECOND, 0)
+                                    c
+                                }
                             },
-                            onEndTimeClick = {
+                            lectureDate.get(Calendar.YEAR),
+                            lectureDate.get(Calendar.MONTH),
+                            lectureDate.get(Calendar.DAY_OF_MONTH)
+                        ).also { dialog ->
+                            // Prevent future dates
+                            dialog.datePicker.maxDate = System.currentTimeMillis()
+                        }.show()
+                    }
+                )
+            }
+
+            /* ═══════ 3. TIME ROW ═══════ */
+            SectionCard(
+                icon = Icons.Outlined.AccessTime,
+                title = "Lecture Time",
+                accent = MaterialTheme.colorScheme.tertiary
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        EditableClickCard(
+                            icon = Icons.Filled.PlayArrow,
+                            label = "Start Time",
+                            value = startTime?.let { timeFormatter.format(it.time) } ?: "Set time",
+                            accentColor = Color(0xFF34C759),
+                            isSet = startTime != null,
+                            onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                val current = endTime ?: lectureDate
+                                val cur = startTime ?: lectureDate
                                 TimePickerDialog(
                                     context,
                                     { _, h, min ->
-                                        endTime = (endTime ?: lectureDate.clone() as Calendar).apply {
+                                        startTime = (lectureDate.clone() as Calendar).apply {
                                             set(Calendar.HOUR_OF_DAY, h)
                                             set(Calendar.MINUTE, min)
                                             set(Calendar.SECOND, 0)
                                             set(Calendar.MILLISECOND, 0)
                                         }
                                     },
-                                    current.get(Calendar.HOUR_OF_DAY),
-                                    current.get(Calendar.MINUTE),
-                                    true
+                                    cur.get(Calendar.HOUR_OF_DAY),
+                                    cur.get(Calendar.MINUTE),
+                                    false
+                                ).show()
+                            }
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        EditableClickCard(
+                            icon = Icons.Filled.Stop,
+                            label = "End Time",
+                            value = endTime?.let { timeFormatter.format(it.time) } ?: "Set time",
+                            accentColor = Color(0xFFFF9500),
+                            isSet = endTime != null,
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val cur = endTime ?: lectureDate
+                                TimePickerDialog(
+                                    context,
+                                    { _, h, min ->
+                                        endTime = (lectureDate.clone() as Calendar).apply {
+                                            set(Calendar.HOUR_OF_DAY, h)
+                                            set(Calendar.MINUTE, min)
+                                            set(Calendar.SECOND, 0)
+                                            set(Calendar.MILLISECOND, 0)
+                                        }
+                                    },
+                                    cur.get(Calendar.HOUR_OF_DAY),
+                                    cur.get(Calendar.MINUTE),
+                                    false
                                 ).show()
                             }
                         )
                     }
                 }
 
-                /* ---------- STATUS SECTION ---------- */
+                // Duration pill
                 AnimatedVisibility(
-                    visible = startTime != null && endTime != null,
-                    enter = fadeIn() + slideInVertically() + expandVertically()
+                    visible = durationMinutes != null && durationMinutes > 0,
+                    enter = fadeIn() + expandVertically()
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        EditSectionHeader(
-                            icon = Icons.Outlined.CheckCircle,
-                            title = "Attendance Status",
-                            subtitle = "Update your presence status"
-                        )
-
-                        EditStatusSelector(
-                            status = status,
-                            onStatusChange = { newStatus ->
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                status = newStatus
+                    if (durationMinutes != null && durationMinutes > 0) {
+                        val h = durationMinutes / 60
+                        val m = durationMinutes % 60
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(50.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Timelapse,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                    Text(
+                                        buildString {
+                                            if (h > 0) append("${h}h ")
+                                            append("${m}min lecture")
+                                        },
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    )
+                                }
                             }
-                        )
-
-                        /* ---------- NOTE FIELD ---------- */
-                        EditNoteField(
-                            note = note,
-                            onNoteChange = { if (it.length <= 200) note = it },
-                            status = status
-                        )
+                        }
                     }
                 }
+            }
 
-                /* ---------- UPDATE BUTTON ---------- */
-                AnimatedVisibility(
-                    visible = startTime != null && endTime != null,
-                    enter = fadeIn() + slideInVertically() + expandVertically()
+            /* ═══════ 4. STATUS ═══════ */
+            SectionCard(
+                icon = Icons.Outlined.CheckCircle,
+                title = "Attendance Status"
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    EditUpdateButton(
-                        enabled = !isSaving,
-                        isSaving = isSaving,
-                        hasChanges = hasChanges,
+                    StatusToggleCard(
+                        modifier = Modifier.weight(1f),
+                        label = "Present",
+                        icon = Icons.Filled.CheckCircle,
+                        selected = status == "PRESENT",
+                        selectedColor = Color(0xFF34C759),
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            if (startTime == null || endTime == null) {
-                                Toast.makeText(context, "Please complete all fields", Toast.LENGTH_SHORT).show()
-                                return@EditUpdateButton
-                            }
-                            if (isSaving) return@EditUpdateButton
-                            isSaving = true
+                            status = "PRESENT"
+                        }
+                    )
+                    StatusToggleCard(
+                        modifier = Modifier.weight(1f),
+                        label = "Absent",
+                        icon = Icons.Filled.Cancel,
+                        selected = status == "ABSENT",
+                        selectedColor = Color(0xFFFF3B30),
+                        onClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            status = "ABSENT"
+                        }
+                    )
+                }
+            }
 
-                            db.runTransaction { transaction ->
-                                val subjectSnap = transaction.get(subjectRef)
-                                var attendedClasses = subjectSnap.getLong("attendedClasses") ?: 0L
-                                if (oldStatus != status) {
-                                    attendedClasses += if (status == STATUS_PRESENT) 1 else -1
-                                }
+            /* ═══════ 5. NOTE ═══════ */
+            SectionCard(
+                icon = Icons.Outlined.EditNote,
+                title = "Note  (optional)"
+            ) {
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { if (it.length <= 200) note = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = {
+                        Text(
+                            "e.g., Sick, Festival, Medical leave…",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                    },
+                    maxLines = 4,
+                    supportingText = {
+                        Text(
+                            "${note.length}/200",
+                            color = if (note.length > 180)
+                                MaterialTheme.colorScheme.error
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.End
+                        )
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                    )
+                )
+            }
 
-                                val updateData = mutableMapOf<String, Any>(
+            /* ═══════ 6. UPDATE BUTTON ═══════ */
+            SaveButton(
+                isSaving = isSaving,
+                onClick = {
+                    if (startTime == null || endTime == null) {
+                        Toast.makeText(context, "Please set start and end time", Toast.LENGTH_SHORT).show()
+                        return@SaveButton
+                    }
+                    if (durationMinutes != null && durationMinutes <= 0) {
+                        Toast.makeText(context, "End time must be after start time", Toast.LENGTH_SHORT).show()
+                        return@SaveButton
+                    }
+                    if (isSaving) return@SaveButton
+                    isSaving = true
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+
+                    scope.launch {
+                        try {
+                            val newSubjectRef = userRef.collection("subjects").document(selectedSubjectId)
+                            val newAttendanceRef = newSubjectRef.collection("attendance").document(attendanceId)
+
+                            if (selectedSubjectId != oldSubjectId) {
+                                // Move attendance record: delete from old subject, add to new
+                                val oldSubjectRef = userRef.collection("subjects").document(oldSubjectId)
+                                val oldAttendanceRef = oldSubjectRef.collection("attendance").document(attendanceId)
+
+                                val attendanceData = mutableMapOf<String, Any>(
                                     "status" to status,
+                                    "date" to Timestamp(lectureDate.time),
                                     "startTime" to Timestamp(startTime!!.time),
                                     "endTime" to Timestamp(endTime!!.time),
                                     "updatedAt" to Timestamp.now()
                                 )
+                                if (note.isNotBlank()) attendanceData["note"] = note.trim()
 
-                                if (note.isNotBlank()) {
-                                    updateData["note"] = note.trim()
-                                } else {
-                                    updateData["note"] = com.google.firebase.firestore.FieldValue.delete()
-                                }
+                                db.runBatch { batch ->
+                                    // Delete from old subject
+                                    batch.delete(oldAttendanceRef)
 
-                                transaction.update(attendanceRef, updateData)
-                                transaction.update(subjectRef, mapOf(
-                                    "attendedClasses" to maxOf(0, attendedClasses)
-                                ))
+                                    // Adjust old subject count
+                                    if (oldStatus == "PRESENT") {
+                                        batch.update(oldSubjectRef, "attendedClasses", FieldValue.increment(-1))
+                                        batch.update(oldSubjectRef, "totalClasses", FieldValue.increment(-1))
+                                    } else {
+                                        batch.update(oldSubjectRef, "totalClasses", FieldValue.increment(-1))
+                                    }
+
+                                    // Add to new subject
+                                    batch.set(newAttendanceRef, attendanceData)
+
+                                    // Adjust new subject count
+                                    batch.update(newSubjectRef, "totalClasses", FieldValue.increment(1))
+                                    if (status == "PRESENT") {
+                                        batch.update(newSubjectRef, "attendedClasses", FieldValue.increment(1))
+                                    }
+                                }.await()
+                            } else {
+                                // Same subject — just update the record + adjust counts
+                                db.runTransaction { transaction ->
+                                    val subjectSnap = transaction.get(newSubjectRef)
+                                    var attended = subjectSnap.getLong("attendedClasses") ?: 0L
+
+                                    if (oldStatus != status) {
+                                        attended += if (status == "PRESENT") 1L else -1L
+                                    }
+
+                                    val updateData = mutableMapOf<String, Any>(
+                                        "status" to status,
+                                        "date" to Timestamp(lectureDate.time),
+                                        "startTime" to Timestamp(startTime!!.time),
+                                        "endTime" to Timestamp(endTime!!.time),
+                                        "updatedAt" to Timestamp.now()
+                                    )
+
+                                    if (note.isNotBlank()) {
+                                        updateData["note"] = note.trim()
+                                    } else {
+                                        updateData["note"] = FieldValue.delete()
+                                    }
+
+                                    transaction.update(newAttendanceRef, updateData)
+                                    transaction.update(newSubjectRef, "attendedClasses", maxOf(0L, attended))
+                                }.await()
                             }
-                                .addOnSuccessListener {
-                                    isSaving = false
-                                    Toast.makeText(
-                                        context,
-                                        "✓ Attendance updated successfully!",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                    onBack()
-                                }
-                                .addOnFailureListener {
-                                    isSaving = false
-                                    Toast.makeText(
-                                        context,
-                                        it.message ?: "Failed to update attendance",
-                                        Toast.LENGTH_LONG
-                                    ).show()
-                                }
+
+                            Toast.makeText(context, "✓ Attendance updated!", Toast.LENGTH_SHORT).show()
+                            onBack()
+                        } catch (e: Exception) {
+                            isSaving = false
+                            Toast.makeText(
+                                context,
+                                e.message ?: "Update failed. Please try again.",
+                                Toast.LENGTH_LONG
+                            ).show()
                         }
-                    )
+                    }
                 }
+            )
 
-                Spacer(modifier = Modifier.height(32.dp))
-            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }
 
-/* ---------------- HERO CARD ---------------- */
-@Composable
-private fun EditHeroCard() {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(24.dp),
-                spotColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.25f)
-            ),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.tertiary,
-                            MaterialTheme.colorScheme.primary
-                        )
-                    )
-                )
-        ) {
-            Row(
-                modifier = Modifier.padding(24.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.Edit,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
+/* ══════════════════════════════════════════════════
+   REUSABLE COMPONENTS
+══════════════════════════════════════════════════ */
 
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Edit Attendance",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 20.sp
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Make changes to this lecture record",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 13.sp
-                    )
-                }
-            }
-        }
-    }
-}
-
-/* ---------------- SECTION HEADER ---------------- */
+/* --- Section wrapper card --- */
 @Composable
-private fun EditSectionHeader(
+private fun SectionCard(
     icon: ImageVector,
     title: String,
-    subtitle: String
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(20.dp)
-            )
-        }
-
-        Column {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 18.sp
-            )
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
-            )
-        }
-    }
-}
-
-/* ---------------- LOCKED INFO CARD ---------------- */
-@Composable
-private fun LockedInfoCard(
-    icon: ImageVector,
-    label: String,
-    value: String
+    accent: Color = MaterialTheme.colorScheme.primary,
+    content: @Composable ColumnScope.() -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        ),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            // Header
             Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.weight(1f)
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(34.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+                        .background(accent.copy(alpha = 0.12f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(18.dp))
                 }
-
-                Column {
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = value,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = 16.sp
-                    )
-                }
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    letterSpacing = 0.3.sp
+                )
             }
-
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHighest,
-                modifier = Modifier.padding(start = 8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Lock,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        "Locked",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
+            content()
         }
     }
 }
 
-/* ---------------- EDIT TIME SELECTOR ---------------- */
+/* --- Tappable field card (Date / Time slots) --- */
 @Composable
-private fun EditTimeSelector(
-    lectureDate: Calendar,
-    startTime: Calendar?,
-    endTime: Calendar?,
-    timeFormatter: SimpleDateFormat,
-    onStartTimeClick: () -> Unit,
-    onEndTimeClick: () -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            /* ---------- START TIME ---------- */
-            Box(modifier = Modifier.weight(1f)) {
-                EditableTimeCard(
-                    icon = Icons.Filled.AccessTime,
-                    label = "Start Time",
-                    value = startTime?.let { timeFormatter.format(it.time) } ?: "Select",
-                    isSelected = startTime != null,
-                    onClick = onStartTimeClick
-                )
-            }
-
-            /* ---------- END TIME ---------- */
-            Box(modifier = Modifier.weight(1f)) {
-                EditableTimeCard(
-                    icon = Icons.Filled.AccessTime,
-                    label = "End Time",
-                    value = endTime?.let { timeFormatter.format(it.time) } ?: "Select",
-                    isSelected = endTime != null,
-                    onClick = onEndTimeClick
-                )
-            }
-        }
-
-        /* ---------- DURATION DISPLAY ---------- */
-        AnimatedVisibility(
-            visible = startTime != null && endTime != null,
-            enter = fadeIn() + expandVertically()
-        ) {
-            if (startTime != null && endTime != null) {
-                val durationMinutes = (endTime.timeInMillis - startTime.timeInMillis) / (1000 * 60)
-                val hours = durationMinutes / 60
-                val minutes = durationMinutes % 60
-
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.secondary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Filled.Timelapse,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-
-                        Column {
-                            Text(
-                                "Lecture Duration",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                fontSize = 11.sp
-                            )
-                            Text(
-                                "${if (hours > 0) "${hours}h " else ""}${minutes}min",
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/* ---------------- EDITABLE TIME CARD ---------------- */
-@Composable
-private fun EditableTimeCard(
+private fun EditableClickCard(
     icon: ImageVector,
     label: String,
     value: String,
-    isSelected: Boolean,
+    accentColor: Color,
+    isSet: Boolean = true,
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1f else 0.98f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "time_card_scale"
+        targetValue = 1f,
+        animationSpec = spring(Spring.DampingRatioMediumBouncy),
+        label = "card_scale"
     )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .shadow(
-                elevation = if (isSelected) 4.dp else 2.dp,
-                shape = RoundedCornerShape(20.dp),
-                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-            )
             .clickable(onClick = onClick),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
+            containerColor = if (isSet)
+                accentColor.copy(alpha = 0.08f)
+            else
+                MaterialTheme.colorScheme.surfaceContainerHigh
         ),
-        border = if (isSelected) BorderStroke(
-            1.5.dp,
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-        ) else null
+        border = BorderStroke(
+            1.dp,
+            if (isSet) accentColor.copy(alpha = 0.4f)
+            else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+        )
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(40.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest
-                    ),
+                    .background(if (isSet) accentColor else MaterialTheme.colorScheme.surfaceContainerHighest),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     icon,
                     contentDescription = null,
-                    tint = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(22.dp)
+                    tint = if (isSet) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
                 )
             }
-
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     label,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
+                    fontSize = 10.sp
                 )
+                Spacer(Modifier.height(2.dp))
                 Text(
                     value,
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 15.sp
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (isSet) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (isSet) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 14.sp
                 )
             }
-
-            if (isSelected) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                )
-            }
-        }
-    }
-}
-
-/* ---------------- EDIT STATUS SELECTOR ---------------- */
-@Composable
-private fun EditStatusSelector(
-    status: String,
-    onStatusChange: (String) -> Unit
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Box(modifier = Modifier.weight(1f)) {
-            EnhancedEditStatusCard(
-                text = "Present",
-                icon = Icons.Filled.CheckCircle,
-                selected = status == "PRESENT",
-                selectedColor = Color(0xFF34C759),
-                onClick = { onStatusChange("PRESENT") }
-            )
-        }
-
-        Box(modifier = Modifier.weight(1f)) {
-            EnhancedEditStatusCard(
-                text = "Absent",
-                icon = Icons.Filled.Cancel,
-                selected = status == "ABSENT",
-                selectedColor = Color(0xFFFF3B30),
-                onClick = { onStatusChange("ABSENT") }
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(18.dp)
             )
         }
     }
 }
 
-/* ---------------- ENHANCED EDIT STATUS CARD ---------------- */
+/* --- Present / Absent toggle card --- */
 @Composable
-private fun EnhancedEditStatusCard(
-    text: String,
+private fun StatusToggleCard(
+    modifier: Modifier = Modifier,
+    label: String,
     icon: ImageVector,
     selected: Boolean,
     selectedColor: Color,
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (selected) 1.05f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow
-        ),
-        label = "edit_status_scale"
-    )
-
-    val alpha by animateFloatAsState(
-        targetValue = if (selected) 1f else 0.7f,
-        label = "edit_status_alpha"
+        targetValue = if (selected) 1.04f else 1f,
+        animationSpec = spring(Spring.DampingRatioMediumBouncy, Spring.StiffnessLow),
+        label = "status_scale"
     )
 
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .scale(scale)
-            .alpha(alpha)
+            .clickable(onClick = onClick)
             .shadow(
-                elevation = if (selected) 12.dp else 2.dp,
-                shape = RoundedCornerShape(24.dp),
-                spotColor = if (selected) selectedColor.copy(alpha = 0.4f) else Color.Transparent
-            )
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(24.dp),
+                elevation = if (selected) 8.dp else 1.dp,
+                shape = RoundedCornerShape(18.dp),
+                spotColor = if (selected) selectedColor.copy(0.35f) else Color.Transparent
+            ),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (selected)
-                selectedColor.copy(alpha = 0.12f)
+                selectedColor.copy(alpha = 0.1f)
             else
                 MaterialTheme.colorScheme.surfaceContainerHigh
         ),
@@ -954,19 +819,17 @@ private fun EnhancedEditStatusCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(52.dp)
                     .clip(CircleShape)
                     .background(
-                        if (selected)
-                            selectedColor
-                        else
-                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        if (selected) selectedColor
+                        else MaterialTheme.colorScheme.surfaceContainerHighest
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -974,21 +837,18 @@ private fun EnhancedEditStatusCard(
                     icon,
                     contentDescription = null,
                     tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(26.dp)
                 )
             }
-
             Text(
-                text,
-                style = MaterialTheme.typography.titleMedium,
+                label,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
                 color = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface,
-                fontSize = 16.sp
+                fontSize = 15.sp
             )
-
-            if (selected) {
+            AnimatedVisibility(visible = selected) {
                 Box(
-                    modifier = Modifier
+                    Modifier
                         .size(6.dp)
                         .clip(CircleShape)
                         .background(selectedColor)
@@ -998,172 +858,59 @@ private fun EnhancedEditStatusCard(
     }
 }
 
-/* ---------------- EDIT NOTE FIELD ---------------- */
+/* --- Save / Update button --- */
 @Composable
-private fun EditNoteField(
-    note: String,
-    onNoteChange: (String) -> Unit,
-    status: String
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    Icons.Filled.EditNote,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp)
-                )
-                Text(
-                    "Reason for Absence (Optional)",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    fontWeight = FontWeight.SemiBold
-                )
-            }
-
-            OutlinedTextField(
-                value = note,
-                onValueChange = onNoteChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = {
-                    Text(
-                        "e.g., Sick, Festival, Personal work...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
-                },
-                maxLines = 3,
-                supportingText = {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        Text(
-                            "${note.length}/200",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (note.length > 180)
-                                MaterialTheme.colorScheme.error
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.error,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        }
-    }
-}
-
-/* ---------------- EDIT UPDATE BUTTON ---------------- */
-@Composable
-private fun EditUpdateButton(
-    enabled: Boolean,
+private fun SaveButton(
     isSaving: Boolean,
-    hasChanges: Boolean,
     onClick: () -> Unit
 ) {
     val scale by animateFloatAsState(
-        targetValue = if (enabled && !isSaving) 1f else 0.95f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "update_button_scale"
+        targetValue = if (isSaving) 0.97f else 1f,
+        animationSpec = spring(Spring.DampingRatioMediumBouncy),
+        label = "save_scale"
     )
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Change indicator
-        if (hasChanges && !isSaving) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-                )
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        Icons.Filled.Info,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "You have unsaved changes",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        }
-
-        Button(
-            enabled = enabled,
-            onClick = onClick,
+    Button(
+        onClick = onClick,
+        enabled = !isSaving,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(60.dp)
+            .scale(scale),
+        shape = RoundedCornerShape(18.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+        ),
+        contentPadding = PaddingValues(0.dp)
+    ) {
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .scale(scale)
-                .shadow(
-                    elevation = if (enabled && !isSaving) 12.dp else 4.dp,
-                    shape = RoundedCornerShape(20.dp),
-                    spotColor = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.4f)
+                .fillMaxSize()
+                .background(
+                    if (!isSaving)
+                        Brush.horizontalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.primary,
+                                MaterialTheme.colorScheme.tertiary
+                            )
+                        )
+                    else
+                        Brush.horizontalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.surfaceContainerHighest,
+                                MaterialTheme.colorScheme.surfaceContainerHighest
+                            )
+                        )
                 ),
-            shape = RoundedCornerShape(20.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.tertiary,
-                disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-            ),
-            contentPadding = PaddingValues(0.dp)
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        if (enabled && !isSaving) {
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.tertiary,
-                                    MaterialTheme.colorScheme.primary
-                                )
-                            )
-                        } else {
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    MaterialTheme.colorScheme.surfaceContainerHighest,
-                                    MaterialTheme.colorScheme.surfaceContainerHighest
-                                )
-                            )
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (isSaving) {
+            AnimatedContent(
+                targetState = isSaving,
+                transitionSpec = { fadeIn() togetherWith fadeOut() },
+                label = "save_content"
+            ) { saving ->
+                if (saving) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1171,172 +918,30 @@ private fun EditUpdateButton(
                         CircularProgressIndicator(
                             color = Color.White,
                             strokeWidth = 3.dp,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
-                        Text(
-                            "Updating...",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                            color = Color.White
-                        )
+                        Text("Saving…", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
                     }
                 } else {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Icon(
                             Icons.Filled.CheckCircle,
                             contentDescription = null,
-                            modifier = Modifier.size(24.dp),
-                            tint = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
                         )
                         Text(
                             "Update Attendance",
-                            fontSize = 17.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                            fontSize = 16.sp,
+                            color = Color.White
                         )
                     }
                 }
             }
-        }
-    }
-}
-
-/* ---------------- LEGACY COMPONENTS (for backwards compatibility) ---------------- */
-@Composable
-private fun SelectableCard(
-    icon: ImageVector,
-    label: String,
-    value: String,
-    onClick: () -> Unit
-) {
-    val isSelected = value != "Select"
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHighest
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-
-                Column {
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = value,
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium,
-                        color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-fun EditStatusCard(
-    text: String,
-    icon: ImageVector,
-    selected: Boolean,
-    selectedColor: Color,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val scale by animateFloatAsState(
-        targetValue = if (selected) 1.02f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = ""
-    )
-
-    Card(
-        modifier = modifier
-            .scale(scale)
-            .clickable { onClick() }
-            .then(
-                if (selected) {
-                    Modifier.border(
-                        width = 2.dp,
-                        color = selectedColor,
-                        shape = RoundedCornerShape(16.dp)
-                    )
-                } else Modifier
-            ),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) selectedColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (selected) selectedColor else MaterialTheme.colorScheme.surfaceContainerHighest
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-
-            Text(
-                text = text,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface
-            )
         }
     }
 }

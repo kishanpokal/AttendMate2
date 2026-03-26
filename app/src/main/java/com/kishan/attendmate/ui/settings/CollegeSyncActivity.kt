@@ -12,11 +12,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,7 +36,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -46,7 +44,6 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -77,7 +74,13 @@ class CollegeSyncActivity : ComponentActivity() {
 
 // ─── State machine ───────────────────────────────────────────────────────────
 
-private enum class ScrapePhase { IDLE, LOGIN, SCRAPING }
+private enum class ScrapePhase {
+    IDLE,
+    LOGIN,
+    LOGIN_INJECTED,
+    SCRAPING,
+    EXTRACTING
+}
 
 // ─── JS bridge (proper class so @JavascriptInterface is visible) ─────────────
 
@@ -124,7 +127,9 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
     var email by remember { mutableStateOf(prefs.getString("email", "") ?: "") }
     var password by remember { mutableStateOf(prefs.getString("password", "") ?: "") }
     var passwordVisible by remember { mutableStateOf(false) }
-    var rememberCredentials by remember { mutableStateOf(prefs.getBoolean("rememberCredentials", true)) }
+    var rememberCredentials by remember {
+        mutableStateOf(prefs.getBoolean("rememberCredentials", true))
+    }
 
     val phaseState = remember { mutableStateOf(ScrapePhase.IDLE) }
 
@@ -132,7 +137,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
     var scrapedData by remember { mutableStateOf<List<CollegeAttendanceRecord>>(emptyList()) }
     var appData by remember { mutableStateOf<List<CollegeAttendanceRecord>>(emptyList()) }
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showLoginSheet by remember { mutableStateOf(false) }
 
@@ -140,18 +145,22 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
     val pagerState = rememberPagerState(pageCount = { 2 })
     val haptic = LocalHapticFeedback.current
 
+    var appSubjectMap by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+
     // Subject filter
     var subjects by remember { mutableStateOf<List<String>>(listOf("All")) }
     var selectedSubject by remember { mutableStateOf("All") }
-    
+
     // Status filter
     var statusFilter by remember { mutableStateOf("All") } // "All", "Present", "Absent"
     // Sort filter
     var sortOrder by remember { mutableStateOf("Newest") } // "Newest", "Oldest"
-    
+
     // Compare filter
-    var compareFilter by remember { mutableStateOf<String?>(null) } // null, "Match", "Mismatch", "App", "College"
-    
+    var compareFilter by remember {
+        mutableStateOf<String?>(null)
+    } // null, "Match", "Mismatch", "App", "College"
+
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val listStateTab0 = rememberLazyListState()
     val listStateTab1 = rememberLazyListState()
@@ -166,6 +175,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
         scrapedData = saved
         subjects = buildSubjectList(saved)
         appData = loadAppAttendanceFromFirestore()
+        appSubjectMap = loadAppSubjectMapFromFirestore()
     }
 
     suspend fun onRefresh() {
@@ -174,6 +184,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
         scrapedData = saved
         subjects = buildSubjectList(saved)
         appData = loadAppAttendanceFromFirestore()
+        appSubjectMap = loadAppSubjectMapFromFirestore()
         isRefreshing = false
     }
 
@@ -190,119 +201,180 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
         if (selectedSubject !in subjects) selectedSubject = "All"
     }
 
-    val filteredData: List<CollegeAttendanceRecord> = remember(scrapedData, selectedSubject, statusFilter, sortOrder) {
-        var list = scrapedData
-        if (selectedSubject != "All") {
-            list = list.filter { it.subject == selectedSubject }
-        }
-        if (statusFilter != "All") {
-            list = list.filter { it.status.equals(statusFilter, ignoreCase = true) }
-        }
-        
-        list.sortedWith { a, b ->
-            val tA = try { java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).parse(a.date)?.time ?: 0L } catch(e: Exception) { 0L }
-            val tB = try { java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).parse(b.date)?.time ?: 0L } catch(e: Exception) { 0L }
-            if (sortOrder == "Oldest") tA.compareTo(tB) else tB.compareTo(tA)
-        }
-    }
+    val filteredData: List<CollegeAttendanceRecord> =
+        remember(scrapedData, selectedSubject, statusFilter, sortOrder) {
+            var list = scrapedData
+            if (selectedSubject != "All") {
+                list = list.filter { it.subject == selectedSubject }
+            }
+            if (statusFilter != "All") {
+                list = list.filter { it.status.equals(statusFilter, ignoreCase = true) }
+            }
 
-    val displayItems = remember(filteredData, appData, selectedSubject, compareFilter) {
-        val list = mutableListOf<CompareDisplayItem>()
-        val matchedAppRecords = mutableSetOf<CollegeAttendanceRecord>()
-        
-        // Build a strict 1-to-1 mapping from App Subject to the BEST Scraped Subject
-        val allScrapedSubjects = scrapedData.map { it.subject }.distinct()
-        val appToScrapedSubjectMap = appData.map { it.subject }.distinct().associateWith { appSubj ->
-            val s1 = appSubj.lowercase().replace(Regex("[^a-z0-9]"), "")
-            
-            // Exact alphanumeric match first
-            var bestMatch = allScrapedSubjects.find { scrapedSubj ->
-                val s2 = scrapedSubj.lowercase().replace(Regex("[^a-z0-9]"), "")
-                s1 == s2
+            list.sortedWith { a, b ->
+                val tA =
+                    try {
+                        java.text.SimpleDateFormat(
+                            "dd/MM/yyyy",
+                            java.util.Locale.getDefault()
+                        )
+                            .parse(a.date)
+                            ?.time
+                            ?: 0L
+                    } catch (e: Exception) {
+                        0L
+                    }
+                val tB =
+                    try {
+                        java.text.SimpleDateFormat(
+                            "dd/MM/yyyy",
+                            java.util.Locale.getDefault()
+                        )
+                            .parse(b.date)
+                            ?.time
+                            ?: 0L
+                    } catch (e: Exception) {
+                        0L
+                    }
+                if (sortOrder == "Oldest") tA.compareTo(tB) else tB.compareTo(tA)
             }
-            
-            // If no exact match, find the longest containing match
-            if (bestMatch == null) {
-                bestMatch = allScrapedSubjects.filter { scrapedSubj ->
-                    val s2 = scrapedSubj.lowercase().replace(Regex("[^a-z0-9]"), "")
-                    s1.contains(s2) || s2.contains(s1)
-                }.maxByOrNull { it.length } 
-            }
-            
-            bestMatch ?: appSubj // Fallback
         }
-        
-        for (scraped in filteredData) {
-            // Pass 1: Match Subject, Date, AND Status
-            var matchedApp = appData.find { app ->
-                app !in matchedAppRecords &&
-                appToScrapedSubjectMap[app.subject] == scraped.subject &&
-                app.date == scraped.date &&
-                app.status.equals(scraped.status, ignoreCase = true)
+
+    val displayItems =
+        remember(filteredData, appData, selectedSubject, compareFilter) {
+            val list = mutableListOf<CompareDisplayItem>()
+            val matchedAppRecords = mutableSetOf<CollegeAttendanceRecord>()
+
+            // Build a strict 1-to-1 mapping from App Subject to the BEST Scraped Subject
+            val allScrapedSubjects = scrapedData.map { it.subject }.distinct()
+            val appToScrapedSubjectMap =
+                appData.map { it.subject }.distinct().associateWith { appSubj ->
+                    val s1 = appSubj.lowercase().replace(Regex("[^a-z0-9]"), "")
+
+                    // Exact alphanumeric match first
+                    var bestMatch =
+                        allScrapedSubjects.find { scrapedSubj ->
+                            val s2 =
+                                scrapedSubj
+                                    .lowercase()
+                                    .replace(Regex("[^a-z0-9]"), "")
+                            s1 == s2
+                        }
+
+                    // If no exact match, find the longest containing match
+                    if (bestMatch == null) {
+                        bestMatch =
+                            allScrapedSubjects
+                                .filter { scrapedSubj ->
+                                    val s2 =
+                                        scrapedSubj
+                                            .lowercase()
+                                            .replace(Regex("[^a-z0-9]"), "")
+                                    s1.contains(s2) || s2.contains(s1)
+                                }
+                                .maxByOrNull { it.length }
+                    }
+
+                    bestMatch ?: appSubj // Fallback
+                }
+
+            for (scraped in filteredData) {
+                // Pass 1: Match Subject, Date, AND Status
+                var matchedApp =
+                    appData.find { app ->
+                        app !in matchedAppRecords &&
+                                appToScrapedSubjectMap[app.subject] == scraped.subject &&
+                                app.date == scraped.date &&
+                                app.status.equals(scraped.status, ignoreCase = true)
+                    }
+
+                // Pass 2: Subject and Date match (status differs)
+                if (matchedApp == null) {
+                    matchedApp =
+                        appData.find { app ->
+                            app !in matchedAppRecords &&
+                                    appToScrapedSubjectMap[app.subject] ==
+                                    scraped.subject &&
+                                    app.date == scraped.date
+                        }
+                }
+
+                if (matchedApp != null) {
+                    matchedAppRecords.add(matchedApp)
+                }
+                val matchedAppSubjName =
+                    appToScrapedSubjectMap.entries
+                        .firstOrNull { it.value == scraped.subject }
+                        ?.key
+                list.add(CompareDisplayItem(scraped, matchedApp, matchedAppSubjName))
             }
-            
-            // Pass 2: Subject and Date match (status differs)
-            if (matchedApp == null) {
-                matchedApp = appData.find { app ->
-                    app !in matchedAppRecords &&
-                    appToScrapedSubjectMap[app.subject] == scraped.subject &&
-                    app.date == scraped.date 
+
+            val unmatchedAppRecords = appData.filter { it !in matchedAppRecords }
+            val relevantUnmatched =
+                unmatchedAppRecords.filter { app ->
+                    if (selectedSubject == "All") true
+                    else {
+                        appToScrapedSubjectMap[app.subject] == selectedSubject
+                    }
+                }
+
+            for (app in relevantUnmatched) {
+                list.add(CompareDisplayItem(null, app, app.subject))
+            }
+
+            var filteredList = list.toList()
+            if (compareFilter != null) {
+                filteredList =
+                    filteredList.filter { item ->
+                        val sRec = item.scrapedRecord
+                        val aRec = item.appRecord
+                        val hasMismatch =
+                            sRec != null &&
+                                    aRec != null &&
+                                    !aRec.status.equals(sRec.status, ignoreCase = true)
+                        when (compareFilter) {
+                            "Match" -> sRec != null && aRec != null && !hasMismatch
+                            "Mismatch" -> hasMismatch
+                            "App" -> sRec == null
+                            "College" -> aRec == null
+                            else -> true
+                        }
+                    }
+            }
+
+            filteredList.sortedByDescending {
+                val dateStr = it.scrapedRecord?.date ?: it.appRecord?.date ?: ""
+                try {
+                    java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+                        .parse(dateStr)
+                        ?.time
+                        ?: 0L
+                } catch (e: Exception) {
+                    0L
                 }
             }
-            
-            if (matchedApp != null) {
-                matchedAppRecords.add(matchedApp)
-            }
-            list.add(CompareDisplayItem(scraped, matchedApp))
         }
-        
-        val unmatchedAppRecords = appData.filter { it !in matchedAppRecords }
-        val relevantUnmatched = unmatchedAppRecords.filter { app ->
-            if (selectedSubject == "All") true else {
-                appToScrapedSubjectMap[app.subject] == selectedSubject
-            }
-        }
-        
-        for (app in relevantUnmatched) {
-            list.add(CompareDisplayItem(null, app))
-        }
-        
-        var filteredList = list.toList()
-        if (compareFilter != null) {
-            filteredList = filteredList.filter { item ->
-                val sRec = item.scrapedRecord
-                val aRec = item.appRecord
-                val hasMismatch = sRec != null && aRec != null && !aRec.status.equals(sRec.status, ignoreCase = true)
-                when (compareFilter) {
-                    "Match" -> sRec != null && aRec != null && !hasMismatch
-                    "Mismatch" -> hasMismatch
-                    "App" -> sRec == null
-                    "College" -> aRec == null
-                    else -> true
-                }
-            }
-        }
-        
-        filteredList.sortedByDescending { 
-            val dateStr = it.scrapedRecord?.date ?: it.appRecord?.date ?: ""
-            try { java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault()).parse(dateStr)?.time ?: 0L } catch(e: Exception) { 0L }
-        }
-    }
 
     val lastSyncTime = prefs.getString("lastSyncTime", "Never")
 
     var previousIndex by remember { mutableIntStateOf(0) }
     var previousScrollOffset by remember { mutableIntStateOf(0) }
     var showFab by remember { mutableStateOf(true) }
-    
+
     val currentListState = if (pagerState.currentPage == 0) listStateTab0 else listStateTab1
-    
+
     LaunchedEffect(currentListState) {
-        snapshotFlow { currentListState.firstVisibleItemIndex to currentListState.firstVisibleItemScrollOffset }
+        snapshotFlow {
+            currentListState.firstVisibleItemIndex to currentListState.firstVisibleItemScrollOffset
+        }
             .collect { (index, offset) ->
-                if (index > previousIndex || (index == previousIndex && offset > previousScrollOffset + 10)) {
+                if (index > previousIndex ||
+                    (index == previousIndex && offset > previousScrollOffset + 10)
+                ) {
                     showFab = false
-                } else if (index < previousIndex || (index == previousIndex && offset < previousScrollOffset - 10)) {
+                } else if (index < previousIndex ||
+                    (index == previousIndex && offset < previousScrollOffset - 10)
+                ) {
                     showFab = true
                 }
                 if (index == 0 && offset == 0) showFab = true
@@ -327,13 +399,18 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back"
+                        )
                     }
                 },
-                colors = TopAppBarDefaults.largeTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    scrolledContainerColor = MaterialTheme.colorScheme.surfaceContainer
-                ),
+                colors =
+                    TopAppBarDefaults.largeTopAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        scrolledContainerColor =
+                            MaterialTheme.colorScheme.surfaceContainer
+                    ),
                 scrollBehavior = scrollBehavior
             )
         },
@@ -346,12 +423,20 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
             ) {
                 ExtendedFloatingActionButton(
                     onClick = { if (!isScraping) showLoginSheet = true },
-                    containerColor = if (isScraping) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = if (isScraping) MaterialTheme.colorScheme.onSurface.copy(alpha=0.6f) else MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor =
+                        if (isScraping) MaterialTheme.colorScheme.surfaceContainerHigh
+                        else MaterialTheme.colorScheme.primaryContainer,
+                    contentColor =
+                        if (isScraping)
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                        else MaterialTheme.colorScheme.onPrimaryContainer,
                     elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp)
                 ) {
                     if (isScraping) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
                         Spacer(Modifier.width(8.dp))
                         Text("Syncing...", fontWeight = FontWeight.Bold)
                     } else {
@@ -366,23 +451,22 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
         PullToRefreshBox(
             isRefreshing = isRefreshing,
             onRefresh = { coroutineScope.launch { onRefresh() } },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            MaterialTheme.colorScheme.surface,
-                            MaterialTheme.colorScheme.surfaceContainerLowest
+            modifier =
+                Modifier.fillMaxSize()
+                    .padding(padding)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                MaterialTheme.colorScheme.surface,
+                                MaterialTheme.colorScheme
+                                    .surfaceContainerLowest
+                            )
                         )
                     )
-                )
         ) {
             LazyColumn(
                 state = currentListState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp),
+                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
 
@@ -390,11 +474,14 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                 if (scrapedData.isEmpty()) {
                     item {
                         Card(
-                            modifier = Modifier.fillMaxWidth().padding(top=8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                             shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                            )
+                            colors =
+                                CardDefaults.cardColors(
+                                    containerColor =
+                                        MaterialTheme.colorScheme.primaryContainer
+                                            .copy(alpha = 0.3f)
+                                )
                         ) {
                             Column(modifier = Modifier.padding(20.dp)) {
                                 Text(
@@ -417,62 +504,170 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                         val total = scrapedData.size
                         val present = scrapedData.count { it.status.equals("Present", true) }
                         val absent = scrapedData.count { it.status.equals("Absent", true) }
-                        val pct = if (total > 0) ((present.toFloat() / total) * 100).roundToInt() else 0
+
+// 1. Calculate as a Float instead of rounding to Int
+                        val pctFloat = if (total > 0) (present.toFloat() / total) * 100 else 0f
+// 2. Format it to exactly 2 decimal places (e.g., "74.85")
+                        val pctDisplay = String.format(Locale.getDefault(), "%.2f", pctFloat)
+
                         val barColor = when {
-                            pct >= 75 -> Color(0xFF4CAF50)
-                            pct >= 60 -> Color(0xFFFFC107)
+                            pctFloat >= 75f -> Color(0xFF4CAF50)
+                            pctFloat >= 60f -> Color(0xFFFFC107)
                             else -> Color(0xFFEF5350)
                         }
 
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(20.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+                            colors =
+                                CardDefaults.cardColors(
+                                    containerColor =
+                                        MaterialTheme.colorScheme
+                                            .surfaceContainerHigh
+                                )
                         ) {
                             Column(modifier = Modifier.padding(20.dp)) {
                                 Row(modifier = Modifier.fillMaxWidth()) {
-                                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("$total", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                        Text("Total Records", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            "$total",
+                                            style = MaterialTheme.typography.headlineLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            "Total Records",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
-                                    Box(modifier = Modifier.width(1.dp).height(50.dp).background(MaterialTheme.colorScheme.outlineVariant))
-                                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("$present", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = Color(0xFF4CAF50))
-                                        Text("Present", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Box(
+                                        modifier =
+                                            Modifier.width(1.dp)
+                                                .height(50.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme
+                                                        .outlineVariant
+                                                )
+                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            "$present",
+                                            style = MaterialTheme.typography.headlineLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFF4CAF50)
+                                        )
+                                        Text(
+                                            "Present",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
-                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(vertical = 12.dp),
+                                    color = MaterialTheme.colorScheme.outlineVariant
+                                )
                                 Row(modifier = Modifier.fillMaxWidth()) {
-                                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("$absent", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = Color(0xFFEF5350))
-                                        Text("Absent", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            "$absent",
+                                            style = MaterialTheme.typography.headlineLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFEF5350)
+                                        )
+                                        Text(
+                                            "Absent",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
-                                    Box(modifier = Modifier.width(1.dp).height(50.dp).background(MaterialTheme.colorScheme.outlineVariant))
-                                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("$pct%", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold, color = barColor)
-                                        Text("Attendance", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Box(
+                                        modifier =
+                                            Modifier.width(1.dp)
+                                                .height(50.dp)
+                                                .background(
+                                                    MaterialTheme.colorScheme
+                                                        .outlineVariant
+                                                )
+                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "$pctDisplay%", // <-- Use pctDisplay here
+                                            style = MaterialTheme.typography.headlineLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = barColor
+                                        )
+                                        Text(
+                                            "Attendance",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
                                     }
                                 }
-                                
+
                                 Spacer(Modifier.height(20.dp))
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                    Text("Overall: $pct%", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = barColor)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Text(
+                                        "Overall: $pctDisplay%",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = barColor
+                                    )
                                 }
                                 Spacer(Modifier.height(4.dp))
-                                val progressFloat by animateFloatAsState(targetValue = if (total>0) present/total.toFloat() else 0f, animationSpec = tween(800), label = "prog")
+                                val progressFloat by
+                                animateFloatAsState(
+                                    targetValue =
+                                        if (total > 0) present / total.toFloat()
+                                        else 0f,
+                                    animationSpec = tween(800),
+                                    label = "prog"
+                                )
                                 LinearProgressIndicator(
                                     progress = { progressFloat },
-                                    modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+                                    modifier =
+                                        Modifier.fillMaxWidth()
+                                            .height(8.dp)
+                                            .clip(RoundedCornerShape(4.dp)),
                                     color = barColor,
-                                    trackColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    trackColor =
+                                        MaterialTheme.colorScheme.surfaceContainerHighest
                                 )
                             }
                         }
-                        
+
                         if (selectedSubject != "All") {
                             Spacer(Modifier.height(8.dp))
-                            Surface(shape = RoundedCornerShape(8.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                                Text("Subject: $selectedSubject", style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Text(
+                                    "Subject: $selectedSubject",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    modifier =
+                                        Modifier.padding(
+                                            horizontal = 8.dp,
+                                            vertical = 4.dp
+                                        ),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
                             }
                         }
                     }
@@ -486,7 +681,9 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                         enter = slideInVertically() + fadeIn(),
                         exit = slideOutVertically() + fadeOut()
                     ) {
-                        val color = if (hasError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                        val color =
+                            if (hasError) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary
                         val bgColor = color.copy(alpha = 0.1f)
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -494,24 +691,55 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                             colors = CardDefaults.cardColors(containerColor = bgColor)
                         ) {
                             Box(modifier = Modifier.fillMaxWidth()) {
-                                Box(modifier = Modifier.fillMaxHeight().width(3.dp).background(color).align(Alignment.CenterStart))
+                                Box(
+                                    modifier =
+                                        Modifier.fillMaxHeight()
+                                            .width(3.dp)
+                                            .background(color)
+                                            .align(Alignment.CenterStart)
+                                )
                                 Column(modifier = Modifier.padding(16.dp)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         if (isScraping) {
-                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = color)
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(16.dp),
+                                                strokeWidth = 2.dp,
+                                                color = color
+                                            )
                                         } else if (hasError) {
-                                            Icon(Icons.Default.Warning, contentDescription = null, tint = color, modifier = Modifier.size(16.dp))
+                                            Icon(
+                                                Icons.Default.Warning,
+                                                contentDescription = null,
+                                                tint = color,
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                         }
                                         Spacer(Modifier.width(12.dp))
-                                        Text(statusText, style = MaterialTheme.typography.bodyMedium, color = color, fontWeight = FontWeight.Medium)
+                                        Text(
+                                            statusText,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = color,
+                                            fontWeight = FontWeight.Medium
+                                        )
                                     }
-                                    
-                                    if (isScraping && statusText.contains("Expecting") || statusText.contains("page")) {
+
+                                    if (isScraping && statusText.contains("Expecting") ||
+                                        statusText.contains("page")
+                                    ) {
                                         Spacer(Modifier.height(8.dp))
                                         val parts = statusText.split(":", "—")
                                         if (parts.size >= 2) {
-                                            Text(parts[0].trim(), fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = color)
-                                            Text(parts[1].trim(), style = MaterialTheme.typography.bodySmall, color = color.copy(alpha=0.8f))
+                                            Text(
+                                                parts[0].trim(),
+                                                fontWeight = FontWeight.Bold,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = color
+                                            )
+                                            Text(
+                                                parts[1].trim(),
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = color.copy(alpha = 0.8f)
+                                            )
                                         }
                                     }
                                 }
@@ -528,7 +756,12 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha=0.5f))
+                            colors =
+                                CardDefaults.cardColors(
+                                    containerColor =
+                                        MaterialTheme.colorScheme.surfaceVariant
+                                            .copy(alpha = 0.5f)
+                                )
                         ) {
                             Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
                                 val mismatches = displayItems.count { it.hasMismatch() }
@@ -539,16 +772,26 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                     badgeCount = filteredData.size,
                                     badgeColor = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.weight(1f),
-                                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } }
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(0)
+                                        }
+                                    }
                                 )
                                 SegmentedTab(
                                     selected = pagerState.currentPage == 1,
                                     text = "Compare",
                                     icon = Icons.Default.CompareArrows,
                                     badgeCount = mismatches,
-                                    badgeColor = if (mismatches > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                    badgeColor =
+                                        if (mismatches > 0) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.weight(1f),
-                                    onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } }
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(1)
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -565,11 +808,20 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                 Text("Filter", style = MaterialTheme.typography.labelLarge)
                                 // Sort Order toggle
                                 TextButton(
-                                    onClick = { sortOrder = if (sortOrder == "Newest") "Oldest" else "Newest" },
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                    onClick = {
+                                        sortOrder =
+                                            if (sortOrder == "Newest") "Oldest"
+                                            else "Newest"
+                                    },
+                                    contentPadding =
+                                        PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                                     modifier = Modifier.height(32.dp)
                                 ) {
-                                    Icon(Icons.Default.Sort, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(
+                                        Icons.Default.Sort,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                     Spacer(Modifier.width(4.dp))
                                     Text(sortOrder, style = MaterialTheme.typography.labelMedium)
                                 }
@@ -579,7 +831,12 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                 items(subjects) { subj ->
                                     FilterChip(
                                         selected = selectedSubject == subj,
-                                        onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); selectedSubject = subj },
+                                        onClick = {
+                                            haptic.performHapticFeedback(
+                                                HapticFeedbackType.LongPress
+                                            )
+                                            selectedSubject = subj
+                                        },
                                         label = { Text(subj) }
                                     )
                                 }
@@ -590,12 +847,17 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                 items(statusOptions) { status ->
                                     FilterChip(
                                         selected = statusFilter == status,
-                                        onClick = { haptic.performHapticFeedback(HapticFeedbackType.LongPress); statusFilter = status },
+                                        onClick = {
+                                            haptic.performHapticFeedback(
+                                                HapticFeedbackType.LongPress
+                                            )
+                                            statusFilter = status
+                                        },
                                         label = { Text(status) }
                                     )
                                 }
                             }
-                            
+
                             // Active filters summary
                             if (selectedSubject != "All" || statusFilter != "All") {
                                 Spacer(Modifier.height(8.dp))
@@ -604,16 +866,49 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
                                         if (selectedSubject != "All") {
-                                            FilterChip(selected = true, onClick = { selectedSubject = "All" }, label = { Text("Subject: $selectedSubject") }, trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(14.dp)) })
+                                            FilterChip(
+                                                selected = true,
+                                                onClick = { selectedSubject = "All" },
+                                                label = { Text("Subject: $selectedSubject") },
+                                                trailingIcon = {
+                                                    Icon(
+                                                        Icons.Default.Close,
+                                                        null,
+                                                        Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            )
                                         }
                                         if (statusFilter != "All") {
-                                            FilterChip(selected = true, onClick = { statusFilter = "All" }, label = { Text("Status: $statusFilter") }, trailingIcon = { Icon(Icons.Default.Close, null, Modifier.size(14.dp)) })
+                                            FilterChip(
+                                                selected = true,
+                                                onClick = { statusFilter = "All" },
+                                                label = { Text("Status: $statusFilter") },
+                                                trailingIcon = {
+                                                    Icon(
+                                                        Icons.Default.Close,
+                                                        null,
+                                                        Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            )
                                         }
                                     }
-                                    TextButton(onClick = { selectedSubject = "All"; statusFilter = "All" }) {
-                                        Text("Clear all", style = MaterialTheme.typography.labelSmall)
+                                    TextButton(
+                                        onClick = {
+                                            selectedSubject = "All"
+                                            statusFilter = "All"
+                                        }
+                                    ) {
+                                        Text(
+                                            "Clear all",
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
                                     }
                                 }
                             }
@@ -622,7 +917,11 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                                 horizontalArrangement = Arrangement.End
                             ) {
-                                Text("${filteredData.size} of ${scrapedData.size} records", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    "${filteredData.size} of ${scrapedData.size} records",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
@@ -638,24 +937,83 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                 // ── Tab 0: Subject Data ──────────────────────────
                                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                     if (filteredData.isEmpty()) {
-                                        EmptyStateCardFilter("No records match your filters", onClear = { selectedSubject = "All"; statusFilter = "All" })
+                                        EmptyStateCardFilter(
+                                            "No records match your filters",
+                                            onClear = {
+                                                selectedSubject = "All"
+                                                statusFilter = "All"
+                                            }
+                                        )
                                     } else {
                                         var currentDate = ""
                                         filteredData.forEach { record ->
-                                            val recordDateObj = try { java.text.SimpleDateFormat("dd/MM/yyyy", Locale.getDefault()).parse(record.date) } catch(e:Exception){null}
-                                            val recordDateStr = recordDateObj?.let { java.text.SimpleDateFormat("EEEE, dd MMM yyyy", Locale.getDefault()).format(it) } ?: record.date
-                                            
+                                            val recordDateObj =
+                                                try {
+                                                    java.text.SimpleDateFormat(
+                                                        "dd/MM/yyyy",
+                                                        Locale.getDefault()
+                                                    )
+                                                        .parse(record.date)
+                                                } catch (e: Exception) {
+                                                    null
+                                                }
+                                            val recordDateStr =
+                                                recordDateObj?.let {
+                                                    java.text.SimpleDateFormat(
+                                                        "EEEE, dd MMM yyyy",
+                                                        Locale.getDefault()
+                                                    )
+                                                        .format(it)
+                                                }
+                                                    ?: record.date
+
                                             if (currentDate != recordDateStr) {
                                                 currentDate = recordDateStr
-                                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                    HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
-                                                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.padding(horizontal = 12.dp)) {
-                                                        Text(currentDate, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp))
+                                                Row(
+                                                    modifier =
+                                                        Modifier.fillMaxWidth()
+                                                            .padding(vertical = 8.dp),
+                                                    verticalAlignment =
+                                                        Alignment.CenterVertically
+                                                ) {
+                                                    HorizontalDivider(
+                                                        modifier = Modifier.weight(1f),
+                                                        color =
+                                                            MaterialTheme.colorScheme
+                                                                .outlineVariant
+                                                    )
+                                                    Surface(
+                                                        shape = RoundedCornerShape(16.dp),
+                                                        color =
+                                                            MaterialTheme.colorScheme
+                                                                .surfaceContainerHigh,
+                                                        modifier =
+                                                            Modifier.padding(
+                                                                horizontal = 12.dp
+                                                            )
+                                                    ) {
+                                                        Text(
+                                                            currentDate,
+                                                            style =
+                                                                MaterialTheme.typography
+                                                                    .labelSmall,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            modifier =
+                                                                Modifier.padding(
+                                                                    horizontal = 12.dp,
+                                                                    vertical = 6.dp
+                                                                )
+                                                        )
                                                     }
-                                                    HorizontalDivider(modifier = Modifier.weight(1f), color = MaterialTheme.colorScheme.outlineVariant)
+                                                    HorizontalDivider(
+                                                        modifier = Modifier.weight(1f),
+                                                        color =
+                                                            MaterialTheme.colorScheme
+                                                                .outlineVariant
+                                                    )
                                                 }
                                             }
-                                            
+
                                             Box(modifier = Modifier.animateItem()) {
                                                 SubjectDataCard(record)
                                             }
@@ -665,17 +1023,76 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                             } else {
                                 // ── Tab 1: Compare Data ──────────────────────────
                                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    val matched = displayItems.count { it.scrapedRecord != null && it.appRecord != null && it.scrapedRecord.status.equals(it.appRecord.status, ignoreCase = true) }
+                                    val matched =
+                                        displayItems.count {
+                                            it.scrapedRecord != null &&
+                                                    it.appRecord != null &&
+                                                    it.scrapedRecord.status.equals(
+                                                        it.appRecord.status,
+                                                        ignoreCase = true
+                                                    )
+                                        }
                                     val mismatched = displayItems.count { it.hasMismatch() }
                                     val missingInApp = displayItems.count { it.appRecord == null }
-                                    val missingInCollege = displayItems.count { it.scrapedRecord == null }
+                                    val missingInCollege =
+                                        displayItems.count { it.scrapedRecord == null }
 
                                     // Horizontally scrollable summary bar
-                                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                        item { SummaryChipCard("Match", matched, Color(0xFF4CAF50), Icons.Default.CheckCircle, compareFilter == "Match") { compareFilter = if(compareFilter=="Match") null else "Match" } }
-                                        item { SummaryChipCard("Mismatch", mismatched, MaterialTheme.colorScheme.error, Icons.Default.Warning, compareFilter == "Mismatch") { compareFilter = if(compareFilter=="Mismatch") null else "Mismatch" } }
-                                        item { SummaryChipCard("App Only", missingInCollege, MaterialTheme.colorScheme.tertiary, Icons.Default.PhoneAndroid, compareFilter == "App") { compareFilter = if(compareFilter=="App") null else "App" } }
-                                        item { SummaryChipCard("College Only", missingInApp, MaterialTheme.colorScheme.secondary, Icons.Default.School, compareFilter == "College") { compareFilter = if(compareFilter=="College") null else "College" } }
+                                    LazyRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        item {
+                                            SummaryChipCard(
+                                                "Match",
+                                                matched,
+                                                Color(0xFF4CAF50),
+                                                Icons.Default.CheckCircle,
+                                                compareFilter == "Match"
+                                            ) {
+                                                compareFilter =
+                                                    if (compareFilter == "Match") null
+                                                    else "Match"
+                                            }
+                                        }
+                                        item {
+                                            SummaryChipCard(
+                                                "Mismatch",
+                                                mismatched,
+                                                MaterialTheme.colorScheme.error,
+                                                Icons.Default.Warning,
+                                                compareFilter == "Mismatch"
+                                            ) {
+                                                compareFilter =
+                                                    if (compareFilter == "Mismatch") null
+                                                    else "Mismatch"
+                                            }
+                                        }
+                                        item {
+                                            SummaryChipCard(
+                                                "App Only",
+                                                missingInCollege,
+                                                MaterialTheme.colorScheme.tertiary,
+                                                Icons.Default.PhoneAndroid,
+                                                compareFilter == "App"
+                                            ) {
+                                                compareFilter =
+                                                    if (compareFilter == "App") null else "App"
+                                            }
+                                        }
+                                        item {
+                                            SummaryChipCard(
+                                                "College Only",
+                                                missingInApp,
+                                                MaterialTheme.colorScheme.secondary,
+                                                Icons.Default.School,
+                                                compareFilter == "College"
+                                            ) {
+                                                compareFilter =
+                                                    if (compareFilter == "College") null
+                                                    else "College"
+                                            }
+                                        }
                                     }
 
                                     if (displayItems.isEmpty()) {
@@ -683,18 +1100,58 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                     } else {
                                         displayItems.forEach { item ->
                                             Box(modifier = Modifier.animateItem()) {
-                                                CompareDataCard(item)
+                                                CompareDataCard(
+                                                    item,
+                                                    onAddToApp = { record, matchedSubj ->
+                                                        addScrapedRecordToApp(
+                                                            context,
+                                                            record,
+                                                            matchedSubj,
+                                                            appSubjectMap
+                                                        ) {
+                                                            Toast.makeText(
+                                                                context,
+                                                                "Added to app!",
+                                                                Toast.LENGTH_SHORT
+                                                            )
+                                                                .show()
+                                                            coroutineScope.launch {
+                                                                onRefresh()
+                                                            }
+                                                        }
+                                                    }
+                                                )
                                             }
                                         }
-                                        
+
                                         if (mismatched > 0) {
                                             Spacer(Modifier.height(8.dp))
                                             Button(
-                                                onClick = { Toast.makeText(context, "Fix mismatches not fully implemented.", Toast.LENGTH_SHORT).show() },
+                                                onClick = {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Fix mismatches not fully implemented.",
+                                                        Toast.LENGTH_SHORT
+                                                    )
+                                                        .show()
+                                                },
                                                 modifier = Modifier.fillMaxWidth(),
-                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)
+                                                colors =
+                                                    ButtonDefaults.buttonColors(
+                                                        containerColor =
+                                                            MaterialTheme
+                                                                .colorScheme
+                                                                .errorContainer,
+                                                        contentColor =
+                                                            MaterialTheme
+                                                                .colorScheme
+                                                                .onErrorContainer
+                                                    )
                                             ) {
-                                                Text("Fix $mismatched Mismatches", fontWeight = FontWeight.Bold)
+                                                Text(
+                                                    "Fix $mismatched Mismatches",
+                                                    fontWeight = FontWeight.Bold
+                                                )
                                             }
                                         }
                                     }
@@ -707,7 +1164,6 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                 item { Spacer(Modifier.height(48.dp)) }
             }
 
-
             // ── Invisible WebView (scraping engine) ──────────────────────
             Box(modifier = Modifier.size(1.dp).alpha(0f)) {
                 AndroidView(
@@ -717,7 +1173,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                             settings.domStorageEnabled = true
                             settings.userAgentString =
                                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
                             addJavascriptInterface(
                                 ScraperBridge(
@@ -737,108 +1193,136 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                         coroutineScope.launch(Dispatchers.Main) {
                                             statusText = "Processing data..."
                                             try {
-                                                val list = mutableListOf<CollegeAttendanceRecord>()
+                                                val list =
+                                                    mutableListOf<
+                                                            CollegeAttendanceRecord>()
                                                 val arr = JSONArray(json)
                                                 if (arr.length() == 0) {
-                                                    Log.d("CollegeSync", "Ignoring empty extraction from premature SPA load")
+                                                    Log.d(
+                                                        "CollegeSync",
+                                                        "Ignoring empty extraction from premature SPA load"
+                                                    )
                                                     return@launch
                                                 }
                                                 for (i in 0 until arr.length()) {
                                                     val o = arr.getJSONObject(i)
                                                     list.add(
                                                         CollegeAttendanceRecord(
-                                                            subject = o.optString("subject", ""),
-                                                            date = o.optString("date", ""),
-                                                            fromTime = o.optString("fromTime", ""),
-                                                            toTime = o.optString("toTime", ""),
-                                                            topic = o.optString("topic", ""),
-                                                            status = o.optString("status", "")
+                                                            subject =
+                                                                o.optString(
+                                                                    "subject",
+                                                                    ""
+                                                                ),
+                                                            date =
+                                                                o.optString(
+                                                                    "date",
+                                                                    ""
+                                                                ),
+                                                            fromTime =
+                                                                o.optString(
+                                                                    "fromTime",
+                                                                    ""
+                                                                ),
+                                                            toTime =
+                                                                o.optString(
+                                                                    "toTime",
+                                                                    ""
+                                                                ),
+                                                            topic =
+                                                                o.optString(
+                                                                    "topic",
+                                                                    ""
+                                                                ),
+                                                            status =
+                                                                o.optString(
+                                                                    "status",
+                                                                    ""
+                                                                )
                                                         )
                                                     )
                                                 }
                                                 scrapedData = list
                                                 saveScrapedData(context, list)
-                                                statusText = "Sync complete — ${list.size} records."
-                                                Log.d("CollegeSync", "Saved ${list.size} records")
+                                                statusText =
+                                                    "Sync complete — ${list.size} records."
+                                                Log.d(
+                                                    "CollegeSync",
+                                                    "Saved ${list.size} records"
+                                                )
                                                 phaseState.value = ScrapePhase.IDLE
                                                 Toast.makeText(
-                                                    context, "Sync finished!", Toast.LENGTH_SHORT
-                                                ).show()
+                                                    context,
+                                                    "Sync finished!",
+                                                    Toast.LENGTH_SHORT
+                                                )
+                                                    .show()
                                             } catch (ex: Exception) {
                                                 Log.e("CollegeSync", "Parse error", ex)
-                                                statusText = "Parse error: ${ex.message}"
+                                                statusText =
+                                                    "Parse error: ${ex.message}"
                                                 phaseState.value = ScrapePhase.IDLE
                                             }
                                         }
                                     },
                                     loginSuccessCb = {
                                         coroutineScope.launch(Dispatchers.Main) {
-                                            statusText = "Logged in! Loading attendance page..."
-                                            Log.d("CollegeSync", "Login success — navigating to attendance")
-                                            phaseState.value = ScrapePhase.SCRAPING
-                                            webViewRef?.loadUrl(
-                                                "https://attendence-system-1910.vercel.app/students/current/attendances"
-                                            )
+                                            if (phaseState.value == ScrapePhase.LOGIN_INJECTED) {
+                                                statusText = "Logged in! Loading attendance page..."
+                                                Log.d("CollegeSync", "Login success — navigating to attendance")
+                                                phaseState.value = ScrapePhase.SCRAPING
+                                                webViewRef?.loadUrl("https://attendence-system-1910.vercel.app/students/current/attendances")
+                                            }
                                         }
                                     }
                                 ),
                                 "Android"
                             )
 
-                            webViewClient = object : WebViewClient() {
-                                override fun onPageFinished(view: WebView, url: String) {
-                                    super.onPageFinished(view, url)
-                                    val phase = phaseState.value
-                                    Log.d("CollegeSync", "onPageFinished url=$url phase=$phase")
+                            webViewClient =
+                                object : WebViewClient() {
+                                    override fun onPageFinished(
+                                        view: WebView,
+                                        url: String
+                                    ) {
+                                        super.onPageFinished(view, url)
+                                        val phase = phaseState.value
+                                        Log.d(
+                                            "CollegeSync",
+                                            "onPageFinished url=$url phase=$phase"
+                                        )
 
-                                    when {
-                                        // ── LOGIN phase + login page → fill form ──
-                                        phase == ScrapePhase.LOGIN &&
-                                            url.contains("/users/login") -> {
-                                            statusText = "Filling login form..."
-                                            val safeEmail = email
-                                                .replace("\\", "\\\\")
-                                                .replace("'", "\\'")
-                                            val safePassword = password
-                                                .replace("\\", "\\\\")
-                                                .replace("'", "\\'")
-                                            val js = buildLoginScript(safeEmail, safePassword)
-                                            Log.d("CollegeSync", "Injecting login script")
-                                            view.evaluateJavascript(js, null)
-                                        }
+                                        when {
+                                            // ── LOGIN phase + login page → fill form ──
+                                            phase == ScrapePhase.LOGIN && url.contains("/users/login") -> {
+                                                statusText = "Filling login form..."
+                                                phaseState.value = ScrapePhase.LOGIN_INJECTED // Lock to prevent double injection
 
-                                        // ── LOGIN phase + redirected away → login success
-                                        phase == ScrapePhase.LOGIN &&
-                                            !url.contains("/users/login") -> {
-                                            Log.d("CollegeSync", "Login redirect detected: $url")
-                                            coroutineScope.launch(Dispatchers.Main) {
-                                                statusText = "Logged in! Loading attendance page..."
-                                                phaseState.value = ScrapePhase.SCRAPING
-                                                view.loadUrl(
-                                                    "https://attendence-system-1910.vercel.app/students/current/attendances"
-                                                )
+                                                val safeEmail = email.replace("\\", "\\\\").replace("'", "\\'")
+                                                val safePassword = password.replace("\\", "\\\\").replace("'", "\\'")
+                                                val js = buildLoginScript(safeEmail, safePassword)
+                                                Log.d("CollegeSync", "Injecting login script")
+                                                view.evaluateJavascript(js, null)
                                             }
-                                        }
 
-                                        // ── SCRAPING phase + attendance page → scrape ──
-                                        phase == ScrapePhase.SCRAPING &&
-                                            url.contains("/students/current/attendances") -> {
-                                            statusText = "Extracting data..."
-                                            Log.d("CollegeSync", "Injecting scraping script")
-                                            view.evaluateJavascript(buildScrapingScript(), null)
-                                        }
+                                            // ── SCRAPING phase + attendance page → scrape ──
+                                            phase == ScrapePhase.SCRAPING && url.contains("/students/current/attendances") -> {
+                                                statusText = "Extracting data..."
+                                                phaseState.value = ScrapePhase.EXTRACTING // Lock to prevent double injection
 
-                                        // ── SCRAPING phase + bounced to login → expired ──
-                                        phase == ScrapePhase.SCRAPING &&
-                                            url.contains("/users/login") -> {
-                                            coroutineScope.launch(Dispatchers.Main) {
-                                                statusText = "Session expired — please sync again."
-                                                phaseState.value = ScrapePhase.IDLE
+                                                Log.d("CollegeSync", "Injecting scraping script")
+                                                view.evaluateJavascript(buildScrapingScript(), null)
+                                            }
+
+                                            // ── SCRAPING phase + bounced to login → expired ──
+                                            (phase == ScrapePhase.SCRAPING || phase == ScrapePhase.EXTRACTING) && url.contains("/users/login") -> {
+                                                coroutineScope.launch(Dispatchers.Main) {
+                                                    statusText = "Session expired — please sync again."
+                                                    phaseState.value = ScrapePhase.IDLE
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
 
                             webViewRef = this
                         }
@@ -852,7 +1336,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
     if (showLoginSheet) {
         val safeEmail = email.replace("'", "\\'").replace("\"", "\\\"")
         val safePassword = password.replace("'", "\\'").replace("\"", "\\\"")
-        
+
         ModalBottomSheet(
             onDismissRequest = { showLoginSheet = false },
             sheetState = sheetState,
@@ -861,7 +1345,12 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
         ) {
             Column(modifier = Modifier.padding(24.dp).padding(bottom = 24.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Security, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                    Icon(
+                        Icons.Default.Security,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
                     Spacer(Modifier.width(12.dp))
                     Text(
                         "Sync Credentials",
@@ -876,8 +1365,10 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(24.dp))
-                
-                val isEmailValid = email.isEmpty() || android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
+
+                val isEmailValid =
+                    email.isEmpty() ||
+                            android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()
                 OutlinedTextField(
                     value = email,
                     onValueChange = { email = it },
@@ -886,18 +1377,28 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                     shape = RoundedCornerShape(12.dp),
                     singleLine = true,
                     isError = email.isNotEmpty() && !isEmailValid,
-                    supportingText = if (email.isNotEmpty() && !isEmailValid) { { Text("Doesn't look like an email") } } else null
+                    supportingText =
+                        if (email.isNotEmpty() && !isEmailValid) {
+                            { Text("Doesn't look like an email") }
+                        } else null
                 )
                 Spacer(Modifier.height(12.dp))
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
                     label = { Text("Password") },
-                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    visualTransformation =
+                        if (passwordVisible) VisualTransformation.None
+                        else PasswordVisualTransformation(),
                     trailingIcon = {
-                        val image = if (passwordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff
+                        val image =
+                            if (passwordVisible) Icons.Default.Visibility
+                            else Icons.Default.VisibilityOff
                         IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                            Icon(imageVector = image, contentDescription = "Toggle password visibility")
+                            Icon(
+                                imageVector = image,
+                                contentDescription = "Toggle password visibility"
+                            )
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -906,19 +1407,32 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = rememberCredentials, onCheckedChange = { rememberCredentials = it })
-                    Text("Remember credentials", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.clickable { rememberCredentials = !rememberCredentials })
+                    Checkbox(
+                        checked = rememberCredentials,
+                        onCheckedChange = { rememberCredentials = it }
+                    )
+                    Text(
+                        "Remember credentials",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier =
+                            Modifier.clickable {
+                                rememberCredentials = !rememberCredentials
+                            }
+                    )
                 }
-                
+
                 Spacer(Modifier.height(24.dp))
-                
+
                 var isPressed by remember { mutableStateOf(false) }
                 val scale by animateFloatAsState(if (isPressed) 0.95f else 1f, label = "btn_scale")
-                
+
                 Button(
                     onClick = {
-                        coroutineScope.launch { sheetState.hide(); showLoginSheet = false }
-                        
+                        coroutineScope.launch {
+                            sheetState.hide()
+                            showLoginSheet = false
+                        }
+
                         val editor = prefs.edit()
                         if (rememberCredentials) {
                             editor.putString("email", email).putString("password", password)
@@ -926,31 +1440,48 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                             editor.remove("email").remove("password")
                         }
                         editor.putBoolean("rememberCredentials", rememberCredentials).apply()
-                        
+
                         phaseState.value = ScrapePhase.LOGIN
                         statusText = "Starting login..."
                         Log.d("CollegeSync", "Sync started from bottom sheet")
-                        webViewRef?.loadUrl("https://attendence-system-1910.vercel.app/users/login")
-                        webViewRef?.evaluateJavascript(buildLoginScript(safeEmail, safePassword), null)
+                        webViewRef?.loadUrl(
+                            "https://attendence-system-1910.vercel.app/users/login"
+                        )
+                        // Removed the evaluateJavascript line from here to prevent early injection
                     },
-                    modifier = Modifier.fillMaxWidth().height(56.dp).clip(RoundedCornerShape(16.dp))
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent()
-                                    when (event.type) {
-                                        androidx.compose.ui.input.pointer.PointerEventType.Press -> isPressed = true
-                                        androidx.compose.ui.input.pointer.PointerEventType.Release -> isPressed = false
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .height(56.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .pointerInput(Unit) {
+                                awaitPointerEventScope {
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        when (event.type) {
+                                            androidx.compose.ui.input.pointer
+                                                .PointerEventType.Press ->
+                                                isPressed = true
+                                            androidx.compose.ui.input.pointer
+                                                .PointerEventType.Release ->
+                                                isPressed = false
+                                        }
                                     }
                                 }
-                            }
-                        },
+                            },
                     enabled = email.isNotEmpty() && password.isNotEmpty(),
                     shape = RoundedCornerShape(16.dp)
-                ) { 
-                    Icon(Icons.Default.CloudSync, contentDescription = null, modifier = Modifier.size(20.dp))
+                ) {
+                    Icon(
+                        Icons.Default.CloudSync,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(Modifier.width(8.dp))
-                    Text("Start Sync", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) 
+                    Text(
+                        "Start Sync",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
                 }
             }
         }
@@ -962,7 +1493,8 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
 // with inputType='insertText' which React's onChange handler listens to.
 // This is the KEY difference vs just setting .value + firing Event('input').
 
-private fun buildLoginScript(safeEmail: String, safePassword: String): String = """
+private fun buildLoginScript(safeEmail: String, safePassword: String): String =
+    """
 (async function() {
     try {
         Android.onProgressUpdate('Looking for login fields...');
@@ -1044,23 +1576,20 @@ private fun buildScrapingScript(): String = """
         Android.onProgressUpdate('Setting up search parameters...');
         function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
 
-        function findLabel(text, maxWait) {
+        async function findLabel(text, maxWait) {
             maxWait = maxWait || 15000;
-            return new Promise(async function(resolve) {
-                var t = 0;
-                while (t < maxWait) {
-                    var labels = document.querySelectorAll('label');
-                    for (var i = 0; i < labels.length; i++) {
-                        if (labels[i].innerText && labels[i].innerText.toLowerCase().includes(text.toLowerCase())) {
-                            resolve(labels[i]);
-                            return;
-                        }
+            var t = 0;
+            while (t < maxWait) {
+                var labels = document.querySelectorAll('label');
+                for (var i = 0; i < labels.length; i++) {
+                    if (labels[i].innerText && labels[i].innerText.toLowerCase().includes(text.toLowerCase())) {
+                        return labels[i];
                     }
-                    await sleep(500);
-                    t += 500;
                 }
-                resolve(null);
-            });
+                await sleep(500);
+                t += 500;
+            }
+            return null;
         }
 
         async function selectDropdown(labelText, optionText) {
@@ -1073,47 +1602,58 @@ private fun buildScrapingScript(): String = """
 
             var box = label.nextElementSibling.querySelector('.dropdown-selected-option')
                       || label.nextElementSibling;
-            box.click();
-            await sleep(1500);
 
-            var lower = optionText.toLowerCase().trim();
-            var allEls = document.querySelectorAll('*');
-            var exactMatch = null;
-            var partialMatches = [];
-            for (var k = 0; k < allEls.length; k++) {
-                var el = allEls[k];
-                if (el.offsetHeight > 0 && el.innerText) {
-                    var elText = el.innerText.trim().toLowerCase();
-                    // Prefer exact match (prevents "Deep Learning" matching "Deep Learning Practical")
-                    if (elText === lower && el.children.length === 0) {
-                        exactMatch = el;
-                    } else if (elText.includes(lower)) {
-                        partialMatches.push(el);
+            var target = null;
+            var retry = 0;
+            
+            while(retry < 5) {
+                box.click();
+                await sleep(1500); 
+
+                var lowerOption = optionText.toLowerCase().trim();
+                var allEls = document.querySelectorAll('*');
+                var visibleMatches = [];
+
+                for (var k = 0; k < allEls.length; k++) {
+                    var el = allEls[k];
+                    if (el.offsetHeight > 0 && el.innerText) {
+                        var elText = el.innerText.trim().toLowerCase();
+                        if (elText === lowerOption && el.children.length === 0) {
+                            visibleMatches.push(el);
+                        }
                     }
                 }
+
+                if (visibleMatches.length > 0) {
+                    target = visibleMatches[visibleMatches.length - 1];
+                    break;
+                }
+
+                Android.onProgressUpdate('Retrying exact match for ' + optionText + ' (' + (retry+1) + '/5)');
+                box.click(); 
+                await sleep(1000);
+                retry++;
             }
-            var target = exactMatch || (partialMatches.length > 0 ? partialMatches[partialMatches.length - 1] : null);
-            if (!target) throw new Error('Option not visible: ' + optionText);
+
+            if (!target) throw new Error('Option not found or not visible: ' + optionText);
             Android.onProgressUpdate('Selected: ' + target.innerText.trim());
             target.click();
             await sleep(1000);
         }
 
-        // Wait for page to fully render
+        // --- 1. Setup Parameters ---
         await findLabel('Select Course', 15000);
-
         await selectDropdown('Select Course',   'Msc Cs');
         await selectDropdown('Select Batch',    'MSC CS BATCH 2022-2027');
         await selectDropdown('Select Division', 'MSC CS BATCH 2022-2027 Div-2');
         await selectDropdown('Select Semester', 'Sem8');
 
-        // Get all subjects
+        // --- 2. Extract Available Subjects ---
         Android.onProgressUpdate('Getting subjects...');
         var subjectLabel = await findLabel('Select Subjects');
         if (!subjectLabel) throw new Error('Subject dropdown label not found');
 
-        var subjectBox = subjectLabel.nextElementSibling.querySelector('.dropdown-selected-option')
-                         || subjectLabel.nextElementSibling;
+        var subjectBox = subjectLabel.nextElementSibling.querySelector('.dropdown-selected-option') || subjectLabel.nextElementSibling;
         subjectBox.click();
         await sleep(1000);
 
@@ -1122,12 +1662,32 @@ private fun buildScrapingScript(): String = """
             .map(function(s) { return s.trim(); })
             .filter(function(s) { return s && s.toLowerCase() !== 'none' && !s.toLowerCase().includes('select'); });
 
-        subjectBox.click();
+        subjectBox.click(); 
         await sleep(1000);
 
-        Android.onProgressUpdate('Found ' + allSubjects.length + ' subjects');
+        Android.onProgressUpdate('Found ' + allSubjects.length + ' subjects to scrape');
         var masterData = [];
 
+        // Reusable Safe Go Back (Now explicitly pauses the script)
+        async function goBackSafely() {
+            var btns = document.querySelectorAll('button');
+            for (var g = 0; g < btns.length; g++) {
+                if (btns[g].innerText && btns[g].innerText.includes('Go Back')) {
+                    btns[g].click(); break;
+                }
+            }
+            
+            var backWait = 0;
+            while(backWait < 15000) {
+                await sleep(1000);
+                var isFormVisible = Array.from(document.querySelectorAll('button')).some(b => b.innerText && b.innerText.includes('View Attendance'));
+                if (isFormVisible) break;
+                backWait += 1000;
+            }
+            await sleep(1000); // Extra buffer for React rendering
+        }
+
+        // --- 3. Scrape Each Subject ---
         for (var si = 0; si < allSubjects.length; si++) {
             var subject = allSubjects[si];
             if (subject.toLowerCase().includes('web')) {
@@ -1138,76 +1698,42 @@ private fun buildScrapingScript(): String = """
             Android.onProgressUpdate('Processing: ' + subject + ' (' + (si + 1) + '/' + allSubjects.length + ')');
             await selectDropdown('Select Subjects', subject);
 
-            // Click "View Attendance"
             var viewBtn = null;
             var allBtns = document.querySelectorAll('button');
             for (var b = 0; b < allBtns.length; b++) {
                 if (allBtns[b].innerText && allBtns[b].innerText.includes('View Attendance')) {
-                    viewBtn = allBtns[b];
-                    break;
+                    viewBtn = allBtns[b]; break;
                 }
             }
             if (!viewBtn) continue;
             viewBtn.click();
 
-            // Wait for loading to finish
             var loadWait = 0;
-            while (loadWait < 10000) {
-                var loadingEl = null;
-                var checkEls = document.querySelectorAll('*');
-                for (var c = 0; c < checkEls.length; c++) {
-                    if (checkEls[c].innerText && checkEls[c].innerText.trim() === 'Loading...') {
-                        loadingEl = checkEls[c]; break;
-                    }
-                }
+            while (loadWait < 15000) {
+                var loadingEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.trim() === 'Loading...');
                 if (!loadingEl) break;
                 await sleep(500);
                 loadWait += 500;
             }
             await sleep(1000);
 
-            // Check if empty
-            var pageText = document.body.innerText;
-            if (pageText.includes('There is no attendances found for you')) {
+            // Check for empty attendance and securely await transition
+            if (document.body.innerText.includes('There is no attendances found for you')) {
                 Android.onProgressUpdate(subject + ': No attendance data, skipping');
-                var goBackBtn1 = null;
-                var btns1 = document.querySelectorAll('button');
-                for (var g1 = 0; g1 < btns1.length; g1++) {
-                    if (btns1[g1].innerText && btns1[g1].innerText.includes('Go Back')) {
-                        goBackBtn1 = btns1[g1]; break;
-                    }
-                }
-                if (goBackBtn1) goBackBtn1.click();
-                await sleep(1500);
+                await goBackSafely();
                 continue;
             }
 
-            // Get expected total
-            var totalEl = null;
-            var searchEls = document.querySelectorAll('*');
-            for (var t = 0; t < searchEls.length; t++) {
-                if (searchEls[t].innerText && searchEls[t].innerText.includes('Total Attendances:')) {
-                    totalEl = searchEls[t]; break;
-                }
-            }
+            var totalEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.includes('Total Attendances:'));
             var matchArr = totalEl ? totalEl.innerText.match(/\d+/) : null;
             var expectedTotal = matchArr ? parseInt(matchArr[0]) : 0;
 
             if (expectedTotal === 0) {
-                var goBackBtn2 = null;
-                var btns2 = document.querySelectorAll('button');
-                for (var g2 = 0; g2 < btns2.length; g2++) {
-                    if (btns2[g2].innerText && btns2[g2].innerText.includes('Go Back')) {
-                        goBackBtn2 = btns2[g2]; break;
-                    }
-                }
-                if (goBackBtn2) goBackBtn2.click();
-                await sleep(1500);
+                await goBackSafely();
                 continue;
             }
 
-            Android.onProgressUpdate(subject + ': Expecting ' + expectedTotal + ' records');
-
+            Android.onProgressUpdate(subject + ': Targeting ' + expectedTotal + ' records');
             var recordsScraped = 0;
             var pageNumber = 1;
 
@@ -1224,96 +1750,61 @@ private fun buildScrapingScript(): String = """
                     try {
                         var rowHtml = row.outerHTML.toLowerCase();
                         var rowText = row.innerText;
-                        if (rowText.indexOf('/') >= 0 && rowText.indexOf(':') >= 0) {
-                            // Use regex to extract date and times reliably
-                            var dateMatch = rowText.match(/(\d{1,2}\/\d{1,2}\/\d{2,4})/);
-                            var timeMatches = rowText.match(/(\d{1,2}:\d{2})/g);
-                            
-                            if (dateMatch && timeMatches && timeMatches.length >= 2) {
-                                var extractedDate = dateMatch[1];
-                                var extractedFromTime = timeMatches[0];
-                                var extractedToTime = timeMatches[1];
-                                
-                                // Everything after the times is the topic
-                                var lines = rowText.replace(/\r/g, '').split('\n')
-                                    .map(function(l) { return l.trim(); })
-                                    .filter(function(l) { return l.length > 0; });
-                                var topicParts = [];
-                                for (var lp = 0; lp < lines.length; lp++) {
-                                    var line = lines[lp];
-                                    // Skip date and time lines
-                                    if (line === extractedDate) continue;
-                                    if (line === extractedFromTime) continue;
-                                    if (line === extractedToTime) continue;
-                                    topicParts.push(line);
-                                }
-                                
-                                var isPresent = rowHtml.indexOf('bg-green') >= 0 ||
-                                                rowHtml.indexOf('rgb(34, 197, 94') >= 0 ||
-                                                rowText.toLowerCase().indexOf('present') >= 0;
+
+                        if (rowText.includes('/') && rowText.includes(':')) {
+                            var lines = rowText.replace(/\r/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+                            if (lines.length >= 4) {
+                                var isPresent = rowHtml.includes('bg-green') || rowHtml.includes('rgb(34, 197, 94');
                                 var record = {
                                     subject:  subject,
-                                    date:     extractedDate,
-                                    fromTime: extractedFromTime,
-                                    toTime:   extractedToTime,
-                                    topic:    topicParts.join(' '),
+                                    date:     lines[0], 
+                                    fromTime: lines[1], 
+                                    toTime:   lines[2], 
+                                    topic:    lines.slice(3).join(' '), 
                                     status:   isPresent ? 'Present' : 'Absent'
                                 };
-                                Android.onProgressUpdate(subject + ': ' + extractedDate + ' ' + extractedFromTime + '-' + extractedToTime + ' = ' + record.status);
                                 masterData.push(record);
                                 recordsScraped++;
                             }
                         }
-                    } catch(rowErr) {
-                        // Skip stale elements
-                    }
+                    } catch(rowErr) { } 
                 }
 
                 if (recordsScraped >= expectedTotal) break;
 
-                // Click next page
-                var targetNextPage = (pageNumber + 1).toString();
-                var nextBtn = null;
                 var pageBtns = document.querySelectorAll('button');
+                var navBtns = [];
                 for (var nb = 0; nb < pageBtns.length; nb++) {
-                    if (pageBtns[nb].innerText && pageBtns[nb].innerText.trim() === targetNextPage) {
-                        nextBtn = pageBtns[nb];
-                        break;
+                    var bText = pageBtns[nb].innerText.toLowerCase().trim();
+                    if (bText !== 'log in' && bText !== 'go back' && !bText.includes('view attendance')) {
+                        navBtns.push(pageBtns[nb]);
                     }
                 }
-                if (!nextBtn || nextBtn.disabled || (nextBtn.className && nextBtn.className.indexOf('opacity-') >= 0)) break;
+
+                var nextBtn = navBtns.length > 0 ? navBtns[navBtns.length - 1] : null;
+
+                if (!nextBtn || nextBtn.disabled || (nextBtn.className && nextBtn.className.includes('opacity-'))) break;
+
                 nextBtn.click();
 
-                // Wait for page content to change
                 var pw = 0;
                 var pageLoaded = false;
                 while (pw < 15000) {
-                    await sleep(1000);
+                    await sleep(500);
                     var newRows = document.querySelectorAll('[class*="bg-green"], [class*="bg-red"]');
                     if (newRows.length > 0 && newRows[0].innerText !== topRowText) {
                         pageLoaded = true;
                         break;
                     }
-                    pw += 1000;
+                    pw += 500;
                 }
-                if (!pageLoaded) {
-                    await sleep(4000); // 4s fallback wait if dom text check failed
-                }
+                if (!pageLoaded) await sleep(2000); 
                 pageNumber++;
             }
 
             Android.onProgressUpdate(subject + ': Scraped ' + recordsScraped + ' records');
-
-            // Go back to subject selection
-            var goBackBtn3 = null;
-            var btns3 = document.querySelectorAll('button');
-            for (var g3 = 0; g3 < btns3.length; g3++) {
-                if (btns3[g3].innerText && btns3[g3].innerText.includes('Go Back')) {
-                    goBackBtn3 = btns3[g3]; break;
-                }
-            }
-            if (goBackBtn3) goBackBtn3.click();
-            await sleep(2000);
+            await goBackSafely();
         }
 
         Android.onProgressUpdate('Scraping complete! Extracted ' + masterData.length + ' total records.');
@@ -1331,25 +1822,23 @@ private fun buildSubjectList(data: List<CollegeAttendanceRecord>): List<String> 
     listOf("All") + data.map { it.subject }.distinct().sorted()
 
 /**
- * Loads all attendance records from Firestore for the current user.
- * Converts them to CollegeAttendanceRecord format for comparison.
+ * Loads all attendance records from Firestore for the current user. Converts them to
+ * CollegeAttendanceRecord format for comparison.
  */
 suspend fun loadAppAttendanceFromFirestore(): List<CollegeAttendanceRecord> {
-    val uid = FirebaseAuth.getInstance().currentUser?.uid ?: run {
-        Log.w("CollegeSync", "No user logged in — can't load app records")
-        return emptyList()
-    }
+    val uid =
+        FirebaseAuth.getInstance().currentUser?.uid
+            ?: run {
+                Log.w("CollegeSync", "No user logged in — can't load app records")
+                return emptyList()
+            }
     val db = FirebaseFirestore.getInstance()
     val result = mutableListOf<CollegeAttendanceRecord>()
     val dateFormat = SimpleDateFormat("dd/MM/yyyy", Locale.getDefault())
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     try {
-        val subjectsSnap = db.collection("users")
-            .document(uid)
-            .collection("subjects")
-            .get()
-            .await()
+        val subjectsSnap = db.collection("users").document(uid).collection("subjects").get().await()
 
         Log.d("CollegeSync", "Found ${subjectsSnap.documents.size} subjects in Firestore")
 
@@ -1360,31 +1849,37 @@ suspend fun loadAppAttendanceFromFirestore(): List<CollegeAttendanceRecord> {
                 continue
             }
 
-            val attendanceSnap = subjectDoc.reference
-                .collection("attendance")
-                .get()
-                .await()
+            val attendanceSnap = subjectDoc.reference.collection("attendance").get().await()
 
-            Log.d("CollegeSync", "Subject '$subjectName': ${attendanceSnap.documents.size} attendance docs")
+            Log.d(
+                "CollegeSync",
+                "Subject '$subjectName': ${attendanceSnap.documents.size} attendance docs"
+            )
 
             for (doc in attendanceSnap.documents) {
                 // Handle date — could be Timestamp, Date, or Long
                 val dateValue = doc.get("date")
-                val formattedDate = when (dateValue) {
-                    is com.google.firebase.Timestamp -> dateFormat.format(dateValue.toDate())
-                    is java.util.Date -> dateFormat.format(dateValue)
-                    is Long -> dateFormat.format(java.util.Date(dateValue))
-                    else -> null
-                }
-                
+                val formattedDate =
+                    when (dateValue) {
+                        is com.google.firebase.Timestamp ->
+                            dateFormat.format(dateValue.toDate())
+                        is java.util.Date -> dateFormat.format(dateValue)
+                        is Long -> dateFormat.format(java.util.Date(dateValue))
+                        else -> null
+                    }
+
                 if (formattedDate == null) {
-                    Log.w("CollegeSync", "  Doc ${doc.id}: unknown date type: ${dateValue?.javaClass?.name}")
+                    Log.w(
+                        "CollegeSync",
+                        "  Doc ${doc.id}: unknown date type: ${dateValue?.javaClass?.name}"
+                    )
                     continue
                 }
 
                 // Handle status — normalize to "Present" or "Absent"
                 val rawStatus = doc.getString("status") ?: "Absent"
-                val status = if (rawStatus.equals("Present", ignoreCase = true)) "Present" else "Absent"
+                val status =
+                    if (rawStatus.equals("Present", ignoreCase = true)) "Present" else "Absent"
 
                 // Handle time — could be Timestamp, Date, String, or missing
                 val startTime = readFirestoreTime(doc.get("startTime"), timeFormat)
@@ -1409,6 +1904,22 @@ suspend fun loadAppAttendanceFromFirestore(): List<CollegeAttendanceRecord> {
     return result
 }
 
+suspend fun loadAppSubjectMapFromFirestore(): Map<String, String> {
+    val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return emptyMap()
+    val db = FirebaseFirestore.getInstance()
+    val map = mutableMapOf<String, String>()
+    try {
+        val subjectsSnap = db.collection("users").document(uid).collection("subjects").get().await()
+        for (doc in subjectsSnap.documents) {
+            val name = doc.getString("name")
+            if (name != null) map[name] = doc.id
+        }
+    } catch (e: Exception) {
+        Log.e("CollegeSync", "Failed to load subject map", e)
+    }
+    return map
+}
+
 /** Safely reads a time value from Firestore that could be Timestamp, Date, or String */
 private fun readFirestoreTime(value: Any?, timeFormat: SimpleDateFormat): String {
     return when (value) {
@@ -1423,7 +1934,15 @@ private fun readFirestoreTime(value: Any?, timeFormat: SimpleDateFormat): String
 // ─── UI Components ───────────────────────────────────────────────────────────
 
 @Composable
-fun SegmentedTab(selected: Boolean, text: String, icon: ImageVector, badgeCount: Int, badgeColor: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+fun SegmentedTab(
+    selected: Boolean,
+    text: String,
+    icon: ImageVector,
+    badgeCount: Int,
+    badgeColor: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     Surface(
         color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
         shape = RoundedCornerShape(12.dp),
@@ -1434,13 +1953,33 @@ fun SegmentedTab(selected: Boolean, text: String, icon: ImageVector, badgeCount:
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint =
+                    if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Spacer(Modifier.width(6.dp))
-            Text(text, style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                text,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                color =
+                    if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+            )
             if (badgeCount > 0) {
                 Spacer(Modifier.width(6.dp))
                 Surface(color = badgeColor, shape = CircleShape) {
-                    Text(badgeCount.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.surface, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    Text(
+                        badgeCount.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
                 }
             }
         }
@@ -1448,7 +1987,14 @@ fun SegmentedTab(selected: Boolean, text: String, icon: ImageVector, badgeCount:
 }
 
 @Composable
-fun SummaryChipCard(label: String, count: Int, color: Color, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
+fun SummaryChipCard(
+    label: String,
+    count: Int,
+    color: Color,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = if (selected) color else MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -1459,11 +2005,29 @@ fun SummaryChipCard(label: String, count: Int, color: Color, icon: ImageVector, 
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selected) MaterialTheme.colorScheme.surface else color)
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = if (selected) MaterialTheme.colorScheme.surface else color
+            )
             Spacer(Modifier.width(8.dp))
-            Text(count.toString(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = if (selected) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface)
+            Text(
+                count.toString(),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color =
+                    if (selected) MaterialTheme.colorScheme.surface
+                    else MaterialTheme.colorScheme.onSurface
+            )
             Spacer(Modifier.width(6.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, color = if (selected) MaterialTheme.colorScheme.surface.copy(alpha=0.9f) else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color =
+                    if (selected) MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -1473,18 +2037,33 @@ fun EmptyStateCardFilter(message: String, onClear: (() -> Unit)?) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+            )
     ) {
         Column(
             modifier = Modifier.padding(32.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(Icons.Default.FilterListOff, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha=0.5f))
+            Icon(
+                Icons.Default.FilterListOff,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
             Spacer(Modifier.height(16.dp))
-            Text(message, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
             if (onClear != null) {
                 Spacer(Modifier.height(16.dp))
-                TextButton(onClick = onClear) { Text("Clear Filters", fontWeight = FontWeight.Bold) }
+                TextButton(onClick = onClear) {
+                    Text("Clear Filters", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -1495,15 +2074,21 @@ private fun EmptyStateCard(message: String, icon: ImageVector = Icons.Default.Cl
     Card(
         modifier = Modifier.fillMaxWidth().padding(top = 16.dp),
         shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        )
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            )
     ) {
         Column(
             modifier = Modifier.padding(32.dp).fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha=0.5f))
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+            )
             Spacer(Modifier.height(24.dp))
             Text(
                 message,
@@ -1547,40 +2132,94 @@ private fun SubjectDataCard(record: CollegeAttendanceRecord) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+        colors =
+            CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+            )
     ) {
         Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
             Box(modifier = Modifier.fillMaxHeight().width(4.dp).background(statusColor))
             Column(modifier = Modifier.padding(16.dp).weight(1f)) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(record.subject, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            record.subject,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.titleMedium
+                        )
                         Spacer(Modifier.height(4.dp))
-                        Text(if (record.fromTime.isNotBlank() && record.toTime.isNotBlank()) "${record.fromTime} – ${record.toTime}" else record.date, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (record.fromTime.isNotBlank() && record.toTime.isNotBlank())
+                                "${record.fromTime} – ${record.toTime}"
+                            else record.date,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                     Spacer(Modifier.width(12.dp))
                     Surface(shape = CircleShape, color = statusColor.copy(alpha = 0.15f)) {
-                        Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(imageVector = if (isPresent) Icons.Default.Check else Icons.Default.Close, contentDescription = null, modifier = Modifier.size(14.dp), tint = statusColor)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector =
+                                    if (isPresent) Icons.Default.Check
+                                    else Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp),
+                                tint = statusColor
+                            )
                             Spacer(Modifier.width(4.dp))
-                            Text(record.status, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = statusColor)
+                            Text(
+                                record.status,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = statusColor
+                            )
                         }
                     }
                 }
 
                 if (record.topic.isNotBlank()) {
                     Spacer(Modifier.height(8.dp))
-                    HorizontalDivider(modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.outlineVariant)
+                    HorizontalDivider(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = MaterialTheme.colorScheme.outlineVariant
+                    )
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(top = 8.dp),
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .clickable { expanded = !expanded }
+                                .padding(top = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Topic covered", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+                        Text(
+                            "Topic covered",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Icon(
+                            if (expanded) Icons.Default.KeyboardArrowUp
+                            else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
                     AnimatedVisibility(visible = expanded) {
-                        Text(record.topic, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+                        Text(
+                            record.topic,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
                     }
                 }
             }
@@ -1593,16 +2232,23 @@ val CompareRecordMismatchColor = Color(0xFFEF5350)
 
 data class CompareDisplayItem(
     val scrapedRecord: CollegeAttendanceRecord?,
-    val appRecord: CollegeAttendanceRecord?
+    val appRecord: CollegeAttendanceRecord?,
+    val matchedAppSubjectName: String? = null
 ) {
-    fun hasMismatch() = scrapedRecord != null && appRecord != null && !appRecord.status.equals(scrapedRecord.status, ignoreCase = true)
+    fun hasMismatch() =
+        scrapedRecord != null &&
+                appRecord != null &&
+                !appRecord.status.equals(scrapedRecord.status, ignoreCase = true)
 }
 
 @Composable
-private fun CompareDataCard(item: CompareDisplayItem) {
+private fun CompareDataCard(
+    item: CompareDisplayItem,
+    onAddToApp: (CollegeAttendanceRecord, String?) -> Unit
+) {
     val scrapedRecord = item.scrapedRecord
     val appRecord = item.appRecord
-    
+
     val displaySubject = scrapedRecord?.subject ?: appRecord?.subject ?: ""
     val displayDate = scrapedRecord?.date ?: appRecord?.date ?: ""
     val displayFromTime = scrapedRecord?.fromTime ?: appRecord?.fromTime ?: ""
@@ -1610,18 +2256,26 @@ private fun CompareDataCard(item: CompareDisplayItem) {
 
     val hasMismatch = item.hasMismatch()
 
-    val cardColor = when {
-        scrapedRecord == null -> MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
-        appRecord == null -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
-        hasMismatch -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)
-        else -> MaterialTheme.colorScheme.surfaceContainerHigh
-    }
-    
+    val cardColor =
+        when {
+            scrapedRecord == null ->
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+            appRecord == null -> MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.3f)
+            hasMismatch -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.1f)
+            else -> MaterialTheme.colorScheme.surfaceContainerHigh
+        }
+
     // Mismatch pulsing effect
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
-    val alpha by infiniteTransition.animateFloat(
-        initialValue = 0.5f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), repeatMode = RepeatMode.Reverse),
+    val alpha by
+    infiniteTransition.animateFloat(
+        initialValue = 0.5f,
+        targetValue = 1f,
+        animationSpec =
+            infiniteRepeatable(
+                tween(1000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
         label = "alpha"
     )
 
@@ -1629,54 +2283,128 @@ private fun CompareDataCard(item: CompareDisplayItem) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = if (hasMismatch) BorderStroke(2.dp, MaterialTheme.colorScheme.error.copy(alpha = alpha)) else null
+        border =
+            if (hasMismatch)
+                BorderStroke(2.dp, MaterialTheme.colorScheme.error.copy(alpha = alpha))
+            else null
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             // Header
-            Row(modifier = Modifier.fillMaxWidth().background(Color.Black.copy(alpha=0.03f)).padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.03f))
+                        .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(displaySubject, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
+                    Text(
+                        displaySubject,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.titleSmall
+                    )
                     Spacer(Modifier.height(2.dp))
-                    val timeString = if (displayFromTime.isNotBlank() && displayToTime.isNotBlank()) "  •  $displayFromTime – $displayToTime" else ""
-                    Text("$displayDate$timeString", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    val timeString =
+                        if (displayFromTime.isNotBlank() && displayToTime.isNotBlank())
+                            "  •  $displayFromTime – $displayToTime"
+                        else ""
+                    Text(
+                        "$displayDate$timeString",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 if (hasMismatch) {
-                    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.error) {
-                        Text("MISMATCH", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onError, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.error
+                    ) {
+                        Text(
+                            "MISMATCH",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onError,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
                     }
                 }
             }
-            
+
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            
+
             // Side by side comparison
             Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
                 // College side
-                Column(modifier = Modifier.weight(1f).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("COLLEGE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                Column(
+                    modifier = Modifier.weight(1f).padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "COLLEGE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
                     Spacer(Modifier.height(8.dp))
                     if (scrapedRecord != null) {
                         val isPresent = scrapedRecord.status.equals("Present", true)
                         StatusBadge(scrapedRecord.status, isPresent)
                     } else {
-                        Text("No Record", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                        Text(
+                            "No Record",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
                     }
                 }
-                
-                Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
-                
+
+                Box(
+                    modifier =
+                        Modifier.fillMaxHeight()
+                            .width(1.dp)
+                            .background(MaterialTheme.colorScheme.outlineVariant)
+                )
+
                 // App side
-                Column(modifier = Modifier.weight(1f).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("MY APP", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                Column(
+                    modifier = Modifier.weight(1f).padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        "MY APP",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Medium
+                    )
                     Spacer(Modifier.height(8.dp))
                     if (appRecord != null) {
                         val isPresent = appRecord.status.equals("Present", true)
                         StatusBadge(appRecord.status, isPresent)
                     } else {
-                        Text("No Record", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                        Text(
+                            "No Record",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
                         Spacer(Modifier.height(8.dp))
-                        TextButton(onClick = {}, contentPadding = PaddingValues(0.dp), modifier = Modifier.height(24.dp)) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                        TextButton(
+                            onClick = {
+                                if (scrapedRecord != null) {
+                                    onAddToApp(scrapedRecord, item.matchedAppSubjectName)
+                                }
+                            },
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.height(24.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
                             Spacer(Modifier.width(4.dp))
                             Text("Add to app", style = MaterialTheme.typography.labelSmall)
                         }
@@ -1690,11 +2418,24 @@ private fun CompareDataCard(item: CompareDisplayItem) {
 @Composable
 private fun StatusBadge(label: String, present: Boolean) {
     val bg = if (present) CompareRecordMatchColor else CompareRecordMismatchColor
-    Surface(shape = CircleShape, color = bg.copy(alpha=0.15f)) {
-        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(if(present) Icons.Default.Check else Icons.Default.Close, contentDescription=null, tint=bg, modifier = Modifier.size(14.dp))
+    Surface(shape = CircleShape, color = bg.copy(alpha = 0.15f)) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                if (present) Icons.Default.Check else Icons.Default.Close,
+                contentDescription = null,
+                tint = bg,
+                modifier = Modifier.size(14.dp)
+            )
             Spacer(Modifier.width(4.dp))
-            Text(label, style = MaterialTheme.typography.labelMedium, color = bg, fontWeight = FontWeight.Bold)
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = bg,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -1738,4 +2479,138 @@ fun loadScrapedData(context: Context): List<CollegeAttendanceRecord> {
     } catch (_: Exception) {
         emptyList()
     }
+}
+
+fun addScrapedRecordToApp(
+    context: Context,
+    record: CollegeAttendanceRecord,
+    matchedAppSubjectName: String?,
+    appSubjectDetailsMap: Map<String, String>,
+    onSuccess: () -> Unit
+) {
+    if (matchedAppSubjectName == null) {
+        Toast.makeText(
+            context,
+            "No matching subject found in app for '${record.subject}'",
+            Toast.LENGTH_SHORT
+        )
+            .show()
+        return
+    }
+
+    val subjectId = appSubjectDetailsMap[matchedAppSubjectName]
+    if (subjectId == null) {
+        Toast.makeText(context, "Subject ID not found.", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
+    val db = FirebaseFirestore.getInstance()
+
+    val dateFormatter = java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+    val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+
+    val dateObj =
+        try {
+            dateFormatter.parse(record.date)
+        } catch (e: Exception) {
+            null
+        }
+    val fromTimeObj =
+        try {
+            timeFormatter.parse(record.fromTime)
+        } catch (e: Exception) {
+            null
+        }
+    val toTimeObj =
+        try {
+            timeFormatter.parse(record.toTime)
+        } catch (e: Exception) {
+            null
+        }
+
+    if (dateObj == null || fromTimeObj == null || toTimeObj == null) {
+        Toast.makeText(context, "Invalid date/time format in record.", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val lectureDate = java.util.Calendar.getInstance().apply { time = dateObj }
+    val startTime = java.util.Calendar.getInstance().apply { time = fromTimeObj }
+    val endTime = java.util.Calendar.getInstance().apply { time = toTimeObj }
+
+    val dateKeyFormatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+    val timeKeyFormatter = java.text.SimpleDateFormat("HHmm", java.util.Locale.getDefault())
+
+    val dateKey = dateKeyFormatter.format(lectureDate.time)
+    val startKey = timeKeyFormatter.format(startTime.time)
+    val endKey = timeKeyFormatter.format(endTime.time)
+    val lectureId = "${dateKey}_${startKey}_${endKey}"
+
+    val dayName =
+        when (lectureDate.get(java.util.Calendar.DAY_OF_WEEK)) {
+            java.util.Calendar.MONDAY -> "MONDAY"
+            java.util.Calendar.TUESDAY -> "TUESDAY"
+            java.util.Calendar.WEDNESDAY -> "WEDNESDAY"
+            java.util.Calendar.THURSDAY -> "THURSDAY"
+            java.util.Calendar.FRIDAY -> "FRIDAY"
+            java.util.Calendar.SATURDAY -> "SATURDAY"
+            java.util.Calendar.SUNDAY -> "SUNDAY"
+            else -> null
+        }
+
+    val startHour = startTime.get(java.util.Calendar.HOUR_OF_DAY)
+    val endHour = endTime.get(java.util.Calendar.HOUR_OF_DAY)
+    val slotIndex = startHour - 9
+    val durationHours = endHour - startHour
+
+    val lectureKey =
+        if (dayName != null && slotIndex >= 0 && durationHours > 0) {
+            "${dayName}_${slotIndex}_${durationHours}"
+        } else null
+
+    val subjectRef = db.collection("users").document(uid).collection("subjects").document(subjectId)
+    val attendanceRef = subjectRef.collection("attendance").document(lectureId)
+    val isPresent = record.status.equals("Present", ignoreCase = true)
+    val finalStatus = if (isPresent) "Present" else "Absent"
+
+    db
+        .runTransaction { transaction ->
+            val attendanceSnap = transaction.get(attendanceRef)
+            if (attendanceSnap.exists()) {
+                throw Exception("Attendance already marked for this lecture in app")
+            }
+
+            val subjectSnap = transaction.get(subjectRef)
+            val totalClasses = (subjectSnap.getLong("totalClasses") ?: 0) + 1
+            val attendedClasses =
+                if (isPresent) (subjectSnap.getLong("attendedClasses") ?: 0) + 1
+                else subjectSnap.getLong("attendedClasses") ?: 0
+
+            val attendanceData =
+                mutableMapOf(
+                    "status" to finalStatus,
+                    "date" to lectureDate.time,
+                    "startTime" to startTime.time,
+                    "endTime" to endTime.time,
+                    "createdAt" to java.util.Date()
+                )
+            if (record.topic.isNotBlank()) {
+                attendanceData["note"] = "Synced from College Portal: " + record.topic
+            } else {
+                attendanceData["note"] = "Synced from College Portal"
+            }
+
+            lectureKey?.let { attendanceData["lectureKey"] = it }
+
+            transaction.set(attendanceRef, attendanceData)
+            transaction.update(
+                subjectRef,
+                mapOf("totalClasses" to totalClasses, "attendedClasses" to attendedClasses)
+            )
+        }
+        .addOnSuccessListener { onSuccess() }
+        .addOnFailureListener { e ->
+            Toast.makeText(context, e.message ?: "Failed to add to app", Toast.LENGTH_SHORT)
+                .show()
+        }
 }

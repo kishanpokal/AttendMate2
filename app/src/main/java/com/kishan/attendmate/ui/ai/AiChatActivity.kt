@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -103,8 +104,8 @@ fun AiChatScreen(viewModel: AiChatViewModel, onNavigateBack: () -> Unit) {
         prevSize.intValue = messages.size
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background.copy(alpha = 0.8f))) {
-        AnimatedMeshBackground() // ── Pro-level animated background ──
+    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A0A0F))) {
+        AnimatedMeshBackground() // ── Gen-Z Animated Background ──
 
         Column(modifier = Modifier.fillMaxSize()) {
 
@@ -226,26 +227,31 @@ private fun AnimatedMeshBackground() {
         label = "off2"
     )
 
-    val primary = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-    val secondary = MaterialTheme.colorScheme.secondary.copy(alpha = 0.08f)
-    val tertiary = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.08f)
+    // Gen-Z Neon Blobs
+    val blob1 = Color(0xFFA855F7).copy(alpha = 0.15f) // Purple
+    val blob2 = Color(0xFF06B6D4).copy(alpha = 0.12f) // Cyan
+    val blob3 = Color(0xFFD946EF).copy(alpha = 0.15f) // Pink
 
-    Canvas(modifier = Modifier.fillMaxSize().blur(60.dp)) {
+    Canvas(modifier = Modifier.fillMaxSize().blur(80.dp)) {
         val w = size.width
         val h = size.height
+        
+        // Base dark
+        drawRect(Color(0xFF0A0A0F))
+
         drawCircle(
-            brush = Brush.radialGradient(listOf(primary, Color.Transparent)),
-            radius = w * 0.85f,
+            brush = Brush.radialGradient(listOf(blob1, Color.Transparent)),
+            radius = w * 0.9f,
             center = Offset(w * offset1, h * 0.2f)
         )
         drawCircle(
-            brush = Brush.radialGradient(listOf(secondary, Color.Transparent)),
-            radius = w * 0.95f,
+            brush = Brush.radialGradient(listOf(blob2, Color.Transparent)),
+            radius = w * 1.1f,
             center = Offset(w * 0.8f, h * offset2)
         )
         drawCircle(
-            brush = Brush.radialGradient(listOf(tertiary, Color.Transparent)),
-            radius = w * 0.75f,
+            brush = Brush.radialGradient(listOf(blob3, Color.Transparent)),
+            radius = w * 0.8f,
             center = Offset(w * (1 - offset1), h * 0.8f)
         )
     }
@@ -476,6 +482,7 @@ fun MessageBubble(
                 MessageType.STREAK_CARD          -> StreakCard(message)
                 MessageType.SUBJECT_RANKING_CARD -> SubjectRankingCard(message)
                 MessageType.EXAM_STATUS_CARD     -> ExamStatusCard(message)
+                MessageType.COLLEGE_SYNC_CARD    -> CollegeSyncCard(message)
                 else -> {
                     // Standard text bubble
                     if (!isUser) {
@@ -837,11 +844,11 @@ private fun ConfirmMarkCard(
                     onClick = onCancel, modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("Cancel") }
+                ) { Text("nah cancel", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
                 Button(
                     onClick = onConfirm, modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(10.dp)
-                ) { Text("Confirm ✓") }
+                ) { Text("✓ yep confirm", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
             }
         }
     }
@@ -882,11 +889,11 @@ private fun ConfirmDeleteCard(
             HorizontalDivider(color = errorColor.copy(0.1f))
 
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("Cancel") }
+                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("nah cancel", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
                 Button(
                     onClick = onConfirm, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = errorColor)
-                ) { Text("Delete ✓") }
+                ) { Text("🗑️ delete fr", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
             }
         }
     }
@@ -1532,6 +1539,58 @@ private fun ExamStatusCard(message: ChatMessage) {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollegeSyncCard(message: ChatMessage) {
+    val data = message.collegeSyncData ?: return
+    Column(modifier = Modifier.widthIn(max = 320.dp)) {
+        BotTextBubble(message.copy(text = message.text), false)
+        Spacer(modifier = Modifier.height(8.dp))
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF16161E).copy(alpha = 0.95f), // Gen-Z Identity Background
+            shadowElevation = 8.dp,
+            modifier = Modifier.fillMaxWidth(),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFFE000FF), Color(0xFF00F0FF))))
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                // Headers
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("College Grid 🎓", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                    
+                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFCCFF00).copy(0.15f)) { // Lime
+                        Text("${data.overallCollegePct}%", style = MaterialTheme.typography.labelSmall, color = Color(0xFFCCFF00), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontWeight = FontWeight.Black)
+                    }
+                }
+
+                HorizontalDivider(color = Color.White.copy(0.1f))
+
+                if (data.mismatches.isNotEmpty()) {
+                    Text("Mismatches 🔥", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD946EF), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                    data.mismatches.take(3).forEach {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.8f))
+                    }
+                }
+
+                if (data.collegeMissing.isNotEmpty()) {
+                    Text("Missing in App 💀", style = MaterialTheme.typography.labelSmall, color = Color(0xFF06B6D4), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                    data.collegeMissing.take(3).forEach {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.8f))
+                    }
+                }
+
+                if (data.appMissing.isNotEmpty()) {
+                    Text("Missing in College 🤔", style = MaterialTheme.typography.labelSmall, color = Color(0xFFA855F7), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                    data.appMissing.take(3).forEach {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.8f))
+                    }
+                }
+
+                Text(parseMarkdown(data.syncSummaryText), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.6f))
             }
         }
     }
