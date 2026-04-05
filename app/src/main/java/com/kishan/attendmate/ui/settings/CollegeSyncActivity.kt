@@ -13,6 +13,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -41,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -49,6 +51,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -63,6 +66,11 @@ import kotlinx.coroutines.tasks.await
 import org.json.JSONArray
 import org.json.JSONObject
 
+// ─── NEW IMPORTS FOR BACKGROUND SERVICE + EVENT BUS ───────────────────────
+import android.app.ActivityManager
+import android.content.Intent
+import androidx.core.content.ContextCompat
+
 // ─── Activity ────────────────────────────────────────────────────────────────
 
 class CollegeSyncActivity : ComponentActivity() {
@@ -74,7 +82,7 @@ class CollegeSyncActivity : ComponentActivity() {
 
 // ─── State machine ───────────────────────────────────────────────────────────
 
-private enum class ScrapePhase {
+enum class ScrapePhase {
     IDLE,
     LOGIN,
     LOGIN_INJECTED,
@@ -84,7 +92,7 @@ private enum class ScrapePhase {
 
 // ─── JS bridge (proper class so @JavascriptInterface is visible) ─────────────
 
-private class ScraperBridge(
+class ScraperBridge(
     private val progressCb: (String) -> Unit,
     private val errorCb: (String) -> Unit,
     private val dataCb: (String) -> Unit,
@@ -165,17 +173,29 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
     val listStateTab0 = rememberLazyListState()
     val listStateTab1 = rememberLazyListState()
     var isRefreshing by remember { mutableStateOf(false) }
+    var isInitialLoading by remember { mutableStateOf(true) }
 
     val coroutineScope = rememberCoroutineScope()
     val isScraping: Boolean = phaseState.value != ScrapePhase.IDLE
 
     // Load persisted scraped data + app data from Firestore on start
     LaunchedEffect(Unit) {
+        isInitialLoading = true
         val saved = loadScrapedData(context)
         scrapedData = saved
         subjects = buildSubjectList(saved)
+
+        // Wait gracefully to ensure the 3D loader looks cinematic, while fetching from network
+        val startTime = System.currentTimeMillis()
         appData = loadAppAttendanceFromFirestore()
         appSubjectMap = loadAppSubjectMapFromFirestore()
+
+        val elapsed = System.currentTimeMillis() - startTime
+        if (elapsed < 2000) {
+            kotlinx.coroutines.delay(2000 - elapsed)
+        }
+
+        isInitialLoading = false
     }
 
     suspend fun onRefresh() {
@@ -383,775 +403,801 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
             }
     }
 
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            LargeTopAppBar(
-                title = {
-                    Column {
-                        Text("College Sync", fontWeight = FontWeight.Bold)
-                        Text(
-                            "${scrapedData.size} records · Last synced $lastSyncTime",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
-                        )
-                    }
-                },
-                colors =
-                    TopAppBarDefaults.largeTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        scrolledContainerColor =
-                            MaterialTheme.colorScheme.surfaceContainer
-                    ),
-                scrollBehavior = scrollBehavior
-            )
-        },
-        floatingActionButtonPosition = FabPosition.End,
-        floatingActionButton = {
-            AnimatedVisibility(
-                visible = showFab,
-                enter = slideInVertically(initialOffsetY = { it * 2 }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it * 2 }) + fadeOut()
-            ) {
-                ExtendedFloatingActionButton(
-                    onClick = { if (!isScraping) showLoginSheet = true },
-                    containerColor =
-                        if (isScraping) MaterialTheme.colorScheme.surfaceContainerHigh
-                        else MaterialTheme.colorScheme.primaryContainer,
-                    contentColor =
-                        if (isScraping)
-                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        else MaterialTheme.colorScheme.onPrimaryContainer,
-                    elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp)
+    // ── NEW: Live updates from background service via EventBus (planets + progress) ──
+    LaunchedEffect(Unit) {
+        ScrapingEventBus.events.collect { event ->
+            when (event) {
+                is ScrapingEvent.SetPhase -> phaseState.value = event.phase
+                is ScrapingEvent.UpdateProgress -> statusText = event.text
+                // Explicitly ignore the 3D events to satisfy the compiler
+                is ScrapingEvent.FinishSubject -> {}
+                is ScrapingEvent.RecordExtracted -> {}
+                is ScrapingEvent.SpawnSubject -> {}
+                is ScrapingEvent.StartExtraction -> {}
+            }
+        }
+    }
+
+    // ── NEW: Auto-restore scraping overlay + status if service is still running when app is reopened ──
+    LaunchedEffect(Unit) {
+        val isRunning = isServiceRunning(context, CollegeSyncService::class.java)
+        if (isRunning && phaseState.value == ScrapePhase.IDLE) {
+            phaseState.value = ScrapePhase.SCRAPING
+            statusText = prefs.getString("currentSyncStatus", "Syncing in background...") ?: ""
+        }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            topBar = {
+                LargeTopAppBar(
+                    title = {
+                        Column {
+                            Text("College Sync", fontWeight = FontWeight.Bold)
+                            Text(
+                                "${scrapedData.size} records · Last synced $lastSyncTime",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back"
+                            )
+                        }
+                    },
+                    colors =
+                        TopAppBarDefaults.largeTopAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            scrolledContainerColor =
+                                MaterialTheme.colorScheme.surfaceContainer
+                        ),
+                    scrollBehavior = scrollBehavior
+                )
+            },
+            floatingActionButtonPosition = FabPosition.End,
+            floatingActionButton = {
+                AnimatedVisibility(
+                    visible = showFab,
+                    enter = slideInVertically(initialOffsetY = { it * 2 }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it * 2 }) + fadeOut()
                 ) {
-                    if (isScraping) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("Syncing...", fontWeight = FontWeight.Bold)
-                    } else {
-                        Icon(Icons.Default.Sync, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text("Sync Now", fontWeight = FontWeight.Bold)
+                    ExtendedFloatingActionButton(
+                        onClick = { if (!isScraping) showLoginSheet = true },
+                        containerColor =
+                            if (isScraping) MaterialTheme.colorScheme.surfaceContainerHigh
+                            else MaterialTheme.colorScheme.primaryContainer,
+                        contentColor =
+                            if (isScraping)
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            else MaterialTheme.colorScheme.onPrimaryContainer,
+                        elevation = FloatingActionButtonDefaults.elevation(0.dp, 0.dp)
+                    ) {
+                        if (isScraping) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text("Syncing...", fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Default.Sync, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Sync Now", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
-        }
-    ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = { coroutineScope.launch { onRefresh() } },
-            modifier =
-                Modifier.fillMaxSize()
-                    .padding(padding)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.surface,
-                                MaterialTheme.colorScheme
-                                    .surfaceContainerLowest
+        ) { padding ->
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { coroutineScope.launch { onRefresh() } },
+                modifier =
+                    Modifier.fillMaxSize()
+                        .padding(padding)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.surface,
+                                    MaterialTheme.colorScheme
+                                        .surfaceContainerLowest
+                                )
                             )
                         )
-                    )
-        ) {
-            LazyColumn(
-                state = currentListState,
-                modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                LazyColumn(
+                    state = currentListState,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
 
-                // ── Header ───────────────────────────────────────────────
-                if (scrapedData.isEmpty()) {
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                            shape = RoundedCornerShape(20.dp),
-                            colors =
-                                CardDefaults.cardColors(
-                                    containerColor =
-                                        MaterialTheme.colorScheme.primaryContainer
-                                            .copy(alpha = 0.3f)
-                                )
-                        ) {
-                            Column(modifier = Modifier.padding(20.dp)) {
-                                Text(
-                                    "📊 Attendance Portal",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    "Sync your college attendance and compare with your app records.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                    // ── Header ───────────────────────────────────────────────
+                    if (scrapedData.isEmpty()) {
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                shape = RoundedCornerShape(20.dp),
+                                colors =
+                                    CardDefaults.cardColors(
+                                        containerColor =
+                                            MaterialTheme.colorScheme.primaryContainer
+                                                .copy(alpha = 0.3f)
+                                    )
+                            ) {
+                                Column(modifier = Modifier.padding(20.dp)) {
+                                    Text(
+                                        "📊 Attendance Portal",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+                                    Text(
+                                        "Sync your college attendance and compare with your app records.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         }
-                    }
-                } else {
-                    item {
-                        Spacer(Modifier.height(8.dp))
-                        val total = scrapedData.size
-                        val present = scrapedData.count { it.status.equals("Present", true) }
-                        val absent = scrapedData.count { it.status.equals("Absent", true) }
+                    } else {
+                        item {
+                            Spacer(Modifier.height(8.dp))
+                            val total = scrapedData.size
+                            val present = scrapedData.count { it.status.equals("Present", true) }
+                            val absent = scrapedData.count { it.status.equals("Absent", true) }
 
-// 1. Calculate as a Float instead of rounding to Int
-                        val pctFloat = if (total > 0) (present.toFloat() / total) * 100 else 0f
-// 2. Format it to exactly 2 decimal places (e.g., "74.85")
-                        val pctDisplay = String.format(Locale.getDefault(), "%.2f", pctFloat)
+                            // 1. Calculate as a Float instead of rounding to Int
+                            val pctFloat = if (total > 0) (present.toFloat() / total) * 100 else 0f
+                            // 2. Format it to exactly 2 decimal places (e.g., "74.85")
+                            val pctDisplay = String.format(Locale.getDefault(), "%.2f", pctFloat)
 
-                        val barColor = when {
-                            pctFloat >= 75f -> Color(0xFF4CAF50)
-                            pctFloat >= 60f -> Color(0xFFFFC107)
-                            else -> Color(0xFFEF5350)
-                        }
+                            val barColor = when {
+                                pctFloat >= 75f -> Color(0xFF4CAF50)
+                                pctFloat >= 60f -> Color(0xFFFFC107)
+                                else -> Color(0xFFEF5350)
+                            }
 
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            colors =
-                                CardDefaults.cardColors(
-                                    containerColor =
-                                        MaterialTheme.colorScheme
-                                            .surfaceContainerHigh
-                                )
-                        ) {
-                            Column(modifier = Modifier.padding(20.dp)) {
-                                Row(modifier = Modifier.fillMaxWidth()) {
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Text(
-                                            "$total",
-                                            style = MaterialTheme.typography.headlineLarge,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            "Total Records",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Box(
-                                        modifier =
-                                            Modifier.width(1.dp)
-                                                .height(50.dp)
-                                                .background(
-                                                    MaterialTheme.colorScheme
-                                                        .outlineVariant
-                                                )
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(20.dp),
+                                colors =
+                                    CardDefaults.cardColors(
+                                        containerColor =
+                                            MaterialTheme.colorScheme
+                                                .surfaceContainerHigh
                                     )
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Text(
-                                            "$present",
-                                            style = MaterialTheme.typography.headlineLarge,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFF4CAF50)
+                            ) {
+                                Column(modifier = Modifier.padding(20.dp)) {
+                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                "$total",
+                                                style = MaterialTheme.typography.headlineLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                "Total Records",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Box(
+                                            modifier =
+                                                Modifier.width(1.dp)
+                                                    .height(50.dp)
+                                                    .background(
+                                                        MaterialTheme.colorScheme
+                                                            .outlineVariant
+                                                    )
                                         )
-                                        Text(
-                                            "Present",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                "$present",
+                                                style = MaterialTheme.typography.headlineLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF4CAF50)
+                                            )
+                                            Text(
+                                                "Present",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
-                                }
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(vertical = 12.dp),
-                                    color = MaterialTheme.colorScheme.outlineVariant
-                                )
-                                Row(modifier = Modifier.fillMaxWidth()) {
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        Text(
-                                            "$absent",
-                                            style = MaterialTheme.typography.headlineLarge,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFEF5350)
-                                        )
-                                        Text(
-                                            "Absent",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Box(
-                                        modifier =
-                                            Modifier.width(1.dp)
-                                                .height(50.dp)
-                                                .background(
-                                                    MaterialTheme.colorScheme
-                                                        .outlineVariant
-                                                )
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 12.dp),
+                                        color = MaterialTheme.colorScheme.outlineVariant
                                     )
-                                    Column(
-                                        modifier = Modifier.weight(1f),
-                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    Row(modifier = Modifier.fillMaxWidth()) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                "$absent",
+                                                style = MaterialTheme.typography.headlineLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFEF5350)
+                                            )
+                                            Text(
+                                                "Absent",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Box(
+                                            modifier =
+                                                Modifier.width(1.dp)
+                                                    .height(50.dp)
+                                                    .background(
+                                                        MaterialTheme.colorScheme
+                                                            .outlineVariant
+                                                    )
+                                        )
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            Text(
+                                                text = "$pctDisplay%", // <-- Use pctDisplay here
+                                                style = MaterialTheme.typography.headlineLarge,
+                                                fontWeight = FontWeight.Bold,
+                                                color = barColor
+                                            )
+                                            Text(
+                                                "Attendance",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(Modifier.height(20.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.End
                                     ) {
                                         Text(
-                                            text = "$pctDisplay%", // <-- Use pctDisplay here
-                                            style = MaterialTheme.typography.headlineLarge,
+                                            "Overall: $pctDisplay%",
+                                            style = MaterialTheme.typography.labelSmall,
                                             fontWeight = FontWeight.Bold,
                                             color = barColor
                                         )
-                                        Text(
-                                            "Attendance",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
                                     }
+                                    Spacer(Modifier.height(4.dp))
+                                    val progressFloat by
+                                    animateFloatAsState(
+                                        targetValue =
+                                            if (total > 0) present / total.toFloat()
+                                            else 0f,
+                                        animationSpec = tween(800),
+                                        label = "prog"
+                                    )
+                                    LinearProgressIndicator(
+                                        progress = { progressFloat },
+                                        modifier =
+                                            Modifier.fillMaxWidth()
+                                                .height(8.dp)
+                                                .clip(RoundedCornerShape(4.dp)),
+                                        color = barColor,
+                                        trackColor =
+                                            MaterialTheme.colorScheme.surfaceContainerHighest
+                                    )
                                 }
+                            }
 
-                                Spacer(Modifier.height(20.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End
+                            if (selectedSubject != "All") {
+                                Spacer(Modifier.height(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
                                 ) {
                                     Text(
-                                        "Overall: $pctDisplay%",
+                                        "Subject: $selectedSubject",
                                         style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = barColor
+                                        modifier =
+                                            Modifier.padding(
+                                                horizontal = 8.dp,
+                                                vertical = 4.dp
+                                            ),
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                val progressFloat by
-                                animateFloatAsState(
-                                    targetValue =
-                                        if (total > 0) present / total.toFloat()
-                                        else 0f,
-                                    animationSpec = tween(800),
-                                    label = "prog"
-                                )
-                                LinearProgressIndicator(
-                                    progress = { progressFloat },
-                                    modifier =
-                                        Modifier.fillMaxWidth()
-                                            .height(8.dp)
-                                            .clip(RoundedCornerShape(4.dp)),
-                                    color = barColor,
-                                    trackColor =
-                                        MaterialTheme.colorScheme.surfaceContainerHighest
-                                )
-                            }
-                        }
-
-                        if (selectedSubject != "All") {
-                            Spacer(Modifier.height(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.secondaryContainer
-                            ) {
-                                Text(
-                                    "Subject: $selectedSubject",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier =
-                                        Modifier.padding(
-                                            horizontal = 8.dp,
-                                            vertical = 4.dp
-                                        ),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
                             }
                         }
                     }
-                }
 
-                // ── Status Banner ───────────────────────────────────────────────
-                val hasError = statusText.contains("error", ignoreCase = true)
-                item {
-                    AnimatedVisibility(
-                        visible = isScraping || hasError,
-                        enter = slideInVertically() + fadeIn(),
-                        exit = slideOutVertically() + fadeOut()
-                    ) {
-                        val color =
-                            if (hasError) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.primary
-                        val bgColor = color.copy(alpha = 0.1f)
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = bgColor)
-                        ) {
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                Box(
-                                    modifier =
-                                        Modifier.fillMaxHeight()
-                                            .width(3.dp)
-                                            .background(color)
-                                            .align(Alignment.CenterStart)
-                                )
-                                Column(modifier = Modifier.padding(16.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (isScraping) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(16.dp),
-                                                strokeWidth = 2.dp,
-                                                color = color
-                                            )
-                                        } else if (hasError) {
-                                            Icon(
-                                                Icons.Default.Warning,
-                                                contentDescription = null,
-                                                tint = color,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                        Spacer(Modifier.width(12.dp))
-                                        Text(
-                                            statusText,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = color,
-                                            fontWeight = FontWeight.Medium
-                                        )
-                                    }
-
-                                    if (isScraping && statusText.contains("Expecting") ||
-                                        statusText.contains("page")
-                                    ) {
-                                        Spacer(Modifier.height(8.dp))
-                                        val parts = statusText.split(":", "—")
-                                        if (parts.size >= 2) {
-                                            Text(
-                                                parts[0].trim(),
-                                                fontWeight = FontWeight.Bold,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = color
-                                            )
-                                            Text(
-                                                parts[1].trim(),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = color.copy(alpha = 0.8f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Data Section (only when there is data) ───────────────
-                if (scrapedData.isNotEmpty()) {
-
-                    // Tab Row Upgrade
+                    // ── Status Banner ───────────────────────────────────────────────
+                    val hasError = statusText.contains("error", ignoreCase = true)
                     item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            colors =
-                                CardDefaults.cardColors(
-                                    containerColor =
-                                        MaterialTheme.colorScheme.surfaceVariant
-                                            .copy(alpha = 0.5f)
-                                )
+                        AnimatedVisibility(
+                            visible = isScraping || hasError,
+                            enter = slideInVertically() + fadeIn(),
+                            exit = slideOutVertically() + fadeOut()
                         ) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-                                val mismatches = displayItems.count { it.hasMismatch() }
-                                SegmentedTab(
-                                    selected = pagerState.currentPage == 0,
-                                    text = "Subject Data",
-                                    icon = Icons.Default.List,
-                                    badgeCount = filteredData.size,
-                                    badgeColor = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            pagerState.animateScrollToPage(0)
-                                        }
-                                    }
-                                )
-                                SegmentedTab(
-                                    selected = pagerState.currentPage == 1,
-                                    text = "Compare",
-                                    icon = Icons.Default.CompareArrows,
-                                    badgeCount = mismatches,
-                                    badgeColor =
-                                        if (mismatches > 0) MaterialTheme.colorScheme.error
-                                        else MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.weight(1f),
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            pagerState.animateScrollToPage(1)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // Filter Row Upgrade
-                    item {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Row(
+                            val color =
+                                if (hasError) MaterialTheme.colorScheme.error
+                                else MaterialTheme.colorScheme.primary
+                            val bgColor = color.copy(alpha = 0.1f)
+                            Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = bgColor)
                             ) {
-                                Text("Filter", style = MaterialTheme.typography.labelLarge)
-                                // Sort Order toggle
-                                TextButton(
-                                    onClick = {
-                                        sortOrder =
-                                            if (sortOrder == "Newest") "Oldest"
-                                            else "Newest"
-                                    },
-                                    contentPadding =
-                                        PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    modifier = Modifier.height(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Sort,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp)
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    Box(
+                                        modifier =
+                                            Modifier.fillMaxHeight()
+                                                .width(3.dp)
+                                                .background(color)
+                                                .align(Alignment.CenterStart)
                                     )
-                                    Spacer(Modifier.width(4.dp))
-                                    Text(sortOrder, style = MaterialTheme.typography.labelMedium)
-                                }
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                items(subjects) { subj ->
-                                    FilterChip(
-                                        selected = selectedSubject == subj,
-                                        onClick = {
-                                            haptic.performHapticFeedback(
-                                                HapticFeedbackType.LongPress
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            if (isScraping) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(16.dp),
+                                                    strokeWidth = 2.dp,
+                                                    color = color
+                                                )
+                                            } else if (hasError) {
+                                                Icon(
+                                                    Icons.Default.Warning,
+                                                    contentDescription = null,
+                                                    tint = color,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                            Spacer(Modifier.width(12.dp))
+                                            Text(
+                                                statusText,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = color,
+                                                fontWeight = FontWeight.Medium
                                             )
-                                            selectedSubject = subj
-                                        },
-                                        label = { Text(subj) }
-                                    )
-                                }
-                            }
-                            Spacer(Modifier.height(8.dp))
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val statusOptions = listOf("All", "Present", "Absent")
-                                items(statusOptions) { status ->
-                                    FilterChip(
-                                        selected = statusFilter == status,
-                                        onClick = {
-                                            haptic.performHapticFeedback(
-                                                HapticFeedbackType.LongPress
-                                            )
-                                            statusFilter = status
-                                        },
-                                        label = { Text(status) }
-                                    )
-                                }
-                            }
+                                        }
 
-                            // Active filters summary
-                            if (selectedSubject != "All" || statusFilter != "All") {
-                                Spacer(Modifier.height(8.dp))
+                                        if (isScraping && statusText.contains("Expecting") ||
+                                            statusText.contains("page")
+                                        ) {
+                                            Spacer(Modifier.height(8.dp))
+                                            val parts = statusText.split(":", "—")
+                                            if (parts.size >= 2) {
+                                                Text(
+                                                    parts[0].trim(),
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = color
+                                                )
+                                                Text(
+                                                    parts[1].trim(),
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = color.copy(alpha = 0.8f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // ── Data Section (only when there is data) ───────────────
+                    if (scrapedData.isNotEmpty()) {
+
+                        // Tab Row Upgrade
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(14.dp),
+                                colors =
+                                    CardDefaults.cardColors(
+                                        containerColor =
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                                .copy(alpha = 0.5f)
+                                    )
+                            ) {
+                                Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                                    val mismatches = displayItems.count { it.hasMismatch() }
+                                    SegmentedTab(
+                                        selected = pagerState.currentPage == 0,
+                                        text = "Subject Data",
+                                        icon = Icons.Default.List,
+                                        badgeCount = filteredData.size,
+                                        badgeColor = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(0)
+                                            }
+                                        }
+                                    )
+                                    SegmentedTab(
+                                        selected = pagerState.currentPage == 1,
+                                        text = "Compare",
+                                        icon = Icons.Default.CompareArrows,
+                                        badgeCount = mismatches,
+                                        badgeColor =
+                                            if (mismatches > 0) MaterialTheme.colorScheme.error
+                                            else MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.weight(1f),
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                pagerState.animateScrollToPage(1)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Filter Row Upgrade
+                        item {
+                            Column(modifier = Modifier.fillMaxWidth()) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        if (selectedSubject != "All") {
-                                            FilterChip(
-                                                selected = true,
-                                                onClick = { selectedSubject = "All" },
-                                                label = { Text("Subject: $selectedSubject") },
-                                                trailingIcon = {
-                                                    Icon(
-                                                        Icons.Default.Close,
-                                                        null,
-                                                        Modifier.size(14.dp)
-                                                    )
-                                                }
-                                            )
-                                        }
-                                        if (statusFilter != "All") {
-                                            FilterChip(
-                                                selected = true,
-                                                onClick = { statusFilter = "All" },
-                                                label = { Text("Status: $statusFilter") },
-                                                trailingIcon = {
-                                                    Icon(
-                                                        Icons.Default.Close,
-                                                        null,
-                                                        Modifier.size(14.dp)
-                                                    )
-                                                }
-                                            )
-                                        }
-                                    }
+                                    Text("Filter", style = MaterialTheme.typography.labelLarge)
+                                    // Sort Order toggle
                                     TextButton(
                                         onClick = {
-                                            selectedSubject = "All"
-                                            statusFilter = "All"
-                                        }
+                                            sortOrder =
+                                                if (sortOrder == "Newest") "Oldest"
+                                                else "Newest"
+                                        },
+                                        contentPadding =
+                                            PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(32.dp)
                                     ) {
-                                        Text(
-                                            "Clear all",
-                                            style = MaterialTheme.typography.labelSmall
+                                        Icon(
+                                            Icons.Default.Sort,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(sortOrder, style = MaterialTheme.typography.labelMedium)
+                                    }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    items(subjects) { subj ->
+                                        FilterChip(
+                                            selected = selectedSubject == subj,
+                                            onClick = {
+                                                haptic.performHapticFeedback(
+                                                    HapticFeedbackType.LongPress
+                                                )
+                                                selectedSubject = subj
+                                            },
+                                            label = { Text(subj) }
                                         )
                                     }
                                 }
-                            }
+                                Spacer(Modifier.height(8.dp))
+                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    val statusOptions = listOf("All", "Present", "Absent")
+                                    items(statusOptions) { status ->
+                                        FilterChip(
+                                            selected = statusFilter == status,
+                                            onClick = {
+                                                haptic.performHapticFeedback(
+                                                    HapticFeedbackType.LongPress
+                                                )
+                                                statusFilter = status
+                                            },
+                                            label = { Text(status) }
+                                        )
+                                    }
+                                }
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                horizontalArrangement = Arrangement.End
-                            ) {
-                                Text(
-                                    "${filteredData.size} of ${scrapedData.size} records",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    // Pager Content
-                    item {
-                        HorizontalPager(
-                            state = pagerState,
-                            verticalAlignment = Alignment.Top,
-                            modifier = Modifier.fillMaxWidth()
-                        ) { page ->
-                            if (page == 0) {
-                                // ── Tab 0: Subject Data ──────────────────────────
-                                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    if (filteredData.isEmpty()) {
-                                        EmptyStateCardFilter(
-                                            "No records match your filters",
-                                            onClear = {
+                                // Active filters summary
+                                if (selectedSubject != "All" || statusFilter != "All") {
+                                    Spacer(Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            if (selectedSubject != "All") {
+                                                FilterChip(
+                                                    selected = true,
+                                                    onClick = { selectedSubject = "All" },
+                                                    label = { Text("Subject: $selectedSubject") },
+                                                    trailingIcon = {
+                                                        Icon(
+                                                            Icons.Default.Close,
+                                                            null,
+                                                            Modifier.size(14.dp)
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                            if (statusFilter != "All") {
+                                                FilterChip(
+                                                    selected = true,
+                                                    onClick = { statusFilter = "All" },
+                                                    label = { Text("Status: $statusFilter") },
+                                                    trailingIcon = {
+                                                        Icon(
+                                                            Icons.Default.Close,
+                                                            null,
+                                                            Modifier.size(14.dp)
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        }
+                                        TextButton(
+                                            onClick = {
                                                 selectedSubject = "All"
                                                 statusFilter = "All"
                                             }
-                                        )
-                                    } else {
-                                        var currentDate = ""
-                                        filteredData.forEach { record ->
-                                            val recordDateObj =
-                                                try {
-                                                    java.text.SimpleDateFormat(
-                                                        "dd/MM/yyyy",
-                                                        Locale.getDefault()
-                                                    )
-                                                        .parse(record.date)
-                                                } catch (e: Exception) {
-                                                    null
-                                                }
-                                            val recordDateStr =
-                                                recordDateObj?.let {
-                                                    java.text.SimpleDateFormat(
-                                                        "EEEE, dd MMM yyyy",
-                                                        Locale.getDefault()
-                                                    )
-                                                        .format(it)
-                                                }
-                                                    ?: record.date
-
-                                            if (currentDate != recordDateStr) {
-                                                currentDate = recordDateStr
-                                                Row(
-                                                    modifier =
-                                                        Modifier.fillMaxWidth()
-                                                            .padding(vertical = 8.dp),
-                                                    verticalAlignment =
-                                                        Alignment.CenterVertically
-                                                ) {
-                                                    HorizontalDivider(
-                                                        modifier = Modifier.weight(1f),
-                                                        color =
-                                                            MaterialTheme.colorScheme
-                                                                .outlineVariant
-                                                    )
-                                                    Surface(
-                                                        shape = RoundedCornerShape(16.dp),
-                                                        color =
-                                                            MaterialTheme.colorScheme
-                                                                .surfaceContainerHigh,
-                                                        modifier =
-                                                            Modifier.padding(
-                                                                horizontal = 12.dp
-                                                            )
-                                                    ) {
-                                                        Text(
-                                                            currentDate,
-                                                            style =
-                                                                MaterialTheme.typography
-                                                                    .labelSmall,
-                                                            fontWeight = FontWeight.SemiBold,
-                                                            modifier =
-                                                                Modifier.padding(
-                                                                    horizontal = 12.dp,
-                                                                    vertical = 6.dp
-                                                                )
-                                                        )
-                                                    }
-                                                    HorizontalDivider(
-                                                        modifier = Modifier.weight(1f),
-                                                        color =
-                                                            MaterialTheme.colorScheme
-                                                                .outlineVariant
-                                                    )
-                                                }
-                                            }
-
-                                            Box(modifier = Modifier.animateItem()) {
-                                                SubjectDataCard(record)
-                                            }
+                                        ) {
+                                            Text(
+                                                "Clear all",
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
                                         }
                                     }
                                 }
-                            } else {
-                                // ── Tab 1: Compare Data ──────────────────────────
-                                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                    val matched =
-                                        displayItems.count {
-                                            it.scrapedRecord != null &&
-                                                    it.appRecord != null &&
-                                                    it.scrapedRecord.status.equals(
-                                                        it.appRecord.status,
-                                                        ignoreCase = true
-                                                    )
-                                        }
-                                    val mismatched = displayItems.count { it.hasMismatch() }
-                                    val missingInApp = displayItems.count { it.appRecord == null }
-                                    val missingInCollege =
-                                        displayItems.count { it.scrapedRecord == null }
 
-                                    // Horizontally scrollable summary bar
-                                    LazyRow(
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        item {
-                                            SummaryChipCard(
-                                                "Match",
-                                                matched,
-                                                Color(0xFF4CAF50),
-                                                Icons.Default.CheckCircle,
-                                                compareFilter == "Match"
-                                            ) {
-                                                compareFilter =
-                                                    if (compareFilter == "Match") null
-                                                    else "Match"
-                                            }
-                                        }
-                                        item {
-                                            SummaryChipCard(
-                                                "Mismatch",
-                                                mismatched,
-                                                MaterialTheme.colorScheme.error,
-                                                Icons.Default.Warning,
-                                                compareFilter == "Mismatch"
-                                            ) {
-                                                compareFilter =
-                                                    if (compareFilter == "Mismatch") null
-                                                    else "Mismatch"
-                                            }
-                                        }
-                                        item {
-                                            SummaryChipCard(
-                                                "App Only",
-                                                missingInCollege,
-                                                MaterialTheme.colorScheme.tertiary,
-                                                Icons.Default.PhoneAndroid,
-                                                compareFilter == "App"
-                                            ) {
-                                                compareFilter =
-                                                    if (compareFilter == "App") null else "App"
-                                            }
-                                        }
-                                        item {
-                                            SummaryChipCard(
-                                                "College Only",
-                                                missingInApp,
-                                                MaterialTheme.colorScheme.secondary,
-                                                Icons.Default.School,
-                                                compareFilter == "College"
-                                            ) {
-                                                compareFilter =
-                                                    if (compareFilter == "College") null
-                                                    else "College"
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    Text(
+                                        "${filteredData.size} of ${scrapedData.size} records",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // Pager Content
+                        item {
+                            HorizontalPager(
+                                state = pagerState,
+                                verticalAlignment = Alignment.Top,
+                                modifier = Modifier.fillMaxWidth()
+                            ) { page ->
+                                if (page == 0) {
+                                    // ── Tab 0: Subject Data ──────────────────────────
+                                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        if (filteredData.isEmpty()) {
+                                            EmptyStateCardFilter(
+                                                "No records match your filters",
+                                                onClear = {
+                                                    selectedSubject = "All"
+                                                    statusFilter = "All"
+                                                }
+                                            )
+                                        } else {
+                                            var currentDate = ""
+                                            filteredData.forEach { record ->
+                                                val recordDateObj =
+                                                    try {
+                                                        java.text.SimpleDateFormat(
+                                                            "dd/MM/yyyy",
+                                                            Locale.getDefault()
+                                                        )
+                                                            .parse(record.date)
+                                                    } catch (e: Exception) {
+                                                        null
+                                                    }
+                                                val recordDateStr =
+                                                    recordDateObj?.let {
+                                                        java.text.SimpleDateFormat(
+                                                            "EEEE, dd MMM yyyy",
+                                                            Locale.getDefault()
+                                                        )
+                                                            .format(it)
+                                                    }
+                                                        ?: record.date
+
+                                                if (currentDate != recordDateStr) {
+                                                    currentDate = recordDateStr
+                                                    Row(
+                                                        modifier =
+                                                            Modifier.fillMaxWidth()
+                                                                .padding(vertical = 8.dp),
+                                                        verticalAlignment =
+                                                            Alignment.CenterVertically
+                                                    ) {
+                                                        HorizontalDivider(
+                                                            modifier = Modifier.weight(1f),
+                                                            color =
+                                                                MaterialTheme.colorScheme
+                                                                    .outlineVariant
+                                                        )
+                                                        Surface(
+                                                            shape = RoundedCornerShape(16.dp),
+                                                            color =
+                                                                MaterialTheme.colorScheme
+                                                                    .surfaceContainerHigh,
+                                                            modifier =
+                                                                Modifier.padding(
+                                                                    horizontal = 12.dp
+                                                                )
+                                                        ) {
+                                                            Text(
+                                                                currentDate,
+                                                                style =
+                                                                    MaterialTheme.typography
+                                                                        .labelSmall,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                modifier =
+                                                                    Modifier.padding(
+                                                                        horizontal = 12.dp,
+                                                                        vertical = 6.dp
+                                                                    )
+                                                            )
+                                                        }
+                                                        HorizontalDivider(
+                                                            modifier = Modifier.weight(1f),
+                                                            color =
+                                                                MaterialTheme.colorScheme
+                                                                    .outlineVariant
+                                                        )
+                                                    }
+                                                }
+
+                                                Box(modifier = Modifier.animateItem()) {
+                                                    SubjectDataCard(record)
+                                                }
                                             }
                                         }
                                     }
+                                } else {
+                                    // ── Tab 1: Compare Data ──────────────────────────
+                                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        val matched =
+                                            displayItems.count {
+                                                it.scrapedRecord != null &&
+                                                        it.appRecord != null &&
+                                                        it.scrapedRecord.status.equals(
+                                                            it.appRecord.status,
+                                                            ignoreCase = true
+                                                        )
+                                            }
+                                        val mismatched = displayItems.count { it.hasMismatch() }
+                                        val missingInApp = displayItems.count { it.appRecord == null }
+                                        val missingInCollege =
+                                            displayItems.count { it.scrapedRecord == null }
 
-                                    if (displayItems.isEmpty()) {
-                                        EmptyStateCardFilter("No records to compare", null)
-                                    } else {
-                                        displayItems.forEach { item ->
-                                            Box(modifier = Modifier.animateItem()) {
-                                                CompareDataCard(
-                                                    item,
-                                                    onAddToApp = { record, matchedSubj ->
-                                                        addScrapedRecordToApp(
-                                                            context,
-                                                            record,
-                                                            matchedSubj,
-                                                            appSubjectMap
-                                                        ) {
-                                                            Toast.makeText(
-                                                                context,
-                                                                "Added to app!",
-                                                                Toast.LENGTH_SHORT
-                                                            )
-                                                                .show()
-                                                            coroutineScope.launch {
-                                                                onRefresh()
-                                                            }
-                                                        }
-                                                    }
-                                                )
+                                        // Horizontally scrollable summary bar
+                                        LazyRow(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            item {
+                                                SummaryChipCard(
+                                                    "Match",
+                                                    matched,
+                                                    Color(0xFF4CAF50),
+                                                    Icons.Default.CheckCircle,
+                                                    compareFilter == "Match"
+                                                ) {
+                                                    compareFilter =
+                                                        if (compareFilter == "Match") null
+                                                        else "Match"
+                                                }
+                                            }
+                                            item {
+                                                SummaryChipCard(
+                                                    "Mismatch",
+                                                    mismatched,
+                                                    MaterialTheme.colorScheme.error,
+                                                    Icons.Default.Warning,
+                                                    compareFilter == "Mismatch"
+                                                ) {
+                                                    compareFilter =
+                                                        if (compareFilter == "Mismatch") null
+                                                        else "Mismatch"
+                                                }
+                                            }
+                                            item {
+                                                SummaryChipCard(
+                                                    "App Only",
+                                                    missingInCollege,
+                                                    MaterialTheme.colorScheme.tertiary,
+                                                    Icons.Default.PhoneAndroid,
+                                                    compareFilter == "App"
+                                                ) {
+                                                    compareFilter =
+                                                        if (compareFilter == "App") null else "App"
+                                                }
+                                            }
+                                            item {
+                                                SummaryChipCard(
+                                                    "College Only",
+                                                    missingInApp,
+                                                    MaterialTheme.colorScheme.secondary,
+                                                    Icons.Default.School,
+                                                    compareFilter == "College"
+                                                ) {
+                                                    compareFilter =
+                                                        if (compareFilter == "College") null
+                                                        else "College"
+                                                }
                                             }
                                         }
 
-                                        if (mismatched > 0) {
-                                            Spacer(Modifier.height(8.dp))
-                                            Button(
-                                                onClick = {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Fix mismatches not fully implemented.",
-                                                        Toast.LENGTH_SHORT
+                                        if (displayItems.isEmpty()) {
+                                            EmptyStateCardFilter("No records to compare", null)
+                                        } else {
+                                            displayItems.forEach { item ->
+                                                Box(modifier = Modifier.animateItem()) {
+                                                    CompareDataCard(
+                                                        item,
+                                                        onAddToApp = { record, matchedSubj ->
+                                                            addScrapedRecordToApp(
+                                                                context,
+                                                                record,
+                                                                matchedSubj,
+                                                                appSubjectMap
+                                                            ) {
+                                                                Toast.makeText(
+                                                                    context,
+                                                                    "Added to app!",
+                                                                    Toast.LENGTH_SHORT
+                                                                )
+                                                                    .show()
+                                                                coroutineScope.launch {
+                                                                    onRefresh()
+                                                                }
+                                                            }
+                                                        }
                                                     )
-                                                        .show()
-                                                },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                colors =
-                                                    ButtonDefaults.buttonColors(
-                                                        containerColor =
-                                                            MaterialTheme
-                                                                .colorScheme
-                                                                .errorContainer,
-                                                        contentColor =
-                                                            MaterialTheme
-                                                                .colorScheme
-                                                                .onErrorContainer
+                                                }
+                                            }
+
+                                            if (mismatched > 0) {
+                                                Spacer(Modifier.height(8.dp))
+                                                Button(
+                                                    onClick = {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Fix mismatches not fully implemented.",
+                                                            Toast.LENGTH_SHORT
+                                                        )
+                                                            .show()
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    colors =
+                                                        ButtonDefaults.buttonColors(
+                                                            containerColor =
+                                                                MaterialTheme
+                                                                    .colorScheme
+                                                                    .errorContainer,
+                                                            contentColor =
+                                                                MaterialTheme
+                                                                    .colorScheme
+                                                                    .onErrorContainer
+                                                        )
+                                                ) {
+                                                    Text(
+                                                        "Fix $mismatched Mismatches",
+                                                        fontWeight = FontWeight.Bold
                                                     )
-                                            ) {
-                                                Text(
-                                                    "Fix $mismatched Mismatches",
-                                                    fontWeight = FontWeight.Bold
-                                                )
+                                                }
                                             }
                                         }
                                     }
@@ -1159,175 +1205,244 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                             }
                         }
                     }
+
+                    item { Spacer(Modifier.height(48.dp)) }
                 }
 
-                item { Spacer(Modifier.height(48.dp)) }
-            }
+                // ── Invisible WebView (scraping engine) ──────────────────────
+                Box(modifier = Modifier.size(1.dp).alpha(0f)) {
+                    AndroidView(
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.userAgentString =
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+                                            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-            // ── Invisible WebView (scraping engine) ──────────────────────
-            Box(modifier = Modifier.size(1.dp).alpha(0f)) {
-                AndroidView(
-                    factory = { ctx ->
-                        WebView(ctx).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            settings.userAgentString =
-                                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                addJavascriptInterface(
+                                    ScraperBridge(
+                                        progressCb = { msg: String ->
+                                            coroutineScope.launch(Dispatchers.Main) {
+                                                statusText = msg
 
-                            addJavascriptInterface(
-                                ScraperBridge(
-                                    progressCb = { msg: String ->
-                                        coroutineScope.launch(Dispatchers.Main) {
-                                            statusText = msg
-                                        }
-                                    },
-                                    errorCb = { error: String ->
-                                        coroutineScope.launch(Dispatchers.Main) {
-                                            Log.e("CollegeSync", "Scrape error: $error")
-                                            statusText = "Error: $error"
-                                            phaseState.value = ScrapePhase.IDLE
-                                        }
-                                    },
-                                    dataCb = { json: String ->
-                                        coroutineScope.launch(Dispatchers.Main) {
-                                            statusText = "Processing data..."
-                                            try {
-                                                val list =
-                                                    mutableListOf<
-                                                            CollegeAttendanceRecord>()
-                                                val arr = JSONArray(json)
-                                                if (arr.length() == 0) {
+                                                // --- NEW: Parse scraper text and trigger 3D planet animations! ---
+                                                Regex("Processing:\\s*([^(]+)\\s*\\((\\d+)/(\\d+)\\)").find(msg)?.let {
+                                                    val name = it.groupValues[1].trim()
+                                                    ScrapingEventBus.tryEmit(ScrapingEvent.SpawnSubject(name))
+                                                    ScrapingEventBus.tryEmit(ScrapingEvent.StartExtraction(name))
+                                                }
+
+                                                Regex("(.*?)\\s*—\\s*page\\s*\\d+\\s*\\((\\d+)/(\\d+)\\)").find(msg)?.let {
+                                                    val pct = ((it.groupValues[2].toFloat() / it.groupValues[3].toFloat()) * 100).coerceIn(0f, 100f)
+                                                    ScrapingEventBus.tryEmit(ScrapingEvent.UpdateProgress(pct, msg))
+                                                }
+
+                                                Regex("(.*?):\\s*Scraped\\s*(\\d+)\\s*records").find(msg)?.let {
+                                                    val name = it.groupValues[1].trim()
+                                                    val count = it.groupValues[2].toIntOrNull() ?: 0
+                                                    if (count > 0) ScrapingEventBus.tryEmit(ScrapingEvent.RecordExtracted(count))
+                                                    ScrapingEventBus.tryEmit(ScrapingEvent.FinishSubject(name))
+                                                }
+
+                                                if (msg.contains("No attendance data") || msg.contains("Skipping")) {
+                                                    Regex("(.*?):\\s*(No attendance|Skipping)").find(msg)?.let {
+                                                        ScrapingEventBus.tryEmit(ScrapingEvent.FinishSubject(it.groupValues[1].trim()))
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        errorCb = { error: String ->
+                                            coroutineScope.launch(Dispatchers.Main) {
+                                                Log.e("CollegeSync", "Scrape error: $error")
+                                                statusText = "Error: $error"
+                                                phaseState.value = ScrapePhase.IDLE
+                                            }
+                                        },
+                                        dataCb = { json: String ->
+                                            coroutineScope.launch(Dispatchers.Main) {
+                                                statusText = "Processing data..."
+                                                try {
+                                                    val list =
+                                                        mutableListOf<
+                                                                CollegeAttendanceRecord>()
+                                                    val arr = JSONArray(json)
+                                                    if (arr.length() == 0) {
+                                                        Log.d(
+                                                            "CollegeSync",
+                                                            "Ignoring empty extraction from premature SPA load"
+                                                        )
+                                                        return@launch
+                                                    }
+                                                    for (i in 0 until arr.length()) {
+                                                        val o = arr.getJSONObject(i)
+                                                        list.add(
+                                                            CollegeAttendanceRecord(
+                                                                subject =
+                                                                    o.optString(
+                                                                        "subject",
+                                                                        ""
+                                                                    ),
+                                                                date =
+                                                                    o.optString(
+                                                                        "date",
+                                                                        ""
+                                                                    ),
+                                                                fromTime =
+                                                                    o.optString(
+                                                                        "fromTime",
+                                                                        ""
+                                                                    ),
+                                                                toTime =
+                                                                    o.optString(
+                                                                        "toTime",
+                                                                        ""
+                                                                    ),
+                                                                topic =
+                                                                    o.optString(
+                                                                        "topic",
+                                                                        ""
+                                                                    ),
+                                                                status =
+                                                                    o.optString(
+                                                                        "status",
+                                                                        ""
+                                                                    )
+                                                            )
+                                                        )
+                                                    }
+                                                    scrapedData = list
+                                                    saveScrapedData(context, list)
+                                                    statusText =
+                                                        "Sync complete — ${list.size} records."
                                                     Log.d(
                                                         "CollegeSync",
-                                                        "Ignoring empty extraction from premature SPA load"
+                                                        "Saved ${list.size} records"
                                                     )
-                                                    return@launch
-                                                }
-                                                for (i in 0 until arr.length()) {
-                                                    val o = arr.getJSONObject(i)
-                                                    list.add(
-                                                        CollegeAttendanceRecord(
-                                                            subject =
-                                                                o.optString(
-                                                                    "subject",
-                                                                    ""
-                                                                ),
-                                                            date =
-                                                                o.optString(
-                                                                    "date",
-                                                                    ""
-                                                                ),
-                                                            fromTime =
-                                                                o.optString(
-                                                                    "fromTime",
-                                                                    ""
-                                                                ),
-                                                            toTime =
-                                                                o.optString(
-                                                                    "toTime",
-                                                                    ""
-                                                                ),
-                                                            topic =
-                                                                o.optString(
-                                                                    "topic",
-                                                                    ""
-                                                                ),
-                                                            status =
-                                                                o.optString(
-                                                                    "status",
-                                                                    ""
-                                                                )
-                                                        )
+                                                    phaseState.value = ScrapePhase.IDLE
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Sync finished!",
+                                                        Toast.LENGTH_SHORT
                                                     )
-                                                }
-                                                scrapedData = list
-                                                saveScrapedData(context, list)
-                                                statusText =
-                                                    "Sync complete — ${list.size} records."
-                                                Log.d(
-                                                    "CollegeSync",
-                                                    "Saved ${list.size} records"
-                                                )
-                                                phaseState.value = ScrapePhase.IDLE
-                                                Toast.makeText(
-                                                    context,
-                                                    "Sync finished!",
-                                                    Toast.LENGTH_SHORT
-                                                )
-                                                    .show()
-                                            } catch (ex: Exception) {
-                                                Log.e("CollegeSync", "Parse error", ex)
-                                                statusText =
-                                                    "Parse error: ${ex.message}"
-                                                phaseState.value = ScrapePhase.IDLE
-                                            }
-                                        }
-                                    },
-                                    loginSuccessCb = {
-                                        coroutineScope.launch(Dispatchers.Main) {
-                                            if (phaseState.value == ScrapePhase.LOGIN_INJECTED) {
-                                                statusText = "Logged in! Loading attendance page..."
-                                                Log.d("CollegeSync", "Login success — navigating to attendance")
-                                                phaseState.value = ScrapePhase.SCRAPING
-                                                webViewRef?.loadUrl("https://attendence-system-1910.vercel.app/students/current/attendances")
-                                            }
-                                        }
-                                    }
-                                ),
-                                "Android"
-                            )
-
-                            webViewClient =
-                                object : WebViewClient() {
-                                    override fun onPageFinished(
-                                        view: WebView,
-                                        url: String
-                                    ) {
-                                        super.onPageFinished(view, url)
-                                        val phase = phaseState.value
-                                        Log.d(
-                                            "CollegeSync",
-                                            "onPageFinished url=$url phase=$phase"
-                                        )
-
-                                        when {
-                                            // ── LOGIN phase + login page → fill form ──
-                                            phase == ScrapePhase.LOGIN && url.contains("/users/login") -> {
-                                                statusText = "Filling login form..."
-                                                phaseState.value = ScrapePhase.LOGIN_INJECTED // Lock to prevent double injection
-
-                                                val safeEmail = email.replace("\\", "\\\\").replace("'", "\\'")
-                                                val safePassword = password.replace("\\", "\\\\").replace("'", "\\'")
-                                                val js = buildLoginScript(safeEmail, safePassword)
-                                                Log.d("CollegeSync", "Injecting login script")
-                                                view.evaluateJavascript(js, null)
-                                            }
-
-                                            // ── SCRAPING phase + attendance page → scrape ──
-                                            phase == ScrapePhase.SCRAPING && url.contains("/students/current/attendances") -> {
-                                                statusText = "Extracting data..."
-                                                phaseState.value = ScrapePhase.EXTRACTING // Lock to prevent double injection
-
-                                                Log.d("CollegeSync", "Injecting scraping script")
-                                                view.evaluateJavascript(buildScrapingScript(), null)
-                                            }
-
-                                            // ── SCRAPING phase + bounced to login → expired ──
-                                            (phase == ScrapePhase.SCRAPING || phase == ScrapePhase.EXTRACTING) && url.contains("/users/login") -> {
-                                                coroutineScope.launch(Dispatchers.Main) {
-                                                    statusText = "Session expired — please sync again."
+                                                        .show()
+                                                } catch (ex: Exception) {
+                                                    Log.e("CollegeSync", "Parse error", ex)
+                                                    statusText =
+                                                        "Parse error: ${ex.message}"
                                                     phaseState.value = ScrapePhase.IDLE
                                                 }
                                             }
+                                        },
+                                        loginSuccessCb = {
+                                            coroutineScope.launch(Dispatchers.Main) {
+                                                if (phaseState.value == ScrapePhase.LOGIN_INJECTED) {
+                                                    statusText = "Logged in! Loading attendance page..."
+                                                    Log.d("CollegeSync", "Login success — navigating to attendance")
+                                                    phaseState.value = ScrapePhase.SCRAPING
+                                                    webViewRef?.loadUrl("https://attendence-system-1910.vercel.app/students/current/attendances")
+                                                }
+                                            }
+                                        }
+                                    ),
+                                    "Android"
+                                )
+
+                                webViewClient =
+                                    object : WebViewClient() {
+                                        override fun onPageFinished(
+                                            view: WebView,
+                                            url: String
+                                        ) {
+                                            super.onPageFinished(view, url)
+                                            val phase = phaseState.value
+                                            Log.d(
+                                                "CollegeSync",
+                                                "onPageFinished url=$url phase=$phase"
+                                            )
+
+                                            when {
+                                                // ── LOGIN phase + login page → fill form ──
+                                                phase == ScrapePhase.LOGIN && url.contains("/users/login") -> {
+                                                    statusText = "Filling login form..."
+                                                    phaseState.value = ScrapePhase.LOGIN_INJECTED // Lock to prevent double injection
+
+                                                    val safeEmail = email.replace("\\", "\\\\").replace("'", "\\'")
+                                                    val safePassword = password.replace("\\", "\\\\").replace("'", "\\'")
+                                                    val js = ScraperScripts.buildLoginScript(safeEmail, safePassword)
+                                                    Log.d("CollegeSync", "Injecting login script")
+                                                    view.evaluateJavascript(js, null)
+                                                }
+
+                                                // ── SCRAPING phase + attendance page → scrape ──
+                                                phase == ScrapePhase.SCRAPING && url.contains("/students/current/attendances") -> {
+                                                    statusText = "Extracting data..."
+                                                    phaseState.value = ScrapePhase.EXTRACTING // Lock to prevent double injection
+
+                                                    Log.d("CollegeSync", "Injecting scraping script")
+                                                    view.evaluateJavascript(ScraperScripts.buildScrapingScript(), null)
+                                                }
+
+                                                // ── SCRAPING phase + bounced to login → expired ──
+                                                (phase == ScrapePhase.SCRAPING || phase == ScrapePhase.EXTRACTING) && url.contains("/users/login") -> {
+                                                    coroutineScope.launch(Dispatchers.Main) {
+                                                        statusText = "Session expired — please sync again."
+                                                        phaseState.value = ScrapePhase.IDLE
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
-                                }
 
-                            webViewRef = this
+                                webViewRef = this
+                            }
+                        },
+                        onRelease = { webView ->
+                            webView.removeJavascriptInterface("Android")
+                            webView.destroy()
                         }
+                    )
+                }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = phaseState.value != ScrapePhase.IDLE,
+            enter = fadeIn(animationSpec = tween(600)) + scaleIn(initialScale = 0.92f, animationSpec = tween(400, easing = FastOutSlowInEasing)),
+            exit = fadeOut(animationSpec = tween(400)) + scaleOut(targetScale = 1.05f, animationSpec = tween(300))
+        ) {
+            ScrapingAnimationOverlay(
+                phase = phaseState.value,
+                statusText = statusText,
+                onCancel = {
+                    webViewRef?.stopLoading()
+                    phaseState.value = ScrapePhase.IDLE
+
+                    // ADD THIS NEW LINE RIGHT HERE:
+                    ScrapingEventBus.clearHistory()
+
+                    val stopIntent = Intent(context, CollegeSyncService::class.java).apply {
+                        action = CollegeSyncService.ACTION_STOP
                     }
-                )
+                    context.startService(stopIntent)
+                }
+            )
+        }
+
+        // ── Full-screen Premium 3D Loader Overlay ─────────────────────────
+        AnimatedVisibility(
+            visible = isInitialLoading,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(600))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color(0xFF030712)) // Deep dark space
+                    .pointerInput(Unit) {}, // Block touches
+                contentAlignment = Alignment.Center
+            ) {
+                Cyber3DDataLoader()
             }
         }
     }
@@ -1441,13 +1556,21 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                         }
                         editor.putBoolean("rememberCredentials", rememberCredentials).apply()
 
+                        ScrapingEventBus.clearHistory()
+
                         phaseState.value = ScrapePhase.LOGIN
                         statusText = "Starting login..."
                         Log.d("CollegeSync", "Sync started from bottom sheet")
                         webViewRef?.loadUrl(
                             "https://attendence-system-1910.vercel.app/users/login"
                         )
-                        // Removed the evaluateJavascript line from here to prevent early injection
+                        // ── NEW: Start Foreground Service for background-safe scraping (planets will still spawn via EventBus) ──
+                        val serviceIntent = Intent(context, CollegeSyncService::class.java).apply {
+                            putExtra("EMAIL", email)
+                            putExtra("PASSWORD", password)
+                        }
+                        ContextCompat.startForegroundService(context, serviceIntent)
+                        // Old webView path is kept (no deletion) for immediate foreground feedback
                     },
                     modifier =
                         Modifier.fillMaxWidth()
@@ -1488,333 +1611,14 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
     }
 }
 
-// ─── Login JS ────────────────────────────────────────────────────────────────
-// Simulates keystrokes like Python's send_keys() by dispatching InputEvent
-// with inputType='insertText' which React's onChange handler listens to.
-// This is the KEY difference vs just setting .value + firing Event('input').
-
-private fun buildLoginScript(safeEmail: String, safePassword: String): String =
-    """
-(async function() {
-    try {
-        Android.onProgressUpdate('Looking for login fields...');
-
-        function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
-
-        // Simulate typing character by character — React picks up InputEvent
-        function simulateTyping(input, text) {
-            input.focus();
-            input.value = '';
-            input.dispatchEvent(new Event('focus', { bubbles: true }));
-            
-            // Set value via native setter to bypass React's controlled input
-            var nativeSetter = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'value'
-            ).set;
-            nativeSetter.call(input, text);
-            
-            // Dispatch the events React actually listens to
-            input.dispatchEvent(new InputEvent('input', {
-                bubbles: true, cancelable: true, inputType: 'insertText', data: text
-            }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            input.dispatchEvent(new Event('blur', { bubbles: true }));
-        }
-
-        // Poll for login form fields
-        var waited = 0;
-        while (waited < 20000) {
-            var emailInput = document.querySelector("input[type='email']");
-            var passInput  = document.querySelector("input[type='password']");
-            var submitBtn  = document.querySelector("button[type='submit']");
-
-            if (emailInput && passInput && submitBtn && emailInput.offsetParent !== null) {
-                Android.onProgressUpdate('Filling credentials...');
-                
-                simulateTyping(emailInput, '$safeEmail');
-                await sleep(300);
-                simulateTyping(passInput, '$safePassword');
-                await sleep(500);
-                
-                Android.onProgressUpdate('Clicking login button...');
-                submitBtn.click();
-
-                // Wait for URL to change (login redirect)
-                var urlWait = 0;
-                while (urlWait < 20000) {
-                    if (!window.location.href.includes('/users/login')) {
-                        Android.onLoginSuccess();
-                        return;
-                    }
-                    // Also check for error messages on page
-                    var errorEl = document.querySelector('.error, .alert-danger, [role="alert"]');
-                    if (errorEl && errorEl.innerText && errorEl.innerText.trim().length > 0) {
-                        Android.onError('Login failed: ' + errorEl.innerText.trim());
-                        return;
-                    }
-                    await sleep(500);
-                    urlWait += 500;
-                }
-                Android.onError('Login timed out after 20s — check your credentials.');
-                return;
-            }
-            await sleep(500);
-            waited += 500;
-        }
-        Android.onError('Login form not found within 20 seconds.');
-    } catch (e) {
-        Android.onError('Login error: ' + (e.message || String(e)));
+// ── NEW HELPER: Check if CollegeSyncService is still running (used on app reopen) ──
+private fun isServiceRunning(context: Context, serviceClass: Class<*>): Boolean {
+    val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+    for (service in manager.getRunningServices(Int.MAX_VALUE)) {
+        if (serviceClass.name == service.service.className) return true
     }
-})();
-""".trimIndent()
-
-// ─── Scraping JS ─────────────────────────────────────────────────────────────
-
-private fun buildScrapingScript(): String = """
-(async function() {
-    try {
-        Android.onProgressUpdate('Setting up search parameters...');
-        function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
-
-        async function findLabel(text, maxWait) {
-            maxWait = maxWait || 15000;
-            var t = 0;
-            while (t < maxWait) {
-                var labels = document.querySelectorAll('label');
-                for (var i = 0; i < labels.length; i++) {
-                    if (labels[i].innerText && labels[i].innerText.toLowerCase().includes(text.toLowerCase())) {
-                        return labels[i];
-                    }
-                }
-                await sleep(500);
-                t += 500;
-            }
-            return null;
-        }
-
-        async function selectDropdown(labelText, optionText) {
-            Android.onProgressUpdate('Setting ' + labelText + ' → ' + optionText);
-            var label = await findLabel(labelText);
-            if (!label) throw new Error('Label not found: ' + labelText);
-
-            label.scrollIntoView({ block: 'center' });
-            await sleep(500);
-
-            var box = label.nextElementSibling.querySelector('.dropdown-selected-option')
-                      || label.nextElementSibling;
-
-            var target = null;
-            var retry = 0;
-            
-            while(retry < 5) {
-                box.click();
-                await sleep(1500); 
-
-                var lowerOption = optionText.toLowerCase().trim();
-                var allEls = document.querySelectorAll('*');
-                var visibleMatches = [];
-
-                for (var k = 0; k < allEls.length; k++) {
-                    var el = allEls[k];
-                    if (el.offsetHeight > 0 && el.innerText) {
-                        var elText = el.innerText.trim().toLowerCase();
-                        if (elText === lowerOption && el.children.length === 0) {
-                            visibleMatches.push(el);
-                        }
-                    }
-                }
-
-                if (visibleMatches.length > 0) {
-                    target = visibleMatches[visibleMatches.length - 1];
-                    break;
-                }
-
-                Android.onProgressUpdate('Retrying exact match for ' + optionText + ' (' + (retry+1) + '/5)');
-                box.click(); 
-                await sleep(1000);
-                retry++;
-            }
-
-            if (!target) throw new Error('Option not found or not visible: ' + optionText);
-            Android.onProgressUpdate('Selected: ' + target.innerText.trim());
-            target.click();
-            await sleep(1000);
-        }
-
-        // --- 1. Setup Parameters ---
-        await findLabel('Select Course', 15000);
-        await selectDropdown('Select Course',   'Msc Cs');
-        await selectDropdown('Select Batch',    'MSC CS BATCH 2022-2027');
-        await selectDropdown('Select Division', 'MSC CS BATCH 2022-2027 Div-2');
-        await selectDropdown('Select Semester', 'Sem8');
-
-        // --- 2. Extract Available Subjects ---
-        Android.onProgressUpdate('Getting subjects...');
-        var subjectLabel = await findLabel('Select Subjects');
-        if (!subjectLabel) throw new Error('Subject dropdown label not found');
-
-        var subjectBox = subjectLabel.nextElementSibling.querySelector('.dropdown-selected-option') || subjectLabel.nextElementSibling;
-        subjectBox.click();
-        await sleep(1000);
-
-        var rawText = subjectLabel.nextElementSibling.innerText;
-        var allSubjects = rawText.split('\n')
-            .map(function(s) { return s.trim(); })
-            .filter(function(s) { return s && s.toLowerCase() !== 'none' && !s.toLowerCase().includes('select'); });
-
-        subjectBox.click(); 
-        await sleep(1000);
-
-        Android.onProgressUpdate('Found ' + allSubjects.length + ' subjects to scrape');
-        var masterData = [];
-
-        // Reusable Safe Go Back (Now explicitly pauses the script)
-        async function goBackSafely() {
-            var btns = document.querySelectorAll('button');
-            for (var g = 0; g < btns.length; g++) {
-                if (btns[g].innerText && btns[g].innerText.includes('Go Back')) {
-                    btns[g].click(); break;
-                }
-            }
-            
-            var backWait = 0;
-            while(backWait < 15000) {
-                await sleep(1000);
-                var isFormVisible = Array.from(document.querySelectorAll('button')).some(b => b.innerText && b.innerText.includes('View Attendance'));
-                if (isFormVisible) break;
-                backWait += 1000;
-            }
-            await sleep(1000); // Extra buffer for React rendering
-        }
-
-        // --- 3. Scrape Each Subject ---
-        for (var si = 0; si < allSubjects.length; si++) {
-            var subject = allSubjects[si];
-            if (subject.toLowerCase().includes('web')) {
-                Android.onProgressUpdate('Skipping: ' + subject);
-                continue;
-            }
-
-            Android.onProgressUpdate('Processing: ' + subject + ' (' + (si + 1) + '/' + allSubjects.length + ')');
-            await selectDropdown('Select Subjects', subject);
-
-            var viewBtn = null;
-            var allBtns = document.querySelectorAll('button');
-            for (var b = 0; b < allBtns.length; b++) {
-                if (allBtns[b].innerText && allBtns[b].innerText.includes('View Attendance')) {
-                    viewBtn = allBtns[b]; break;
-                }
-            }
-            if (!viewBtn) continue;
-            viewBtn.click();
-
-            var loadWait = 0;
-            while (loadWait < 15000) {
-                var loadingEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.trim() === 'Loading...');
-                if (!loadingEl) break;
-                await sleep(500);
-                loadWait += 500;
-            }
-            await sleep(1000);
-
-            // Check for empty attendance and securely await transition
-            if (document.body.innerText.includes('There is no attendances found for you')) {
-                Android.onProgressUpdate(subject + ': No attendance data, skipping');
-                await goBackSafely();
-                continue;
-            }
-
-            var totalEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.includes('Total Attendances:'));
-            var matchArr = totalEl ? totalEl.innerText.match(/\d+/) : null;
-            var expectedTotal = matchArr ? parseInt(matchArr[0]) : 0;
-
-            if (expectedTotal === 0) {
-                await goBackSafely();
-                continue;
-            }
-
-            Android.onProgressUpdate(subject + ': Targeting ' + expectedTotal + ' records');
-            var recordsScraped = 0;
-            var pageNumber = 1;
-
-            while (recordsScraped < expectedTotal) {
-                Android.onProgressUpdate(subject + ' — page ' + pageNumber + ' (' + recordsScraped + '/' + expectedTotal + ')');
-
-                var rows = document.querySelectorAll('[class*="bg-green"], [class*="bg-red"]');
-                if (rows.length === 0) break;
-
-                var topRowText = rows[0].innerText;
-
-                for (var ri = 0; ri < rows.length; ri++) {
-                    var row = rows[ri];
-                    try {
-                        var rowHtml = row.outerHTML.toLowerCase();
-                        var rowText = row.innerText;
-
-                        if (rowText.includes('/') && rowText.includes(':')) {
-                            var lines = rowText.replace(/\r/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
-
-                            if (lines.length >= 4) {
-                                var isPresent = rowHtml.includes('bg-green') || rowHtml.includes('rgb(34, 197, 94');
-                                var record = {
-                                    subject:  subject,
-                                    date:     lines[0], 
-                                    fromTime: lines[1], 
-                                    toTime:   lines[2], 
-                                    topic:    lines.slice(3).join(' '), 
-                                    status:   isPresent ? 'Present' : 'Absent'
-                                };
-                                masterData.push(record);
-                                recordsScraped++;
-                            }
-                        }
-                    } catch(rowErr) { } 
-                }
-
-                if (recordsScraped >= expectedTotal) break;
-
-                var pageBtns = document.querySelectorAll('button');
-                var navBtns = [];
-                for (var nb = 0; nb < pageBtns.length; nb++) {
-                    var bText = pageBtns[nb].innerText.toLowerCase().trim();
-                    if (bText !== 'log in' && bText !== 'go back' && !bText.includes('view attendance')) {
-                        navBtns.push(pageBtns[nb]);
-                    }
-                }
-
-                var nextBtn = navBtns.length > 0 ? navBtns[navBtns.length - 1] : null;
-
-                if (!nextBtn || nextBtn.disabled || (nextBtn.className && nextBtn.className.includes('opacity-'))) break;
-
-                nextBtn.click();
-
-                var pw = 0;
-                var pageLoaded = false;
-                while (pw < 15000) {
-                    await sleep(500);
-                    var newRows = document.querySelectorAll('[class*="bg-green"], [class*="bg-red"]');
-                    if (newRows.length > 0 && newRows[0].innerText !== topRowText) {
-                        pageLoaded = true;
-                        break;
-                    }
-                    pw += 500;
-                }
-                if (!pageLoaded) await sleep(2000); 
-                pageNumber++;
-            }
-
-            Android.onProgressUpdate(subject + ': Scraped ' + recordsScraped + ' records');
-            await goBackSafely();
-        }
-
-        Android.onProgressUpdate('Scraping complete! Extracted ' + masterData.length + ' total records.');
-        Android.onDataExtracted(JSON.stringify(masterData));
-
-    } catch (err) {
-        Android.onError(err.message || String(err));
-    }
-})();
-""".trimIndent()
+    return false
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -2613,4 +2417,472 @@ fun addScrapedRecordToApp(
             Toast.makeText(context, e.message ?: "Failed to add to app", Toast.LENGTH_SHORT)
                 .show()
         }
+}
+
+// ─── 3D Premium Loader ───────────────────────────────────────────────────────
+
+@Composable
+fun Cyber3DDataLoader() {
+    val infiniteTransition = rememberInfiniteTransition(label = "cyber_loader_infinite")
+
+    // Smooth time for mathematical rotations
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f, targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing)),
+        label = "time_rot"
+    )
+
+    // Core breathing effect
+    val corePulse by infiniteTransition.animateFloat(
+        initialValue = 0.8f, targetValue = 1.3f,
+        animationSpec = infiniteRepeatable(
+            tween(1500, easing = EaseInOutSine), RepeatMode.Reverse
+        ), label = "core_pulse"
+    )
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(modifier = Modifier.size(240.dp), contentAlignment = Alignment.Center) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val cx = size.width / 2f
+                val cy = size.height / 2f
+                val radius = size.width * 0.35f
+
+                // --- Ambient Glow ---
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        listOf(Color(0xFF06B6D4).copy(alpha = 0.15f * corePulse), Color.Transparent),
+                        center = Offset(cx, cy),
+                        radius = radius * 2f
+                    )
+                )
+
+                // --- 3D Rotating Wireframe Rings ---
+                // Draw 3 primary intersecting rings representing dimensional scanning
+                val rings = 3
+                for (r in 0 until rings) {
+                    val angleOffset = r * (180f / rings)
+                    val currentRot = time + angleOffset
+
+                    val path = androidx.compose.ui.graphics.Path()
+                    val segments = 40
+
+                    for (i in 0..segments) {
+                        val angle = Math.toRadians((i * 360.0) / segments)
+
+                        // Create circle in 3D
+                        val x3d = kotlin.math.cos(angle) * radius
+                        val y3d = kotlin.math.sin(angle) * radius
+                        val z3d = 0.0
+
+                        // Rotate on X axis mapping to the current time rotation
+                        val thX = Math.toRadians((currentRot).toDouble())
+                        val y2 = y3d * kotlin.math.cos(thX) - z3d * kotlin.math.sin(thX)
+                        val z2 = y3d * kotlin.math.sin(thX) + z3d * kotlin.math.cos(thX)
+
+                        // Rotate on Y axis to stagger the rings
+                        val thY = Math.toRadians(angleOffset.toDouble() + (time*0.5))
+                        val x3 = x3d * kotlin.math.cos(thY) + z2 * kotlin.math.sin(thY)
+                        val y3 = y2
+                        val z3 = -x3d * kotlin.math.sin(thY) + z2 * kotlin.math.cos(thY)
+
+                        // Project onto 2D
+                        val scale = 600.0 / (600.0 + z3) // simple perspective
+                        val px = cx + (x3 * scale).toFloat()
+                        val py = cy + (y3 * scale).toFloat()
+
+                        if (i == 0) path.moveTo(px, py)
+                        else path.lineTo(px, py)
+                    }
+
+                    // Style the rings alternating colors
+                    val ringColor = if (r % 2 == 0) Color(0xFF06B6D4) else Color(0xFFA78BFA)
+                    drawPath(
+                        path = path,
+                        color = ringColor.copy(alpha = 0.5f),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = 1.dp.toPx()
+                        )
+                    )
+
+                    // Add spinning data particles along the rings
+                    val pAngle = Math.toRadians(time.toDouble() * (r+1))
+                    val pX3d = kotlin.math.cos(pAngle) * radius
+                    val pY3d = kotlin.math.sin(pAngle) * radius
+                    // Apply same rotation projection...
+                    val pThX = Math.toRadians((currentRot).toDouble())
+                    val pY2 = pY3d * kotlin.math.cos(pThX)
+                    val pZ2 = pY3d * kotlin.math.sin(pThX)
+                    val pThY = Math.toRadians(angleOffset.toDouble() + (time*0.5))
+                    val pX3 = pX3d * kotlin.math.cos(pThY) + pZ2 * kotlin.math.sin(pThY)
+                    val pY3 = pY2
+                    val pZ3 = -pX3d * kotlin.math.sin(pThY) + pZ2 * kotlin.math.cos(pThY)
+                    val pScale = 600.0 / (600.0 + pZ3)
+                    val dpX = cx + (pX3 * pScale).toFloat()
+                    val dpY = cy + (pY3 * pScale).toFloat()
+
+                    drawCircle(
+                        color = Color.White,
+                        radius = 2.dp.toPx() * pScale.toFloat(),
+                        center = Offset(dpX, dpY)
+                    )
+                }
+
+                // --- Core Energy Sphere ---
+                drawCircle(
+                    color = Color(0xFFA78BFA).copy(alpha = 0.8f),
+                    radius = 12.dp.toPx() * corePulse,
+                    center = Offset(cx, cy)
+                )
+                drawCircle(
+                    color = Color.White,
+                    radius = 4.dp.toPx() * corePulse,
+                    center = Offset(cx, cy)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // Digital Loading Text
+        Text(
+            text = "DECRYPTING LOGS...",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF06B6D4),
+            letterSpacing = 4.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = "Synchronizing local and cloud states",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFF94A3B8),
+            letterSpacing = 1.sp
+        )
+    }
+}
+
+// ─── SHARED SCRAPER SCRIPTS ──────────────────────────────────────────────────
+
+object ScraperScripts {
+
+    fun buildLoginScript(safeEmail: String, safePassword: String): String =
+        """
+    (async function() {
+        try {
+            Android.onProgressUpdate('Looking for login fields...');
+
+            function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+            // Simulate typing character by character — React picks up InputEvent
+            function simulateTyping(input, text) {
+                input.focus();
+                input.value = '';
+                input.dispatchEvent(new Event('focus', { bubbles: true }));
+                
+                // Set value via native setter to bypass React's controlled input
+                var nativeSetter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value'
+                ).set;
+                nativeSetter.call(input, text);
+                
+                // Dispatch the events React actually listens to
+                input.dispatchEvent(new InputEvent('input', {
+                    bubbles: true, cancelable: true, inputType: 'insertText', data: text
+                }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.dispatchEvent(new Event('blur', { bubbles: true }));
+            }
+
+            // Poll for login form fields
+            var waited = 0;
+            while (waited < 20000) {
+                var emailInput = document.querySelector("input[type='email']");
+                var passInput  = document.querySelector("input[type='password']");
+                var submitBtn  = document.querySelector("button[type='submit']");
+
+                if (emailInput && passInput && submitBtn && emailInput.offsetParent !== null) {
+                    Android.onProgressUpdate('Filling credentials...');
+                    
+                    simulateTyping(emailInput, '$safeEmail');
+                    await sleep(300);
+                    simulateTyping(passInput, '$safePassword');
+                    await sleep(500);
+                    
+                    Android.onProgressUpdate('Clicking login button...');
+                    submitBtn.click();
+
+                    // Wait for URL to change (login redirect)
+                    var urlWait = 0;
+                    while (urlWait < 20000) {
+                        if (!window.location.href.includes('/users/login')) {
+                            Android.onLoginSuccess();
+                            return;
+                        }
+                        // Also check for error messages on page
+                        var errorEl = document.querySelector('.error, .alert-danger, [role="alert"]');
+                        if (errorEl && errorEl.innerText && errorEl.innerText.trim().length > 0) {
+                            Android.onError('Login failed: ' + errorEl.innerText.trim());
+                            return;
+                        }
+                        await sleep(500);
+                        urlWait += 500;
+                    }
+                    Android.onError('Login timed out after 20s — check your credentials.');
+                    return;
+                }
+                await sleep(500);
+                waited += 500;
+            }
+            Android.onError('Login form not found within 20 seconds.');
+        } catch (e) {
+            Android.onError('Login error: ' + (e.message || String(e)));
+        }
+    })();
+    """.trimIndent()
+
+    fun buildScrapingScript(): String = """
+    (async function() {
+        try {
+            Android.onProgressUpdate('Setting up search parameters...');
+            function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+            async function findLabel(text, maxWait) {
+                maxWait = maxWait || 15000;
+                var t = 0;
+                while (t < maxWait) {
+                    var labels = document.querySelectorAll('label');
+                    for (var i = 0; i < labels.length; i++) {
+                        if (labels[i].innerText && labels[i].innerText.toLowerCase().includes(text.toLowerCase())) {
+                            return labels[i];
+                        }
+                    }
+                    await sleep(500);
+                    t += 500;
+                }
+                return null;
+            }
+
+            async function selectDropdown(labelText, optionText) {
+                Android.onProgressUpdate('Setting ' + labelText + ' → ' + optionText);
+                var label = await findLabel(labelText);
+                if (!label) throw new Error('Label not found: ' + labelText);
+
+                label.scrollIntoView({ block: 'center' });
+                await sleep(500);
+
+                var box = label.nextElementSibling.querySelector('.dropdown-selected-option')
+                          || label.nextElementSibling;
+
+                var target = null;
+                var retry = 0;
+                
+                while(retry < 5) {
+                    box.click();
+                    await sleep(1500); 
+
+                    var lowerOption = optionText.toLowerCase().trim();
+                    var allEls = document.querySelectorAll('*');
+                    var visibleMatches = [];
+
+                    for (var k = 0; k < allEls.length; k++) {
+                        var el = allEls[k];
+                        if (el.offsetHeight > 0 && el.innerText) {
+                            var elText = el.innerText.trim().toLowerCase();
+                            if (elText === lowerOption && el.children.length === 0) {
+                                visibleMatches.push(el);
+                            }
+                        }
+                    }
+
+                    if (visibleMatches.length > 0) {
+                        target = visibleMatches[visibleMatches.length - 1];
+                        break;
+                    }
+
+                    Android.onProgressUpdate('Retrying exact match for ' + optionText + ' (' + (retry+1) + '/5)');
+                    box.click(); 
+                    await sleep(1000);
+                    retry++;
+                }
+
+                if (!target) throw new Error('Option not found or not visible: ' + optionText);
+                Android.onProgressUpdate('Selected: ' + target.innerText.trim());
+                target.click();
+                await sleep(1000);
+            }
+
+            // --- 1. Setup Parameters ---
+            await findLabel('Select Course', 15000);
+            await selectDropdown('Select Course',   'Msc Cs');
+            await selectDropdown('Select Batch',    'MSC CS BATCH 2022-2027');
+            await selectDropdown('Select Division', 'MSC CS BATCH 2022-2027 Div-2');
+            await selectDropdown('Select Semester', 'Sem8');
+
+            // --- 2. Extract Available Subjects ---
+            Android.onProgressUpdate('Getting subjects...');
+            var subjectLabel = await findLabel('Select Subjects');
+            if (!subjectLabel) throw new Error('Subject dropdown label not found');
+
+            var subjectBox = subjectLabel.nextElementSibling.querySelector('.dropdown-selected-option') || subjectLabel.nextElementSibling;
+            subjectBox.click();
+            await sleep(1000);
+
+            var rawText = subjectLabel.nextElementSibling.innerText;
+            var allSubjects = rawText.split('\n')
+                .map(function(s) { return s.trim(); })
+                .filter(function(s) { return s && s.toLowerCase() !== 'none' && !s.toLowerCase().includes('select'); });
+
+            subjectBox.click(); 
+            await sleep(1000);
+
+            Android.onProgressUpdate('Found ' + allSubjects.length + ' subjects to scrape');
+            var masterData = [];
+
+            // Reusable Safe Go Back (Now explicitly pauses the script)
+            async function goBackSafely() {
+                var btns = document.querySelectorAll('button');
+                for (var g = 0; g < btns.length; g++) {
+                    if (btns[g].innerText && btns[g].innerText.includes('Go Back')) {
+                        btns[g].click(); break;
+                    }
+                }
+                
+                var backWait = 0;
+                while(backWait < 15000) {
+                    await sleep(1000);
+                    var isFormVisible = Array.from(document.querySelectorAll('button')).some(b => b.innerText && b.innerText.includes('View Attendance'));
+                    if (isFormVisible) break;
+                    backWait += 1000;
+                }
+                await sleep(1000); // Extra buffer for React rendering
+            }
+
+            // --- 3. Scrape Each Subject ---
+            for (var si = 0; si < allSubjects.length; si++) {
+                var subject = allSubjects[si];
+                if (subject.toLowerCase().includes('web')) {
+                    Android.onProgressUpdate('Skipping: ' + subject);
+                    continue;
+                }
+
+                Android.onProgressUpdate('Processing: ' + subject + ' (' + (si + 1) + '/' + allSubjects.length + ')');
+                await selectDropdown('Select Subjects', subject);
+
+                var viewBtn = null;
+                var allBtns = document.querySelectorAll('button');
+                for (var b = 0; b < allBtns.length; b++) {
+                    if (allBtns[b].innerText && allBtns[b].innerText.includes('View Attendance')) {
+                        viewBtn = allBtns[b]; break;
+                    }
+                }
+                if (!viewBtn) continue;
+                viewBtn.click();
+
+                var loadWait = 0;
+                while (loadWait < 15000) {
+                    var loadingEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.trim() === 'Loading...');
+                    if (!loadingEl) break;
+                    await sleep(500);
+                    loadWait += 500;
+                }
+                await sleep(1000);
+
+                // Check for empty attendance and securely await transition
+                if (document.body.innerText.includes('There is no attendances found for you')) {
+                    Android.onProgressUpdate(subject + ': No attendance data, skipping');
+                    await goBackSafely();
+                    continue;
+                }
+
+                var totalEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.includes('Total Attendances:'));
+                var matchArr = totalEl ? totalEl.innerText.match(/\d+/) : null;
+                var expectedTotal = matchArr ? parseInt(matchArr[0]) : 0;
+
+                if (expectedTotal === 0) {
+                    await goBackSafely();
+                    continue;
+                }
+
+                Android.onProgressUpdate(subject + ': Targeting ' + expectedTotal + ' records');
+                var recordsScraped = 0;
+                var pageNumber = 1;
+
+                while (recordsScraped < expectedTotal) {
+                    Android.onProgressUpdate(subject + ' — page ' + pageNumber + ' (' + recordsScraped + '/' + expectedTotal + ')');
+
+                    var rows = document.querySelectorAll('[class*="bg-green"], [class*="bg-red"]');
+                    if (rows.length === 0) break;
+
+                    var topRowText = rows[0].innerText;
+
+                    for (var ri = 0; ri < rows.length; ri++) {
+                        var row = rows[ri];
+                        try {
+                            var rowHtml = row.outerHTML.toLowerCase();
+                            var rowText = row.innerText;
+
+                            if (rowText.includes('/') && rowText.includes(':')) {
+                                var lines = rowText.replace(/\r/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+
+                                if (lines.length >= 4) {
+                                    var isPresent = rowHtml.includes('bg-green') || rowHtml.includes('rgb(34, 197, 94');
+                                    var record = {
+                                        subject:  subject,
+                                        date:     lines[0], 
+                                        fromTime: lines[1], 
+                                        toTime:   lines[2], 
+                                        topic:    lines.slice(3).join(' '), 
+                                        status:   isPresent ? 'Present' : 'Absent'
+                                    };
+                                    masterData.push(record);
+                                    recordsScraped++;
+                                }
+                            }
+                        } catch(rowErr) { } 
+                    }
+
+                    if (recordsScraped >= expectedTotal) break;
+
+                    var pageBtns = document.querySelectorAll('button');
+                    var navBtns = [];
+                    for (var nb = 0; nb < pageBtns.length; nb++) {
+                        var bText = pageBtns[nb].innerText.toLowerCase().trim();
+                        if (bText !== 'log in' && bText !== 'go back' && !bText.includes('view attendance')) {
+                            navBtns.push(pageBtns[nb]);
+                        }
+                    }
+
+                    var nextBtn = navBtns.length > 0 ? navBtns[navBtns.length - 1] : null;
+
+                    if (!nextBtn || nextBtn.disabled || (nextBtn.className && nextBtn.className.includes('opacity-'))) break;
+
+                    nextBtn.click();
+
+                    var pw = 0;
+                    var pageLoaded = false;
+                    while (pw < 15000) {
+                        await sleep(500);
+                        var newRows = document.querySelectorAll('[class*="bg-green"], [class*="bg-red"]');
+                        if (newRows.length > 0 && newRows[0].innerText !== topRowText) {
+                            pageLoaded = true;
+                            break;
+                        }
+                        pw += 500;
+                    }
+                    if (!pageLoaded) await sleep(2000); 
+                    pageNumber++;
+                }
+
+                Android.onProgressUpdate(subject + ': Scraped ' + recordsScraped + ' records');
+                await goBackSafely();
+            }
+
+            Android.onProgressUpdate('Scraping complete! Extracted ' + masterData.length + ' total records.');
+            Android.onDataExtracted(JSON.stringify(masterData));
+
+        } catch (err) {
+            Android.onError(err.message || String(err));
+        }
+    })();
+    """.trimIndent()
 }

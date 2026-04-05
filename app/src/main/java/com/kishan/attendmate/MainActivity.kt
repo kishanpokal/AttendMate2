@@ -76,6 +76,7 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import com.kishan.attendmate.ui.widget.WidgetSyncScheduler
 
 class MainActivity : ComponentActivity() {
         override fun onCreate(savedInstanceState: Bundle?) {
@@ -104,18 +105,7 @@ class MainActivity : ComponentActivity() {
                 enableEdgeToEdge()
 
                 // Enqueue background work to keep the widget up to date
-                val widgetWorkRequest =
-                        PeriodicWorkRequestBuilder<WidgetUpdateWorker>(
-                                        repeatInterval = 1,
-                                        repeatIntervalTimeUnit = TimeUnit.HOURS
-                                )
-                                .build()
-                WorkManager.getInstance(applicationContext)
-                        .enqueueUniquePeriodicWork(
-                                "widget_update_work",
-                                ExistingPeriodicWorkPolicy.UPDATE,
-                                widgetWorkRequest
-                        )
+                WidgetSyncScheduler.schedulePeriodicUpdate(applicationContext)
                 setContent {
                         AttendMateTheme {
                                 Scaffold(
