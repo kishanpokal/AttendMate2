@@ -35,6 +35,8 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.kishan.attendmate.ui.auth.LoginActivity
 import com.kishan.attendmate.ui.subjects.ManageSubjectsActivity
 import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.ui.theme.SpaceSM
+
 
 class SettingsActivity : ComponentActivity() {
         override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,7 +91,7 @@ private fun SettingsPage() {
         Scaffold(
                 topBar = {
                         TopAppBar(
-                                title = { Text("Settings", fontWeight = FontWeight.Bold) },
+                                title = { Text("Settings", fontWeight = FontWeight.SemiBold) },
                                 navigationIcon = {
                                         IconButton(onClick = { (context as Activity).finish() }) {
                                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
@@ -332,6 +334,13 @@ private fun SettingsPage() {
 
 @Composable
 private fun UserProfileCard(username: String, email: String) {
+        val initials = remember(username) {
+                username.trim().split("\\s+".toRegex())
+                        .filter { it.isNotEmpty() }
+                        .take(2)
+                        .map { it.first().uppercase() }
+                        .joinToString("")
+        }
         Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
@@ -346,17 +355,26 @@ private fun UserProfileCard(username: String, email: String) {
                 ) {
                         Box(
                                 modifier =
-                                        Modifier.size(64.dp)
+                                        Modifier.size(48.dp)
                                                 .clip(CircleShape)
                                                 .background(MaterialTheme.colorScheme.primary),
                                 contentAlignment = Alignment.Center
                         ) {
-                                Icon(
-                                        Icons.Default.AccountCircle,
-                                        null,
-                                        modifier = Modifier.size(40.dp),
-                                        tint = MaterialTheme.colorScheme.onPrimary
-                                )
+                                if (initials.isNotEmpty()) {
+                                        Text(
+                                                text = initials,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                                fontWeight = FontWeight.Medium
+                                        )
+                                } else {
+                                        Icon(
+                                                Icons.Default.Person,
+                                                null,
+                                                modifier = Modifier.size(24.dp),
+                                                tint = MaterialTheme.colorScheme.onPrimary
+                                        )
+                                }
                         }
 
                         Spacer(Modifier.width(16.dp))
@@ -365,7 +383,7 @@ private fun UserProfileCard(username: String, email: String) {
                                 Text(
                                         text = username,
                                         style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
                                         text = email,
@@ -399,7 +417,7 @@ private fun SettingsItem(
                         )
         ) {
                 Row(
-                        modifier = Modifier.padding(16.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = SpaceSM),
                         verticalAlignment = Alignment.CenterVertically
                 ) {
                         Icon(
@@ -430,7 +448,7 @@ private fun SettingsSection(title: String, icon: ImageVector) {
         Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null)
                 Spacer(Modifier.width(8.dp))
-                Text(title, fontWeight = FontWeight.Bold)
+                Text(title, fontWeight = FontWeight.SemiBold)
         }
 }
 

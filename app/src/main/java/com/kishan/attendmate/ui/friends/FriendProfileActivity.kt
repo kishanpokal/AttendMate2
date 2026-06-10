@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.kishan.attendmate.AttendanceColors
+import com.kishan.attendmate.ui.components.StandardEmptyState
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
@@ -793,55 +794,12 @@ fun FriendLectureCard(lecture: FriendLecture) {
 ══════════════════════════════════════════════════════ */
 @Composable
 fun NoLecturesToday() {
-    val float by rememberInfiniteTransition("float").animateFloat(
-        0f, 14f,
-        infiniteRepeatable(tween(2000, easing = EaseInOutCubic), RepeatMode.Reverse), "fl"
+    StandardEmptyState(
+        icon = Icons.Outlined.EventBusy,
+        title = "No Lectures Today",
+        subtitle = "This friend has no recorded attendance for today yet.",
+        modifier = Modifier.fillMaxWidth()
     )
-
-    Card(
-        Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(28.dp),
-            spotColor = MaterialTheme.colorScheme.primary.copy(0.15f)),
-        RoundedCornerShape(28.dp),
-        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Box(
-            Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(
-                MaterialTheme.colorScheme.primaryContainer.copy(0.3f),
-                MaterialTheme.colorScheme.surface
-            )))
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(48.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Box(
-                    Modifier.size(100.dp).offset(y = float.dp)
-                        .shadow(12.dp, CircleShape,
-                            spotColor = MaterialTheme.colorScheme.primary.copy(0.3f))
-                        .clip(CircleShape)
-                        .background(Brush.radialGradient(listOf(
-                            MaterialTheme.colorScheme.primaryContainer,
-                            MaterialTheme.colorScheme.secondaryContainer
-                        ))),
-                    Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Outlined.EventBusy, null,
-                        Modifier.size(50.dp), tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-                Text("No Lectures Today",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onSurface)
-                Text("This friend has no recorded attendance for today yet.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center)
-            }
-        }
-    }
 }
 
 /* ══════════════════════════════════════════════════════

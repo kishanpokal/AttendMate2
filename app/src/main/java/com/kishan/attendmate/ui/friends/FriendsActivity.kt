@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import com.kishan.attendmate.ui.components.StandardEmptyState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -553,40 +554,13 @@ fun FriendsLoadingState() {
 ══════════════════════════════════════════════════════ */
 @Composable
 fun FriendsEmptyState(hasSearch: Boolean) {
-    val pulse by rememberInfiniteTransition("pulse").animateFloat(
-        0.93f, 1.07f,
-        infiniteRepeatable(tween(1800, easing = EaseInOutSine), RepeatMode.Reverse), "ps"
+    StandardEmptyState(
+        icon = if (hasSearch) Icons.Default.SearchOff else Icons.Default.Group,
+        title = if (hasSearch) "No Results Found" else "No Friends Yet",
+        subtitle = if (hasSearch) "Try searching with a different name or email"
+        else "Tap the + button to find and add your first friend",
+        modifier = Modifier.fillMaxSize()
     )
-    Box(Modifier.fillMaxSize(), Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            modifier            = Modifier.padding(40.dp)
-        ) {
-            Box(
-                Modifier.size(96.dp).scale(pulse).clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer),
-                Alignment.Center
-            ) {
-                Icon(
-                    if (hasSearch) Icons.Default.SearchOff else Icons.Default.Group,
-                    null, Modifier.size(46.dp),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-            Text(
-                if (hasSearch) "No Results Found" else "No Friends Yet",
-                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                if (hasSearch) "Try searching with a different name or email"
-                else "Tap the + button to find and add your first friend",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center
-            )
-        }
-    }
 }
 
 /* ══════════════════════════════════════════════════════

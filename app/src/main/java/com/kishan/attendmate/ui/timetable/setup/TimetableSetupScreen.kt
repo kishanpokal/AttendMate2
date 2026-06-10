@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.kishan.attendmate.ui.components.StandardEmptyState
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import androidx.compose.ui.platform.LocalContext
@@ -607,43 +608,12 @@ private fun LectureCard(
 
 @Composable
 private fun EmptyDayView(onAddLecture: () -> Unit) {
-    Card(
+    StandardEmptyState(
+        icon = Icons.Default.EventBusy,
+        title = "No lectures scheduled",
+        subtitle = "Add your first lecture to get started",
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-        ),
-        border = null
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.EventBusy,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                modifier = Modifier.size(48.dp)
-            )
-
-            Text(
-                text = "No lectures scheduled",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Text(
-                text = "Add your first lecture to get started",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
-
-            Spacer(modifier = Modifier.height(4.dp))
-
+        action = {
             FilledTonalButton(
                 onClick = onAddLecture,
                 shape = RoundedCornerShape(12.dp)
@@ -653,5 +623,5 @@ private fun EmptyDayView(onAddLecture: () -> Unit) {
                 Text("Add Lecture")
             }
         }
-    }
+    )
 }

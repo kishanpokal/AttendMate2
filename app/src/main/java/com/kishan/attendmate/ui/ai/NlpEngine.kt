@@ -42,6 +42,15 @@ object NlpEngine {
         COMPARE_SUBJECTS, MONTHLY_REPORT, SUBJECT_SKIP_CALC,
         GET_STREAK, GET_BEST_SUBJECT, GET_WORST_SUBJECT,
         EXAM_MODE_CHECK, CLARIFY,
+        // ── Navigation intents ──
+        NAVIGATE_ANALYTICS,
+        NAVIGATE_SETTINGS,
+        NAVIGATE_TIMETABLE_SETUP,
+        NAVIGATE_FRIENDS,
+        NAVIGATE_MANAGE_SUBJECTS,
+        NAVIGATE_COLLEGE_SYNC,
+        NAVIGATE_ADD_ATTENDANCE,
+        NAVIGATE_HOME,
         COLLEGE_ATTENDANCE,
         UNKNOWN
     }
@@ -204,7 +213,19 @@ object NlpEngine {
         "exam" to "exam", "debarred" to "exam", "eligible" to "exam",
         "detained" to "exam",
         "college" to "clg", "portal" to "clg", "system" to "clg", "sync" to "clg",
-        "mismatch" to "mismatch", "mismatched" to "mismatch", "mismatches" to "mismatch"
+        "mismatch" to "mismatch", "mismatched" to "mismatch", "mismatches" to "mismatch",
+        // Navigation
+        "open" to "navigate", "goto" to "navigate",
+        "page" to "screen", "section" to "screen",
+        "view" to "show",
+        "stats" to "statistics", "graph" to "chart",
+        "report" to "analytics",
+        "portal" to "college",
+        "manage" to "edit", "modify" to "edit", "update" to "edit",
+        "configure" to "settings", "setup" to "edit", "profile" to "settings",
+        "mates" to "friends", "buddy" to "friends", "buddies" to "friends",
+        "classes" to "subjects", "course" to "subject", "courses" to "subjects",
+        "record" to "attendance", "log" to "attendance", "entry" to "attendance"
     )
 
     private fun synonymExpand(word: String): String = SYNONYMS[word] ?: word
@@ -432,7 +453,91 @@ object NlpEngine {
             Signal("allowed exam", 0.9f), Signal("pass semester", 0.7f),
             Signal("debar", 0.9f)
         ),
-        
+
+        // ── Navigation intents ──
+
+        NlpIntent.NAVIGATE_ANALYTICS to listOf(
+            Signal("open analytics", 1f), Signal("go to analytics", 1f),
+            Signal("analytics screen", 1f), Signal("show analytics page", 1f),
+            Signal("statistics page", 1f), Signal("charts page", 1f),
+            Signal("open charts", 1f), Signal("view analytics", 1f),
+            Signal("navigate to analytics", 1f), Signal("take me to analytics", 1f),
+            Signal("show me analytics", 1f),
+            Signal("analytics", 0.7f), Signal("statistics", 0.7f),
+            Signal("charts", 0.7f)
+        ),
+
+        NlpIntent.NAVIGATE_SETTINGS to listOf(
+            Signal("open settings", 1f), Signal("go to settings", 1f),
+            Signal("settings screen", 1f), Signal("preferences", 1f),
+            Signal("account settings", 1f), Signal("profile settings", 1f),
+            Signal("app settings", 1f),
+            Signal("navigate to settings", 1f), Signal("take me to settings", 1f),
+            Signal("show me settings", 1f),
+            Signal("settings", 0.7f), Signal("preferences", 0.7f)
+        ),
+
+        NlpIntent.NAVIGATE_TIMETABLE_SETUP to listOf(
+            Signal("edit timetable", 1f), Signal("setup timetable", 1f),
+            Signal("manage timetable", 1f), Signal("change timetable", 1f),
+            Signal("timetable setup", 1f), Signal("edit schedule", 1f),
+            Signal("modify schedule", 1f), Signal("change schedule", 1f),
+            Signal("update timetable", 1f),
+            Signal("navigate to timetable setup", 1f), Signal("take me to timetable setup", 1f),
+            Signal("open timetable setup", 1f), Signal("show me timetable setup", 1f),
+            Signal("timetable", 0.7f), Signal("schedule", 0.7f)
+        ),
+
+        NlpIntent.NAVIGATE_FRIENDS to listOf(
+            Signal("open friends", 1f), Signal("go to friends", 1f),
+            Signal("friend list", 1f), Signal("my friends", 1f),
+            Signal("see friends", 1f), Signal("friends page", 1f),
+            Signal("friend screen", 1f), Signal("show friends", 1f),
+            Signal("navigate to friends", 1f), Signal("take me to friends", 1f),
+            Signal("show me friends", 1f),
+            Signal("friends", 0.7f)
+        ),
+
+        NlpIntent.NAVIGATE_MANAGE_SUBJECTS to listOf(
+            Signal("manage subjects", 1f), Signal("edit subjects", 1f),
+            Signal("add subject", 1f), Signal("remove subject", 1f),
+            Signal("my subjects", 1f), Signal("subject list", 1f),
+            Signal("manage classes", 1f), Signal("subjects page", 1f),
+            Signal("open subjects", 1f),
+            Signal("navigate to subjects", 1f), Signal("take me to subjects", 1f),
+            Signal("show me subjects", 1f),
+            Signal("subjects", 0.7f)
+        ),
+
+        NlpIntent.NAVIGATE_COLLEGE_SYNC to listOf(
+            Signal("college sync", 1f), Signal("sync attendance", 1f),
+            Signal("sync college", 1f), Signal("open college sync", 1f),
+            Signal("portal sync", 1f), Signal("college portal", 1f),
+            Signal("sync portal", 1f), Signal("sync data", 1f),
+            Signal("navigate to college sync", 1f), Signal("take me to college sync", 1f),
+            Signal("show me college sync", 1f),
+            Signal("sync", 0.7f), Signal("portal", 0.7f)
+        ),
+
+        NlpIntent.NAVIGATE_ADD_ATTENDANCE to listOf(
+            Signal("add attendance", 1f), Signal("record attendance", 1f),
+            Signal("log attendance", 1f), Signal("enter attendance", 1f),
+            Signal("new attendance record", 1f), Signal("add record", 1f),
+            Signal("navigate to add attendance", 1f), Signal("take me to add attendance", 1f),
+            Signal("open add attendance", 1f), Signal("show me add attendance", 1f),
+            Signal("attendance", 0.7f)
+        ),
+
+        NlpIntent.NAVIGATE_HOME to listOf(
+            Signal("go home", 1f), Signal("main screen", 1f),
+            Signal("dashboard", 1f), Signal("go back home", 1f),
+            Signal("home screen", 1f), Signal("home page", 1f),
+            Signal("main page", 1f), Signal("open home", 1f),
+            Signal("navigate to home", 1f), Signal("take me to home", 1f),
+            Signal("show me home", 1f),
+            Signal("home", 0.7f), Signal("dashboard", 0.7f)
+        ),
+
         NlpIntent.COLLEGE_ATTENDANCE to listOf(
             Signal("clg", 0.9f), Signal("mismatch", 0.9f),
             Signal("college attendance", 1f), Signal("my attendance in clg", 1f),
@@ -595,6 +700,9 @@ object NlpEngine {
         NlpIntent.GET_STREAK, NlpIntent.GET_BEST_SUBJECT, NlpIntent.GET_WORST_SUBJECT,
         NlpIntent.EXAM_MODE_CHECK -> 5
         NlpIntent.STUDY_TIPS, NlpIntent.MOTIVATION, NlpIntent.GOAL_SETTING -> 6
+        NlpIntent.NAVIGATE_ANALYTICS, NlpIntent.NAVIGATE_SETTINGS, NlpIntent.NAVIGATE_TIMETABLE_SETUP,
+        NlpIntent.NAVIGATE_FRIENDS, NlpIntent.NAVIGATE_MANAGE_SUBJECTS, NlpIntent.NAVIGATE_COLLEGE_SYNC,
+        NlpIntent.NAVIGATE_ADD_ATTENDANCE, NlpIntent.NAVIGATE_HOME -> 7
         else -> 0
     }
 

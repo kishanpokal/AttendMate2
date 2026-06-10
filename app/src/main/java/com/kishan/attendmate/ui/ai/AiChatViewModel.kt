@@ -18,8 +18,10 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -34,6 +36,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _uiState = MutableStateFlow<AiChatUiState>(AiChatUiState.Initial)
     val uiState: StateFlow<AiChatUiState> = _uiState.asStateFlow()
+
+    private val _navigationEvent = MutableSharedFlow<NavigationTarget>()
+    val navigationEvent = _navigationEvent.asSharedFlow()
 
     val messages = mutableStateListOf<ChatMessage>()
 
@@ -100,6 +105,9 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             Intent.GET_BEST_SUBJECT  -> listOf("Worst subject", "Show my trend", "Weekly summary", "Motivate me")
             Intent.GET_WORST_SUBJECT -> listOf("Best subject", "Study tips", "Predict my attendance", "Skip budget")
             Intent.EXAM_MODE_CHECK   -> listOf("Study tips", "Predict my attendance", "Show my attendance", "Motivate me")
+            Intent.NAVIGATE_ANALYTICS, Intent.NAVIGATE_SETTINGS, Intent.NAVIGATE_TIMETABLE_SETUP,
+            Intent.NAVIGATE_FRIENDS, Intent.NAVIGATE_MANAGE_SUBJECTS, Intent.NAVIGATE_COLLEGE_SYNC,
+            Intent.NAVIGATE_ADD_ATTENDANCE, Intent.NAVIGATE_HOME -> getTimeBasedSuggestions()
             else                     -> getTimeBasedSuggestions()
         }
     }
@@ -115,7 +123,11 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         MOTIVATION, TREND_ANALYSIS, PATTERN_ANALYSIS, SMART_QA,
         COMPARE_SUBJECTS, MONTHLY_REPORT, SUBJECT_SKIP_CALC,
         GET_STREAK, GET_BEST_SUBJECT, GET_WORST_SUBJECT,
-        EXAM_MODE_CHECK, CLARIFY, COLLEGE_ATTENDANCE, UNKNOWN
+        EXAM_MODE_CHECK, CLARIFY, COLLEGE_ATTENDANCE,
+        NAVIGATE_ANALYTICS, NAVIGATE_SETTINGS, NAVIGATE_TIMETABLE_SETUP,
+        NAVIGATE_FRIENDS, NAVIGATE_MANAGE_SUBJECTS, NAVIGATE_COLLEGE_SYNC,
+        NAVIGATE_ADD_ATTENDANCE, NAVIGATE_HOME,
+        UNKNOWN
     }
 
     private fun nlpToLegacy(nlp: NlpEngine.NlpIntent): Intent = when (nlp) {
@@ -148,6 +160,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
         NlpEngine.NlpIntent.GET_WORST_SUBJECT -> Intent.GET_WORST_SUBJECT
         NlpEngine.NlpIntent.EXAM_MODE_CHECK -> Intent.EXAM_MODE_CHECK
         NlpEngine.NlpIntent.COLLEGE_ATTENDANCE -> Intent.COLLEGE_ATTENDANCE
+        NlpEngine.NlpIntent.NAVIGATE_ANALYTICS -> Intent.NAVIGATE_ANALYTICS
+        NlpEngine.NlpIntent.NAVIGATE_SETTINGS -> Intent.NAVIGATE_SETTINGS
+        NlpEngine.NlpIntent.NAVIGATE_TIMETABLE_SETUP -> Intent.NAVIGATE_TIMETABLE_SETUP
+        NlpEngine.NlpIntent.NAVIGATE_FRIENDS -> Intent.NAVIGATE_FRIENDS
+        NlpEngine.NlpIntent.NAVIGATE_MANAGE_SUBJECTS -> Intent.NAVIGATE_MANAGE_SUBJECTS
+        NlpEngine.NlpIntent.NAVIGATE_COLLEGE_SYNC -> Intent.NAVIGATE_COLLEGE_SYNC
+        NlpEngine.NlpIntent.NAVIGATE_ADD_ATTENDANCE -> Intent.NAVIGATE_ADD_ATTENDANCE
+        NlpEngine.NlpIntent.NAVIGATE_HOME -> Intent.NAVIGATE_HOME
         NlpEngine.NlpIntent.CLARIFY -> Intent.CLARIFY
         NlpEngine.NlpIntent.UNKNOWN -> Intent.UNKNOWN
     }
@@ -258,6 +278,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
                     Intent.GET_WORST_SUBJECT    -> handleGetWorstSubject(userId, subjects)
                     Intent.EXAM_MODE_CHECK      -> handleExamModeCheck(userId, subjects)
                     Intent.COLLEGE_ATTENDANCE   -> handleCollegeAttendance(userId)
+                    Intent.NAVIGATE_ANALYTICS -> handleNavigate(NavigationTarget.Analytics, "Analytics", "📊")
+                    Intent.NAVIGATE_SETTINGS -> handleNavigate(NavigationTarget.Settings, "Settings", "⚙️")
+                    Intent.NAVIGATE_TIMETABLE_SETUP -> handleNavigate(NavigationTarget.TimetableSetup, "Timetable Setup", "🗓️")
+                    Intent.NAVIGATE_FRIENDS -> handleNavigate(NavigationTarget.Friends, "Friends", "👥")
+                    Intent.NAVIGATE_MANAGE_SUBJECTS -> handleNavigate(NavigationTarget.ManageSubjects, "Manage Subjects", "📚")
+                    Intent.NAVIGATE_COLLEGE_SYNC -> handleNavigate(NavigationTarget.CollegeSync, "College Sync", "🔄")
+                    Intent.NAVIGATE_ADD_ATTENDANCE -> handleNavigate(NavigationTarget.AddAttendance, "Add Attendance", "✏️")
+                    Intent.NAVIGATE_HOME -> handleNavigate(NavigationTarget.Home, "Home", "🏠")
                     Intent.CLARIFY              -> handleUnknown(userId, userMessage)
                     Intent.UNKNOWN              -> handleUnknown(userId, userMessage)
                 }
@@ -1428,6 +1456,53 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
+        // NEW: Try to fetch overall attendance and give a contextual response
+        try {
+            if (subjects.isNotEmpty()) {
+                var totalAll = 0; var attendedAll = 0
+                var bestName = ""; var bestPct = -1
+                var worstName = ""; var worstPct = 101
+                val atRisk = mutableListOf<Pair<String, Int>>()
+
+                for ((id, name) in subjects) {
+                    val doc = db.collection("users").document(userId)
+                        .collection("subjects").document(id).get().await()
+                    val total = doc.getLong("totalClasses")?.toInt() ?: 0
+                    val attended = doc.getLong("attendedClasses")?.toInt() ?: 0
+                    val pct = if (total > 0) (attended * 100f / total).toInt() else 0
+                    totalAll += total; attendedAll += attended
+                    if (pct > bestPct) { bestPct = pct; bestName = name }
+                    if (pct < worstPct && total > 0) { worstPct = pct; worstName = name }
+                    if (pct < 75 && total > 0) {
+                        val needed = kotlin.math.ceil((0.75 * total - attended) / 0.25).toInt()
+                        atRisk.add(name to needed)
+                    }
+                }
+
+                val overallPct = if (totalAll > 0) (attendedAll * 100f / totalAll).toInt() else 0
+
+                if (totalAll > 0) {
+                    val sb = StringBuilder("🤔 I'm not sure what you mean, but here's what I can tell you about your attendance:\n\n")
+                    sb.append("📊 **Overall**: $overallPct% ($attendedAll/$totalAll classes)\n")
+                    if (bestName.isNotEmpty()) sb.append("🏆 **Best**: $bestName ($bestPct%)\n")
+                    if (atRisk.isNotEmpty()) {
+                        for ((name, needed) in atRisk) {
+                            sb.append("⚠️ **Needs attention**: $name — need $needed more classes for 75%\n")
+                        }
+                    }
+                    sb.append("\nHere are some things you can ask me:\n")
+                    sb.append("• \"Show my attendance\" — Full breakdown\n")
+                    sb.append("• \"Predict my attendance\" — Forecast\n")
+                    sb.append("• \"Study tips\" — Personalized advice\n")
+                    sb.append("• \"Open analytics\" — Navigate to analytics")
+                    reply(sb.toString())
+                    return
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("AiChat", "Error fetching fallback attendance data", e)
+        }
+
         reply("🤔 I didn't quite understand that. Here's what I can do:\n\n" +
               "📊 \"Show my attendance\" — Stats\n" +
               "📈 \"Predict my attendance\" — AI Forecast\n" +
@@ -1439,6 +1514,14 @@ class AiChatViewModel(application: Application) : AndroidViewModel(application) 
               "🎯 \"Set goal 85%\" — Goal Setting\n" +
               "❓ \"Why is 75% important?\" — Q&A\n" +
               "✏️ \"Mark Present\" — Actions")
+    }
+
+    private fun handleNavigate(target: NavigationTarget, screenName: String, emoji: String) {
+        reply("$emoji Opening **$screenName**...")
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(500) // Brief delay so user sees the message
+            _navigationEvent.emit(target)
+        }
     }
 
     private suspend fun handleCompareSubjects(userId: String, entities: NlpEngine.ExtractedEntities, subjects: Map<String, String>) {

@@ -2,6 +2,7 @@ package com.kishan.attendmate.ui.ai
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -11,6 +12,16 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import com.kishan.attendmate.MainActivity
+import com.kishan.attendmate.ui.analytics.AnalyticsActivity
+import com.kishan.attendmate.ui.settings.SettingsActivity
+import com.kishan.attendmate.ui.settings.CollegeSyncActivity
+import com.kishan.attendmate.ui.timetable.setup.TimetableSetupActivity
+import com.kishan.attendmate.ui.friends.FriendsActivity
+import com.kishan.attendmate.ui.subjects.ManageSubjectsActivity
+import com.kishan.attendmate.ui.attendance.AddAttendanceActivity
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.Canvas
@@ -51,6 +62,20 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.firebase.auth.FirebaseAuth
 import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.ui.theme.SuccessColor
+import com.kishan.attendmate.ui.theme.WarningColor
+import com.kishan.attendmate.ui.theme.DangerColor
+import com.kishan.attendmate.ui.theme.SpaceXXS
+import com.kishan.attendmate.ui.theme.SpaceXS
+import com.kishan.attendmate.ui.theme.SpaceSM
+import com.kishan.attendmate.ui.theme.SpaceMD
+import com.kishan.attendmate.ui.theme.SpaceLG
+import com.kishan.attendmate.ui.theme.RadiusSM
+import com.kishan.attendmate.ui.theme.RadiusMD
+import com.kishan.attendmate.ui.theme.RadiusLG
+import com.kishan.attendmate.ui.theme.RadiusXL
+import com.kishan.attendmate.ui.theme.ElevationLow
+import com.kishan.attendmate.ui.theme.CardStyle
 import kotlinx.coroutines.delay
 import kotlin.math.ceil
 
@@ -61,6 +86,23 @@ class AiChatActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        lifecycleScope.launch {
+            viewModel.navigationEvent.collect { target ->
+                val navIntent = when (target) {
+                    is NavigationTarget.Home -> Intent(this@AiChatActivity, MainActivity::class.java)
+                    is NavigationTarget.Analytics -> Intent(this@AiChatActivity, AnalyticsActivity::class.java)
+                    is NavigationTarget.Settings -> Intent(this@AiChatActivity, SettingsActivity::class.java)
+                    is NavigationTarget.TimetableSetup -> Intent(this@AiChatActivity, TimetableSetupActivity::class.java)
+                    is NavigationTarget.Friends -> Intent(this@AiChatActivity, FriendsActivity::class.java)
+                    is NavigationTarget.ManageSubjects -> Intent(this@AiChatActivity, ManageSubjectsActivity::class.java)
+                    is NavigationTarget.CollegeSync -> Intent(this@AiChatActivity, CollegeSyncActivity::class.java)
+                    is NavigationTarget.AddAttendance -> Intent(this@AiChatActivity, AddAttendanceActivity::class.java)
+                }
+                startActivity(navIntent)
+            }
+        }
+
         setContent {
             AttendMateTheme {
                 AiChatScreen(viewModel = viewModel, onNavigateBack = { finish() })
@@ -104,15 +146,11 @@ fun AiChatScreen(viewModel: AiChatViewModel, onNavigateBack: () -> Unit) {
         prevSize.intValue = messages.size
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color(0xFF0A0A0F))) {
-        AnimatedMeshBackground() // ── Gen-Z Animated Background ──
-
+    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
 
             // ── Premium Header ──────────────────────────────────────
             PremiumChatHeader(
-                primaryColor   = primaryColor,
-                secondaryColor = secondaryColor,
                 onNavigateBack = onNavigateBack
             )
 
@@ -192,8 +230,8 @@ fun AiChatScreen(viewModel: AiChatViewModel, onNavigateBack: () -> Unit) {
                 )
             }
 
-            // ── Glassmorphism Input Bar ────────────────────────────
-            GlassInputBar(
+            // ── Input Bar ────────────────────────────
+            ModernInputBar(
                 inputText  = inputText,
                 isLoading  = uiState is AiChatUiState.Loading,
                 onTextChange = { inputText = it },
@@ -210,90 +248,23 @@ fun AiChatScreen(viewModel: AiChatViewModel, onNavigateBack: () -> Unit) {
 }
 
 /* ──────────────────────────────────────────
-   Animated Mesh Background
-────────────────────────────────────────── */
-
-@Composable
-private fun AnimatedMeshBackground() {
-    val infiniteTransition = rememberInfiniteTransition(label = "mesh")
-    val offset1 by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(20000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "off1"
-    )
-    val offset2 by infiniteTransition.animateFloat(
-        initialValue = 1f, targetValue = 0f,
-        animationSpec = infiniteRepeatable(tween(25000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "off2"
-    )
-
-    // Gen-Z Neon Blobs
-    val blob1 = Color(0xFFA855F7).copy(alpha = 0.15f) // Purple
-    val blob2 = Color(0xFF06B6D4).copy(alpha = 0.12f) // Cyan
-    val blob3 = Color(0xFFD946EF).copy(alpha = 0.15f) // Pink
-
-    Canvas(modifier = Modifier.fillMaxSize().blur(80.dp)) {
-        val w = size.width
-        val h = size.height
-        
-        // Base dark
-        drawRect(Color(0xFF0A0A0F))
-
-        drawCircle(
-            brush = Brush.radialGradient(listOf(blob1, Color.Transparent)),
-            radius = w * 0.9f,
-            center = Offset(w * offset1, h * 0.2f)
-        )
-        drawCircle(
-            brush = Brush.radialGradient(listOf(blob2, Color.Transparent)),
-            radius = w * 1.1f,
-            center = Offset(w * 0.8f, h * offset2)
-        )
-        drawCircle(
-            brush = Brush.radialGradient(listOf(blob3, Color.Transparent)),
-            radius = w * 0.8f,
-            center = Offset(w * (1 - offset1), h * 0.8f)
-        )
-    }
-}
-
-/* ──────────────────────────────────────────
    Premium Header
 ────────────────────────────────────────── */
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PremiumChatHeader(
-    primaryColor: Color,
-    secondaryColor: Color,
     onNavigateBack: () -> Unit
 ) {
-    // Animated glow pulse
-    val infiniteTransition = rememberInfiniteTransition(label = "header_glow")
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f, targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation    = tween(2000, easing = FastOutSlowInEasing),
-            repeatMode   = RepeatMode.Reverse
-        ), label = "glow_alpha"
-    )
-
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(
-                        primaryColor.copy(alpha = 0.95f),
-                        secondaryColor.copy(alpha = 0.85f)
-                    )
-                )
-            )
-            .statusBarsPadding()
+    Surface(
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .statusBarsPadding()
                 .padding(horizontal = 8.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -302,49 +273,37 @@ private fun PremiumChatHeader(
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = Color.White
+                    tint = MaterialTheme.colorScheme.onPrimary
                 )
             }
 
             Spacer(Modifier.width(4.dp))
 
-            // AI Avatar with glow ring
+            // AI Avatar (no glow ring, just simple circle)
             Box(contentAlignment = Alignment.Center) {
-                // Glow ring
-                Box(
-                    modifier = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = glowAlpha * 0.3f))
-                )
                 // Avatar circle
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(40.dp)
                         .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(Color.White.copy(alpha = 0.3f), Color.Transparent)
-                            )
-                        )
-                        .border(1.5.dp, Color.White.copy(alpha = 0.6f), CircleShape),
+                        .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         Icons.Filled.AutoAwesome,
                         contentDescription = "AI",
-                        tint     = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        tint     = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
                 // Online dot
                 Box(
                     modifier = Modifier
-                        .size(12.dp)
+                        .size(10.dp)
                         .align(Alignment.BottomEnd)
                         .clip(CircleShape)
-                        .background(Color(0xFF4CAF50))
-                        .border(2.dp, Color.White, CircleShape)
+                        .background(SuccessColor)
+                        .border(1.5.dp, MaterialTheme.colorScheme.primary, CircleShape)
                 )
             }
 
@@ -353,36 +312,36 @@ private fun PremiumChatHeader(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text  = "AttendMate AI",
-                    color = Color.White,
+                    color = MaterialTheme.colorScheme.onPrimary,
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.SemiBold
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     Box(
                         modifier = Modifier
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF4CAF50))
+                            .background(SuccessColor)
                     )
                     Text(
                         text  = "Always available for help",
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.75f),
                         style = MaterialTheme.typography.labelSmall
                     )
                 }
             }
 
-            // AI Sparkle Badge
+            // AI Badge
             Surface(
-                shape  = RoundedCornerShape(8.dp),
-                color  = Color.White.copy(alpha = 0.2f),
+                shape  = RoundedCornerShape(4.dp),
+                color  = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f),
                 modifier = Modifier.padding(end = 8.dp)
             ) {
                 Text(
-                    text     = "✨ AI",
-                    color    = Color.White,
+                    text     = "AI",
+                    color    = MaterialTheme.colorScheme.onPrimary,
                     style    = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Medium,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                 )
             }
@@ -495,17 +454,13 @@ fun MessageBubble(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(primaryColor, primaryColor.copy(alpha = 0.7f))
-                                        )
-                                    ),
+                                    .background(MaterialTheme.colorScheme.primaryContainer),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     Icons.Filled.AutoAwesome,
                                     contentDescription = null,
-                                    tint     = Color.White,
+                                    tint     = MaterialTheme.colorScheme.onPrimaryContainer,
                                     modifier = Modifier.size(14.dp)
                                 )
                             }
@@ -522,21 +477,15 @@ fun MessageBubble(
 
 @Composable
 private fun UserTextBubble(message: ChatMessage) {
-    val primaryColor = MaterialTheme.colorScheme.primary
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp))
-            .background(
-                Brush.linearGradient(
-                    colors = listOf(primaryColor, primaryColor.copy(0.85f)),
-                    start  = Offset(0f, 0f), end = Offset(300f, 0f)
-                )
-            )
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(RadiusXL, RadiusXL, RadiusSM, RadiusXL))
+            .background(MaterialTheme.colorScheme.primary)
+            .padding(horizontal = SpaceMD, vertical = SpaceSM)
     ) {
         Text(
             text  = message.text,
-            color = Color.White,
+            color = MaterialTheme.colorScheme.onPrimary,
             style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 22.sp)
         )
     }
@@ -564,9 +513,9 @@ private fun BotTextBubble(message: ChatMessage, shouldAnimate: Boolean) {
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(4.dp, 20.dp, 20.dp, 20.dp))
-            .background(surfaceVariant.copy(alpha = 0.85f))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(RadiusSM, RadiusXL, RadiusXL, RadiusXL))
+            .background(surfaceVariant)
+            .padding(horizontal = SpaceMD, vertical = SpaceSM)
     ) {
         Text(
             text  = parseMarkdown(displayedText),
@@ -586,14 +535,15 @@ private fun AttendanceCard(message: ChatMessage) {
     val primary = MaterialTheme.colorScheme.primary
 
     Surface(
-        shape         = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
-        color         = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-        shadowElevation = 4.dp,
+        shape         = RoundedCornerShape(RadiusSM, RadiusLG, RadiusLG, RadiusLG),
+        color         = MaterialTheme.colorScheme.surface,
+        border        = CardStyle.border(),
+        shadowElevation = ElevationLow,
         modifier      = Modifier.widthIn(max = 300.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(SpaceMD), verticalArrangement = Arrangement.spacedBy(SpaceSM)) {
             // Header
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpaceXS)) {
                 Icon(Icons.Filled.School, null, tint = primary, modifier = Modifier.size(18.dp))
                 Text("Attendance Summary", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = primary)
             }
@@ -610,7 +560,7 @@ private fun AttendanceCard(message: ChatMessage) {
                 Text(
                     text  = parseMarkdown(message.text),
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -620,7 +570,7 @@ private fun AttendanceCard(message: ChatMessage) {
 @Composable
 private fun AttendanceSubjectRow(subject: SubjectAttendanceData) {
     val pct     = subject.percentage
-    val color   = when { pct >= 75 -> Color(0xFF4CAF50); pct >= 60 -> Color(0xFFFF9800); else -> Color(0xFFF44336) }
+    val color   = when { pct >= 75 -> SuccessColor; pct >= 60 -> WarningColor; else -> DangerColor }
     val onSurface = MaterialTheme.colorScheme.onSurfaceVariant
 
     Row(
@@ -680,9 +630,10 @@ private fun TimetableCard(message: ChatMessage) {
     val primary = MaterialTheme.colorScheme.primary
 
     Surface(
-        shape         = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
-        color         = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-        shadowElevation = 4.dp,
+        shape         = RoundedCornerShape(RadiusSM, RadiusLG, RadiusLG, RadiusLG),
+        color         = MaterialTheme.colorScheme.surface,
+        border        = CardStyle.border(),
+        shadowElevation = ElevationLow,
         modifier      = Modifier.widthIn(max = 300.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -736,7 +687,7 @@ private fun TimetableSlotRow(slot: TimetableSlot) {
         }
 
         if (ongoing) {
-            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(Color(0xFF4CAF50)))
+            Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(SuccessColor))
         }
     }
 }
@@ -745,27 +696,28 @@ private fun TimetableSlotRow(slot: TimetableSlot) {
 private fun AnalysisCard(message: ChatMessage) {
     val data    = message.analysisData ?: return
     val primary = MaterialTheme.colorScheme.primary
-    val overallColor = when { data.overallPct >= 75 -> Color(0xFF4CAF50); data.overallPct >= 60 -> Color(0xFFFF9800); else -> Color(0xFFF44336) }
+    val overallColor = when { data.overallPct >= 75 -> SuccessColor; data.overallPct >= 60 -> WarningColor; else -> DangerColor }
 
     Surface(
-        shape         = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
-        color         = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-        shadowElevation = 6.dp,
+        shape         = RoundedCornerShape(RadiusSM, RadiusLG, RadiusLG, RadiusLG),
+        color         = MaterialTheme.colorScheme.surface,
+        border        = CardStyle.border(),
+        shadowElevation = ElevationLow,
         modifier      = Modifier.widthIn(max = 320.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(modifier = Modifier.padding(SpaceMD), verticalArrangement = Arrangement.spacedBy(SpaceSM)) {
             // Title
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpaceXS)) {
                 Icon(Icons.Filled.Insights, null, tint = primary, modifier = Modifier.size(18.dp))
-                Text("Attendance Analysis", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleSmall, color = primary)
+                Text("Attendance Analysis", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = primary)
             }
             HorizontalDivider(color = primary.copy(0.15f))
 
             // Overall ring + stats
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpaceMD)) {
                 Box(modifier = Modifier.size(72.dp), contentAlignment = Alignment.Center) {
                     CircularProgressRing(data.overallPct / 100f, overallColor)
-                    Text("${data.overallPct}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold, color = overallColor)
+                    Text("${data.overallPct}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = overallColor)
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("Overall Attendance", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f))
@@ -779,17 +731,17 @@ private fun AnalysisCard(message: ChatMessage) {
 
             // At risk subjects
             if (data.atRisk.isNotEmpty()) {
-                HorizontalDivider(color = Color(0xFFF44336).copy(0.2f))
-                Text("⚠️ Subjects at Risk", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFF44336))
+                HorizontalDivider(color = DangerColor.copy(0.2f))
+                Text("⚠️ Subjects at Risk", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = DangerColor)
                 data.atRisk.forEach { s ->
                     val needed = ceil((0.75 * s.total - s.attended) / 0.25).toInt().coerceAtLeast(0)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(s.name, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text("${s.percentage}% · need $needed more", style = MaterialTheme.typography.bodySmall, color = Color(0xFFF44336))
+                        Text("${s.percentage}% · need $needed more", style = MaterialTheme.typography.bodySmall, color = DangerColor)
                     }
                 }
             } else {
-                Text("🎉 All subjects safe!", style = MaterialTheme.typography.bodySmall, color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
+                Text("🎉 All subjects safe!", style = MaterialTheme.typography.bodySmall, color = SuccessColor, fontWeight = FontWeight.Bold)
             }
 
             // Summary text
@@ -810,13 +762,14 @@ private fun ConfirmMarkCard(
     val primary = MaterialTheme.colorScheme.primary
 
     Surface(
-        shape         = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
-        color         = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-        shadowElevation = 4.dp,
+        shape         = RoundedCornerShape(RadiusSM, RadiusLG, RadiusLG, RadiusLG),
+        color         = MaterialTheme.colorScheme.surface,
+        border        = CardStyle.border(),
+        shadowElevation = ElevationLow,
         modifier      = Modifier.widthIn(max = 300.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(SpaceMD), verticalArrangement = Arrangement.spacedBy(SpaceSM)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpaceXS)) {
                 Icon(Icons.Filled.EditCalendar, null, tint = primary, modifier = Modifier.size(18.dp))
                 Text("Confirm Attendance", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = primary)
             }
@@ -829,9 +782,9 @@ private fun ConfirmMarkCard(
                         Text("$icon ${mark.subjectName}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text("${mark.date}  •  ${mark.startTime} – ${mark.endTime}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f))
                     }
-                    Surface(shape = RoundedCornerShape(6.dp), color = if (mark.status == "Present") Color(0xFF4CAF50).copy(0.15f) else Color(0xFFF44336).copy(0.15f)) {
+                    Surface(shape = RoundedCornerShape(RadiusSM), color = if (mark.status == "Present") SuccessColor.copy(0.15f) else DangerColor.copy(0.15f)) {
                         Text(mark.status, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                            color = if (mark.status == "Present") Color(0xFF4CAF50) else Color(0xFFF44336),
+                            color = if (mark.status == "Present") SuccessColor else DangerColor,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                     }
                 }
@@ -839,16 +792,16 @@ private fun ConfirmMarkCard(
 
             HorizontalDivider(color = primary.copy(0.1f))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SpaceXS)) {
                 OutlinedButton(
                     onClick = onCancel, modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(RadiusMD),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                ) { Text("nah cancel", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+                ) { Text("Cancel", fontWeight = FontWeight.Bold) }
                 Button(
                     onClick = onConfirm, modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp)
-                ) { Text("✓ yep confirm", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+                    shape = RoundedCornerShape(RadiusMD)
+                ) { Text("Confirm", fontWeight = FontWeight.Bold) }
             }
         }
     }
@@ -864,13 +817,14 @@ private fun ConfirmDeleteCard(
     val errorColor = MaterialTheme.colorScheme.error
 
     Surface(
-        shape         = RoundedCornerShape(4.dp, 16.dp, 16.dp, 16.dp),
-        color         = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
-        shadowElevation = 4.dp,
+        shape         = RoundedCornerShape(RadiusSM, RadiusLG, RadiusLG, RadiusLG),
+        color         = MaterialTheme.colorScheme.surface,
+        border        = CardStyle.border(),
+        shadowElevation = ElevationLow,
         modifier      = Modifier.widthIn(max = 300.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(modifier = Modifier.padding(SpaceMD), verticalArrangement = Arrangement.spacedBy(SpaceSM)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpaceXS)) {
                 Icon(Icons.Filled.DeleteForever, null, tint = errorColor, modifier = Modifier.size(18.dp))
                 Text("Confirm Deletion", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleSmall, color = errorColor)
             }
@@ -888,12 +842,12 @@ private fun ConfirmDeleteCard(
 
             HorizontalDivider(color = errorColor.copy(0.1f))
 
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) { Text("nah cancel", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SpaceXS)) {
+                OutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f), shape = RoundedCornerShape(RadiusMD)) { Text("Cancel", fontWeight = FontWeight.Bold) }
                 Button(
-                    onClick = onConfirm, modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
+                    onClick = onConfirm, modifier = Modifier.weight(1f), shape = RoundedCornerShape(RadiusMD),
                     colors = ButtonDefaults.buttonColors(containerColor = errorColor)
-                ) { Text("🗑️ delete fr", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold) }
+                ) { Text("Delete", fontWeight = FontWeight.Bold) }
             }
         }
     }
@@ -933,11 +887,11 @@ private fun SmartSuggestionRow(suggestions: List<String>, onSuggestion: (String)
 }
 
 /* ──────────────────────────────────────────
-   Glassmorphism Input Bar
+   Modern Input Bar
 ────────────────────────────────────────── */
 
 @Composable
-private fun GlassInputBar(
+private fun ModernInputBar(
     inputText: String,
     isLoading: Boolean,
     onTextChange: (String) -> Unit,
@@ -946,54 +900,50 @@ private fun GlassInputBar(
     val primary = MaterialTheme.colorScheme.primary
 
     Surface(
-        color           = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        tonalElevation  = 8.dp,
-        shadowElevation = 16.dp,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = ElevationLow,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-                .navigationBarsPadding(),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            // Text Field
-            Surface(
-                modifier = Modifier.weight(1f),
-                shape    = RoundedCornerShape(24.dp),
-                color    = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+        Column {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = SpaceMD, vertical = SpaceXS)
+                    .navigationBarsPadding(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                BasicInputField(
-                    value       = inputText,
-                    onValueChange = onTextChange
-                )
-            }
+                // Text Field
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(RadiusXL),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                ) {
+                    BasicInputField(
+                        value = inputText,
+                        onValueChange = onTextChange
+                    )
+                }
 
-            Spacer(Modifier.width(10.dp))
+                Spacer(Modifier.width(SpaceXS))
 
-            // Send Button
-            val canSend = inputText.isNotBlank() && !isLoading
-            val buttonScale by animateFloatAsState(targetValue = if (canSend) 1f else 0.85f, label = "send_scale")
-
-            Box(modifier = Modifier.size(48.dp)) {
+                // Send Button
+                val canSend = inputText.isNotBlank() && !isLoading
                 FilledIconButton(
-                    onClick  = onSend,
-                    enabled  = canSend,
-                    modifier = Modifier
-                        .size((48 * buttonScale).dp)
-                        .align(Alignment.Center),
-                    shape    = CircleShape,
-                    colors   = IconButtonDefaults.filledIconButtonColors(
+                    onClick = onSend,
+                    enabled = canSend,
+                    modifier = Modifier.size(44.dp),
+                    shape = CircleShape,
+                    colors = IconButtonDefaults.filledIconButtonColors(
                         containerColor = primary,
-                        disabledContainerColor = primary.copy(0.35f)
+                        disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
                     )
                 ) {
                     Icon(
-                        imageVector      = Icons.AutoMirrored.Filled.Send,
+                        imageVector = Icons.AutoMirrored.Filled.Send,
                         contentDescription = "Send",
-                        tint             = Color.White,
-                        modifier         = Modifier.size(20.dp)
+                        tint = if (canSend) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -1086,20 +1036,21 @@ private fun PredictionCard(message: ChatMessage) {
 
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         predictions.forEach { pred ->
             val riskColor = when {
-                pred.riskScore >= 70 -> Color(0xFFEF4444)
-                pred.riskScore >= 40 -> Color(0xFFF59E0B)
-                else                -> Color(0xFF22C55E)
+                pred.riskScore >= 70 -> DangerColor
+                pred.riskScore >= 40 -> WarningColor
+                else                -> SuccessColor
             }
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(RadiusLG),
+                color = MaterialTheme.colorScheme.surface,
+                border = CardStyle.border(),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(SpaceMD),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -1123,31 +1074,32 @@ private fun PredictionCard(message: ChatMessage) {
 private fun StudyTipsCard(message: ChatMessage) {
     val data = message.studyTipsData ?: return
     val urgencyColor = when (data.urgencyLevel) {
-        "critical" -> Color(0xFFEF4444)
-        "warning"  -> Color(0xFFF59E0B)
-        "caution"  -> Color(0xFFEAB308)
-        "safe"     -> Color(0xFF22C55E)
-        else       -> Color(0xFF3B82F6)
+        "critical" -> DangerColor
+        "warning"  -> WarningColor
+        "caution"  -> WarningColor
+        "safe"     -> SuccessColor
+        else       -> MaterialTheme.colorScheme.primary
     }
 
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(SpaceMD)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier.size(8.dp).clip(CircleShape).background(urgencyColor)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(SpaceXS))
                     Text("${data.subjectName} — ${data.currentPct}%",
                         style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
                 }
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(SpaceSM))
                 data.tips.forEach { tip ->
                     Row(modifier = Modifier.padding(vertical = 3.dp)) {
                         Text(tip.icon, modifier = Modifier.width(24.dp))
@@ -1170,30 +1122,31 @@ private fun WeeklySummaryCard(message: ChatMessage) {
 
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp)) {
+            Column(modifier = Modifier.padding(SpaceMD)) {
                 // Stats row
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     StatChip("✅", "${data.totalPresent}", "Present")
                     StatChip("❌", "${data.totalAbsent}", "Absent")
                     StatChip("📊", "${data.attendanceRate}%", "Rate")
                 }
-                Spacer(modifier = Modifier.height(10.dp))
-                Text("📈 Best: ${data.bestDay}", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(SpaceSM))
+                Text("🏆 Best: ${data.bestDay}", style = MaterialTheme.typography.bodySmall)
                 Text("📉 Worst: ${data.worstDay}", style = MaterialTheme.typography.bodySmall)
                 if (data.currentStreak > 0) {
                     Text("🔥 Streak: ${data.currentStreak} ${if (data.isPositiveStreak) "present" else "absent"}",
                         style = MaterialTheme.typography.bodySmall)
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(SpaceXS))
                 // Subject breakdown
                 data.subjectBreakdown.forEach { sub ->
-                    val pctColor = if (sub.pct >= 75) Color(0xFF22C55E) else Color(0xFFEF4444)
+                    val pctColor = if (sub.pct >= 75) SuccessColor else DangerColor
                     Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                         horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(sub.name, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
@@ -1223,35 +1176,37 @@ private fun StatChip(emoji: String, value: String, label: String) {
 private fun GoalSettingCard(message: ChatMessage) {
     val data = message.goalData ?: return
     val progress = if (data.targetPct > 0) (data.currentPct.toFloat() / data.targetPct).coerceIn(0f, 1f) else 0f
-    val progressColor = if (data.isAchieved) Color(0xFF22C55E) else MaterialTheme.colorScheme.primary
+    val progressColor = if (data.isAchieved) SuccessColor else MaterialTheme.colorScheme.primary
 
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(modifier = Modifier.padding(SpaceMD), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(data.subjectName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(SpaceSM))
 
                 // Circular progress
+                val outlineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(80.dp)) {
                     Canvas(modifier = Modifier.size(80.dp)) {
-                        drawArc(Color.Gray.copy(alpha = 0.2f), 0f, 360f, false, style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round))
-                        drawArc(progressColor, -90f, 360f * progress, false, style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round))
+                        drawArc(outlineColor, 0f, 360f, false, style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round))
+                        drawArc(progressColor, -90f, 360f * progress, false, style = Stroke(width = 6.dp.toPx(), cap = StrokeCap.Round))
                     }
                     Text("${data.currentPct}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(SpaceXS))
                 Text("🎯 Target: ${data.targetPct}%", style = MaterialTheme.typography.bodySmall)
                 if (!data.isAchieved) {
-                    Text("📚 Need ${data.classesNeeded} more classes", style = MaterialTheme.typography.bodySmall, color = Color(0xFFF59E0B))
+                    Text("📚 Need ${data.classesNeeded} more classes", style = MaterialTheme.typography.bodySmall, color = WarningColor)
                 } else {
-                    Text("✅ Goal achieved!", style = MaterialTheme.typography.bodySmall, color = Color(0xFF22C55E), fontWeight = FontWeight.Bold)
+                    Text("✅ Goal achieved!", style = MaterialTheme.typography.bodySmall, color = SuccessColor, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1268,20 +1223,21 @@ private fun TrendAnalysisCard(message: ChatMessage) {
 
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         trends.forEach { trend ->
             val trendColor = when (trend.trend) {
-                PredictionEngine.TrendDirection.IMPROVING -> Color(0xFF22C55E)
-                PredictionEngine.TrendDirection.DECLINING -> Color(0xFFEF4444)
-                PredictionEngine.TrendDirection.STABLE    -> Color(0xFF6B7280)
+                PredictionEngine.TrendDirection.IMPROVING -> SuccessColor
+                PredictionEngine.TrendDirection.DECLINING -> DangerColor
+                PredictionEngine.TrendDirection.STABLE    -> MaterialTheme.colorScheme.outline
             }
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(RadiusLG),
+                color = MaterialTheme.colorScheme.surface,
+                border = CardStyle.border(),
                 modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(12.dp),
+                    modifier = Modifier.padding(SpaceMD),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
@@ -1307,24 +1263,24 @@ private fun CompareCard(message: ChatMessage) {
     val data = message.compareData?.result ?: return
     Column(modifier = Modifier.widthIn(max = 320.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-            shadowElevation = 8.dp,
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(modifier = Modifier.padding(SpaceMD), verticalArrangement = Arrangement.spacedBy(SpaceSM)) {
                 // Headers
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(data.subjectA.take(12) + if(data.subjectA.length>12)".." else "", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary.copy(0.15f)) {
-                        Text("vs", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontWeight = FontWeight.Black)
+                    Surface(shape = RoundedCornerShape(RadiusSM), color = MaterialTheme.colorScheme.primary.copy(0.12f)) {
+                        Text("vs", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontWeight = FontWeight.Bold)
                     }
                     Text(data.subjectB.take(12) + if(data.subjectB.length>12)".." else "", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
                 }
 
-                HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(0.15f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                 // Attendance Pct
                 CompareRow("Attendance", "${data.pctA}%", "${data.pctB}%", data.pctA > data.pctB, data.pctB > data.pctA)
@@ -1340,12 +1296,12 @@ private fun CompareCard(message: ChatMessage) {
 @Composable
 private fun CompareRow(label: String, val1: String, val2: String, v1Better: Boolean, v2Better: Boolean) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        val c1 = if (v1Better) Color(0xFF22C55E) else MaterialTheme.colorScheme.onSurfaceVariant
-        val c2 = if (v2Better) Color(0xFF22C55E) else MaterialTheme.colorScheme.onSurfaceVariant
+        val c1 = if (v1Better) SuccessColor else MaterialTheme.colorScheme.onSurfaceVariant
+        val c2 = if (v2Better) SuccessColor else MaterialTheme.colorScheme.onSurfaceVariant
 
-        Text(val1, style = MaterialTheme.typography.bodyLarge, color = c1, fontWeight = if (v1Better) FontWeight.ExtraBold else FontWeight.Medium, modifier = Modifier.weight(1f))
+        Text(val1, style = MaterialTheme.typography.bodyLarge, color = c1, fontWeight = if (v1Better) FontWeight.Bold else FontWeight.Medium, modifier = Modifier.weight(1f))
         Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.6f), fontWeight = FontWeight.Bold)
-        Text(val2, style = MaterialTheme.typography.bodyLarge, color = c2, fontWeight = if (v2Better) FontWeight.ExtraBold else FontWeight.Medium, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
+        Text(val2, style = MaterialTheme.typography.bodyLarge, color = c2, fontWeight = if (v2Better) FontWeight.Bold else FontWeight.Medium, modifier = Modifier.weight(1f), textAlign = TextAlign.End)
     }
 }
 
@@ -1354,32 +1310,32 @@ private fun MonthlyReportCard(message: ChatMessage) {
     val data = message.monthlyReportData?.report ?: return
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-            shadowElevation = 6.dp,
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("🗓️ ${data.monthName} Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(12.dp))
+            Column(modifier = Modifier.padding(SpaceMD)) {
+                Text("🗓️ ${data.monthName} Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.height(SpaceSM))
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                     StatChip("📅", "${data.totalClasses}", "Classes")
                     StatChip("✅", "${data.subjects.sumOf { it.present }}", "Attended")
                     StatChip("📊", "${data.overallPct}%", "Rate")
                 }
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(SpaceSM))
                 if (data.bestSubject.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("⭐ Best: ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFEAB308))
+                        Text("⭐ Best: ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = WarningColor)
                         Text(data.bestSubject, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     }
                 }
                 if (data.worstSubject.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("⚠️ Needs work: ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = Color(0xFFEF4444))
+                        Text("⚠️ Needs work: ", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = DangerColor)
                         Text(data.worstSubject, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -1393,38 +1349,37 @@ private fun SkipBudgetCard(message: ChatMessage) {
     val data = message.skipBudgetData?.budget ?: return
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-            shadowElevation = 8.dp,
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(data.subject, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
-                Spacer(modifier = Modifier.height(16.dp))
+            Column(modifier = Modifier.padding(SpaceMD), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(data.subject, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(SpaceMD))
 
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.size(100.dp)) {
-                    val color = if (data.canSkip > 0) Color(0xFF22C55E) else Color(0xFFEF4444)
+                    val color = if (data.canSkip > 0) SuccessColor else DangerColor
                     val animatedProgress by animateFloatAsState(targetValue = data.currentPct / 100f, animationSpec = spring(dampingRatio = 0.7f), label = "skip_prog")
                     Canvas(modifier = Modifier.size(100.dp)) {
-                        drawArc(color.copy(0.15f), 0f, 360f, false, style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round))
-                        drawArc(color, -90f, 360f * animatedProgress, false, style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round))
+                        drawArc(color.copy(0.15f), 0f, 360f, false, style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round))
+                        drawArc(color, -90f, 360f * animatedProgress, false, style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round))
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("${data.canSkip}", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black, color = color)
-                        Text("Skips Left", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                        Text("${data.canSkip}", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = color)
+                        Text("Skips Left", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
-                // Glassy pill for target info
-                Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.onSurface.copy(0.05f)) {
-                    Text("Target: ${data.targetPct}% • Current: ${data.currentPct}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(8.dp))
+                Spacer(modifier = Modifier.height(SpaceMD))
+                Surface(shape = RoundedCornerShape(RadiusSM), color = MaterialTheme.colorScheme.surfaceVariant) {
+                    Text("Target: ${data.targetPct}% • Current: ${data.currentPct}%", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium, modifier = Modifier.padding(SpaceXS))
                 }
 
                 if (data.canSkip < 0) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("Attend ${-data.canSkip} more classes to reach target!", style = MaterialTheme.typography.labelMedium, color = Color(0xFFEF4444), fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+                    Spacer(modifier = Modifier.height(SpaceXS))
+                    Text("Attend ${-data.canSkip} more classes to reach target!", style = MaterialTheme.typography.labelMedium, color = DangerColor, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
                 }
             }
         }
@@ -1436,16 +1391,16 @@ private fun StreakCard(message: ChatMessage) {
     val data = message.streakData ?: return
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-            shadowElevation = 6.dp,
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            Row(modifier = Modifier.padding(SpaceMD), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpaceMD)) {
                 Box(
-                    modifier = Modifier.size(64.dp).clip(CircleShape).background(if (data.isOnPresentStreak) Color(0xFF22C55E).copy(0.15f) else Color(0xFFEF4444).copy(0.15f)),
+                    modifier = Modifier.size(64.dp).clip(CircleShape).background(if (data.isOnPresentStreak) SuccessColor.copy(0.15f) else DangerColor.copy(0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     val scale by animateFloatAsState(targetValue = 1.1f, animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse), label = "pulse")
@@ -1453,14 +1408,14 @@ private fun StreakCard(message: ChatMessage) {
                 }
                 Column {
                     if (data.isOnPresentStreak) {
-                        Text("${data.currentPresentStreak} Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color(0xFF22C55E))
-                        Text("Active Present Streak!", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Text("${data.currentPresentStreak} Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = SuccessColor)
+                        Text("Active Present Streak!", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
                     } else {
-                        Text("${data.currentAbsentStreak} Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = Color(0xFFEF4444))
-                        Text("Active Absent Streak", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                        Text("${data.currentAbsentStreak} Days", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = DangerColor)
+                        Text("Active Absent Streak", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium)
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.onSurface.copy(0.06f)) {
+                    Spacer(modifier = Modifier.height(SpaceXXS))
+                    Surface(shape = RoundedCornerShape(RadiusSM), color = MaterialTheme.colorScheme.surfaceVariant) {
                         Text("All-Time Best: ${data.longestPresentStreak} 🔥", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(6.dp, 4.dp))
                     }
                 }
@@ -1474,14 +1429,14 @@ private fun SubjectRankingCard(message: ChatMessage) {
     val data = message.rankingData?.ranking ?: return
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-            shadowElevation = 6.dp,
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.padding(SpaceMD), verticalArrangement = Arrangement.spacedBy(SpaceXS)) {
                 data.forEachIndexed { index, rank ->
                     val color = when (index) {
                         0 -> Color(0xFFFFD700) // Gold
@@ -1489,18 +1444,18 @@ private fun SubjectRankingCard(message: ChatMessage) {
                         2 -> Color(0xFFCD7F32) // Bronze
                         else -> MaterialTheme.colorScheme.primary
                     }
-                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(color.copy(0.08f)).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("#${index + 1}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, color = color, modifier = Modifier.width(36.dp))
+                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(RadiusMD)).background(color.copy(0.08f)).padding(SpaceMD), verticalAlignment = Alignment.CenterVertically) {
+                        Text("#${index + 1}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = color, modifier = Modifier.width(36.dp))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(rank.first, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+                            Text(rank.first, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                             val riskColor = when(rank.third) {
-                                PredictionEngine.RiskStatus.SAFE -> Color(0xFF22C55E)
-                                PredictionEngine.RiskStatus.WARNING -> Color(0xFFF97316)
-                                PredictionEngine.RiskStatus.CRITICAL -> Color(0xFFEF4444)
+                                PredictionEngine.RiskStatus.SAFE -> SuccessColor
+                                PredictionEngine.RiskStatus.WARNING -> WarningColor
+                                PredictionEngine.RiskStatus.CRITICAL -> DangerColor
                             }
                             Text(rank.third.name, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = riskColor)
                         }
-                        Text("${rank.second}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.primary)
+                        Text("${rank.second}%", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     }
                 }
             }
@@ -1513,24 +1468,24 @@ private fun ExamStatusCard(message: ChatMessage) {
     val data = message.examStatusData?.subjects ?: return
     Column(modifier = Modifier.widthIn(max = 300.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-            shadowElevation = 6.dp,
+            shape = RoundedCornerShape(RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(modifier = Modifier.padding(SpaceSM), verticalArrangement = Arrangement.spacedBy(SpaceXS)) {
                 data.forEach { sub ->
-                    val color = if (sub.isEligible) Color(0xFF22C55E) else Color(0xFFEF4444)
+                    val color = if (sub.isEligible) SuccessColor else DangerColor
                     val bgColor = color.copy(0.12f)
-                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(bgColor).padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(RadiusMD)).background(bgColor).padding(SpaceMD), verticalAlignment = Alignment.CenterVertically) {
                         Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(color).padding(4.dp), contentAlignment = Alignment.Center) {
                             Icon(if (sub.isEligible) Icons.Filled.Check else Icons.Filled.Close, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                         }
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(SpaceMD))
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(sub.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+                            Text(sub.name, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                             if (!sub.isEligible) {
                                 Text("Need ${sub.classesNeeded} more classes", style = MaterialTheme.typography.labelSmall, color = color, fontWeight = FontWeight.Bold)
                             } else {
@@ -1547,50 +1502,58 @@ private fun ExamStatusCard(message: ChatMessage) {
 @Composable
 private fun CollegeSyncCard(message: ChatMessage) {
     val data = message.collegeSyncData ?: return
+    val primary = MaterialTheme.colorScheme.primary
+    
     Column(modifier = Modifier.widthIn(max = 320.dp)) {
         BotTextBubble(message.copy(text = message.text), false)
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(SpaceXS))
         Surface(
-            shape = RoundedCornerShape(20.dp),
-            color = Color(0xFF16161E).copy(alpha = 0.95f), // Gen-Z Identity Background
-            shadowElevation = 8.dp,
-            modifier = Modifier.fillMaxWidth(),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Brush.linearGradient(listOf(Color(0xFFE000FF), Color(0xFF00F0FF))))
+            shape = RoundedCornerShape(RadiusSM, RadiusLG, RadiusLG, RadiusLG),
+            color = MaterialTheme.colorScheme.surface,
+            border = CardStyle.border(),
+            shadowElevation = ElevationLow,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(modifier = Modifier.padding(SpaceMD), verticalArrangement = Arrangement.spacedBy(SpaceSM)) {
                 // Headers
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("College Grid 🎓", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.White)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpaceXS)) {
+                        Icon(Icons.Filled.School, null, tint = primary, modifier = Modifier.size(18.dp))
+                        Text("College Grid", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = primary)
+                    }
                     
-                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFCCFF00).copy(0.15f)) { // Lime
-                        Text("${data.overallCollegePct}%", style = MaterialTheme.typography.labelSmall, color = Color(0xFFCCFF00), modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontWeight = FontWeight.Black)
+                    Surface(shape = RoundedCornerShape(RadiusSM), color = SuccessColor.copy(0.12f)) {
+                        Text("${data.overallCollegePct}%", style = MaterialTheme.typography.labelSmall, color = SuccessColor, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), fontWeight = FontWeight.Bold)
                     }
                 }
 
-                HorizontalDivider(color = Color.White.copy(0.1f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                 if (data.mismatches.isNotEmpty()) {
-                    Text("Mismatches 🔥", style = MaterialTheme.typography.labelSmall, color = Color(0xFFD946EF), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                    Text("Mismatches", style = MaterialTheme.typography.labelSmall, color = WarningColor, fontWeight = FontWeight.Bold)
                     data.mismatches.take(3).forEach {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.8f))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
                 if (data.collegeMissing.isNotEmpty()) {
-                    Text("Missing in App 💀", style = MaterialTheme.typography.labelSmall, color = Color(0xFF06B6D4), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(2.dp))
+                    Text("Missing in App", style = MaterialTheme.typography.labelSmall, color = DangerColor, fontWeight = FontWeight.Bold)
                     data.collegeMissing.take(3).forEach {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.8f))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
                 if (data.appMissing.isNotEmpty()) {
-                    Text("Missing in College 🤔", style = MaterialTheme.typography.labelSmall, color = Color(0xFFA855F7), fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(2.dp))
+                    Text("Missing in College", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary, fontWeight = FontWeight.Bold)
                     data.appMissing.take(3).forEach {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.8f))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                     }
                 }
 
-                Text(parseMarkdown(data.syncSummaryText), style = MaterialTheme.typography.bodySmall, color = Color.White.copy(0.6f))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                Text(parseMarkdown(data.syncSummaryText), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

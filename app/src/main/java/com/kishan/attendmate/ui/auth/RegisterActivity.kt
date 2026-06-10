@@ -47,6 +47,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.kishan.attendmate.ui.theme.RadiusLG
+import com.kishan.attendmate.ui.theme.RadiusMD
+import com.kishan.attendmate.ui.theme.ElevationLow
+import com.kishan.attendmate.ui.theme.CardStyle
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.min
@@ -159,11 +163,9 @@ class RegisterActivity : ComponentActivity() {
                         Brush.linearGradient(
                             colors = listOf(
                                 Color(0xFF0F0C29),
-                                Color(0xFF302B63),
-                                Color(0xFF24243E)
-                            ),
-                            start = Offset(gradientOffset, gradientOffset),
-                            end = Offset(gradientOffset + 1000f, gradientOffset + 1000f)
+                                Color(0xFF1F1C3F),
+                                Color(0xFF14142B)
+                            )
                         )
                     } else {
                         Brush.radialGradient(
@@ -176,21 +178,6 @@ class RegisterActivity : ComponentActivity() {
                     }
                 )
         ) {
-            // Advanced Floating Orbs
-            AdvancedFloatingOrbs(isDark, isCompact, rotation)
-
-            // Animated particles
-            AnimatedParticles(isDark)
-
-            // Premium Back Button
-//            PremiumBackButton(
-//                onClick = {
-//                    startActivity(Intent(this@RegisterActivity, LoginActivity::class.java))
-//                    finish()
-//                },
-//                isDark = isDark
-//            )
-
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -204,7 +191,7 @@ class RegisterActivity : ComponentActivity() {
             ) {
                 Spacer(Modifier.height((if (isLandscape) 80.dp else 24.dp) * verticalSpacingMultiplier))
 
-                // Premium App Icon with Glow
+                // Premium App Icon
                 AnimatedVisibility(
                     visible = !isLandscape || screenHeight > 500.dp,
                     enter = fadeIn(tween(800)) + scaleIn(tween(800, easing = FastOutSlowInEasing)),
@@ -214,70 +201,14 @@ class RegisterActivity : ComponentActivity() {
                         contentAlignment = Alignment.Center,
                         modifier = Modifier.scale(scale)
                     ) {
-                        // Rotating glow rings
-                        Canvas(modifier = Modifier.size(iconSize + 60.dp)) {
-                            val centerX = size.width / 2
-                            val centerY = size.height / 2
-
-                            for (i in 0..2) {
-                                val angle = (rotation + i * 120) * Math.PI / 180
-                                val radius = size.width / 3
-                                val x = (centerX + cos(angle) * radius * 0.3).toFloat()
-                                val y = (centerY + sin(angle) * radius * 0.3).toFloat()
-
-                                drawCircle(
-                                    brush = Brush.radialGradient(
-                                        colors = listOf(
-                                            Color(0xFFEC4899).copy(alpha = 0.3f),
-                                            Color.Transparent
-                                        )
-                                    ),
-                                    radius = 50f,
-                                    center = Offset(x, y)
-                                )
-                            }
-                        }
-
-                        // Outer pulsing ring
-                        val pulseScale by infiniteTransition.animateFloat(
-                            initialValue = 1f,
-                            targetValue = 1.1f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(2000, easing = EaseInOutCubic),
-                                repeatMode = RepeatMode.Reverse
-                            ),
-                            label = "pulse"
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .size((iconSize + 40.dp) * pulseScale)
-                                .clip(CircleShape)
-                                .background(
-                                    Brush.radialGradient(
-                                        colors = listOf(
-                                            Color(0xFFEC4899).copy(alpha = 0.3f),
-                                            Color.Transparent
-                                        )
-                                    )
-                                )
-                                .blur(25.dp)
-                        )
-
                         // Main icon container
                         Surface(
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.primaryContainer,
-                            tonalElevation = 12.dp,
-                            shadowElevation = 20.dp,
+                            tonalElevation = ElevationLow,
+                            shadowElevation = ElevationLow,
                             modifier = Modifier
                                 .size(iconSize)
-                                .shadow(
-                                    elevation = 30.dp,
-                                    shape = CircleShape,
-                                    ambientColor = Color(0xFFEC4899).copy(alpha = 0.5f),
-                                    spotColor = Color(0xFFEC4899).copy(alpha = 0.5f)
-                                )
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
@@ -326,37 +257,16 @@ class RegisterActivity : ComponentActivity() {
 
                 // Premium Registration Form Card
                 Surface(
-                    shape = RoundedCornerShape(if (isCompact) 28.dp else 32.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.8f else 0.95f),
-                    tonalElevation = 8.dp,
-                    shadowElevation = 16.dp,
+                    shape = CardStyle.shape,
+                    color = CardStyle.containerColor(),
+                    border = CardStyle.border(),
+                    shadowElevation = CardStyle.elevation,
                     modifier = Modifier
                         .widthIn(max = contentMaxWidth)
                         .fillMaxWidth()
                         .animateContentSize()
-                        .shadow(
-                            elevation = 24.dp,
-                            shape = RoundedCornerShape(if (isCompact) 28.dp else 32.dp),
-                            ambientColor = Color(0xFFEC4899).copy(alpha = 0.2f),
-                            spotColor = Color(0xFFEC4899).copy(alpha = 0.2f)
-                        )
                 ) {
                     Box {
-                        // Gradient overlay
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp)
-                                .background(
-                                    Brush.horizontalGradient(
-                                        colors = listOf(
-                                            Color(0xFFEC4899),
-                                            Color(0xFF8B5CF6),
-                                            Color(0xFF6366F1)
-                                        )
-                                    )
-                                )
-                        )
 
                         Column(
                             modifier = Modifier.padding(
@@ -547,50 +457,13 @@ class RegisterActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun PremiumBackButton(onClick: () -> Unit, isDark: Boolean) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(16.dp)
-        ) {
-            Surface(
-                onClick = onClick,
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.9f else 0.95f),
-                tonalElevation = 4.dp,
-                shadowElevation = 8.dp,
-                modifier = Modifier
-                    .size(48.dp)
-                    .shadow(
-                        elevation = 12.dp,
-                        shape = CircleShape,
-                        ambientColor = Color(0xFF6366F1).copy(alpha = 0.3f)
-                    )
-            ) {
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
     private fun PasswordRequirements(password: String, isDark: Boolean, isCompact: Boolean) {
         val hasMinLength = password.length >= 6
         val hasUpperCase = password.any { it.isUpperCase() }
         val hasNumber = password.any { it.isDigit() }
 
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(RadiusLG),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ) {
             Column(
@@ -651,136 +524,6 @@ class RegisterActivity : ComponentActivity() {
                 color = if (met) MaterialTheme.colorScheme.onSurface
                 else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
             )
-        }
-    }
-
-    @Composable
-    private fun AdvancedFloatingOrbs(isDark: Boolean, isCompact: Boolean, rotation: Float) {
-        val infiniteTransition = rememberInfiniteTransition(label = "orbs")
-
-        val offset1 by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 150f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(4000, easing = EaseInOutCubic),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "orb1"
-        )
-
-        val offset2 by infiniteTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = -120f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(5000, easing = EaseInOutCubic),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "orb2"
-        )
-
-        val orbSize1 = if (isCompact) 200.dp else 280.dp
-        val orbSize2 = if (isCompact) 250.dp else 350.dp
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            // Orb 1 - Top Right
-            Box(
-                modifier = Modifier
-                    .size(orbSize1)
-                    .align(Alignment.TopEnd)
-                    .offset(x = 80.dp + offset1.dp, y = (-60).dp + offset1.dp)
-                    .rotate(rotation)
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                if (isDark) Color(0xFFEC4899).copy(alpha = 0.15f)
-                                else Color(0xFFEC4899).copy(alpha = 0.08f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                }
-            }
-
-            // Orb 2 - Bottom Left
-            Box(
-                modifier = Modifier
-                    .size(orbSize2)
-                    .align(Alignment.BottomStart)
-                    .offset(x = (-80).dp + offset2.dp, y = 60.dp)
-                    .rotate(-rotation * 0.5f)
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                if (isDark) Color(0xFF6366F1).copy(alpha = 0.15f)
-                                else Color(0xFF6366F1).copy(alpha = 0.08f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                }
-            }
-
-            // Orb 3 - Center
-            Box(
-                modifier = Modifier
-                    .size(if (isCompact) 180.dp else 220.dp)
-                    .align(Alignment.Center)
-                    .offset(y = offset1.dp)
-                    .rotate(rotation * 0.3f)
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                if (isDark) Color(0xFF8B5CF6).copy(alpha = 0.12f)
-                                else Color(0xFF8B5CF6).copy(alpha = 0.06f),
-                                Color.Transparent
-                            )
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun AnimatedParticles(isDark: Boolean) {
-        val infiniteTransition = rememberInfiniteTransition(label = "particles")
-
-        Box(modifier = Modifier.fillMaxSize()) {
-            repeat(8) { index ->
-                val offsetY by infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 800f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(
-                            durationMillis = 8000 + (index * 500),
-                            easing = LinearEasing
-                        ),
-                        repeatMode = RepeatMode.Restart
-                    ),
-                    label = "particle_$index"
-                )
-
-                val offsetX = (index * 100).dp
-                val size = (8 + (index % 3) * 4).dp
-
-                Box(
-                    modifier = Modifier
-                        .offset(x = offsetX, y = offsetY.dp)
-                        .size(size)
-                        .clip(CircleShape)
-                        .background(
-                            if (isDark) Color.White.copy(alpha = 0.05f)
-                            else Color(0xFFEC4899).copy(alpha = 0.04f)
-                        )
-                        .blur(4.dp)
-                )
-            }
         }
     }
 
@@ -874,7 +617,7 @@ class RegisterActivity : ComponentActivity() {
             },
             singleLine = true,
             keyboardOptions = keyboardOptions,
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(RadiusLG),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = borderColor,
                 unfocusedBorderColor = borderColor,
@@ -954,7 +697,7 @@ class RegisterActivity : ComponentActivity() {
                 keyboardType = KeyboardType.Password
             ),
             keyboardActions = if (isDone) KeyboardActions { onNext() } else KeyboardActions.Default,
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(RadiusLG),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = borderColor,
                 unfocusedBorderColor = borderColor,
@@ -984,7 +727,7 @@ class RegisterActivity : ComponentActivity() {
         Button(
             onClick = onClick,
             enabled = !loading,
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(RadiusLG),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color.Transparent,
                 disabledContainerColor = Color.Transparent

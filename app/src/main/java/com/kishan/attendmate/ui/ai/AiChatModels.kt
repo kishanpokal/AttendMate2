@@ -174,3 +174,16 @@ sealed interface AiChatUiState {
     object Success : AiChatUiState
     data class Error(val message: String) : AiChatUiState
 }
+
+/* ────────────────── Navigation Targets ────────────────── */
+
+sealed class NavigationTarget {
+    object Home : NavigationTarget()
+    object Analytics : NavigationTarget()
+    object Settings : NavigationTarget()
+    object TimetableSetup : NavigationTarget()
+    object Friends : NavigationTarget()
+    object ManageSubjects : NavigationTarget()
+    object CollegeSync : NavigationTarget()
+    object AddAttendance : NavigationTarget()
+}

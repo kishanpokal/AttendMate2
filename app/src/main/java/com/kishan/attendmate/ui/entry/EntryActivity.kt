@@ -90,7 +90,7 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
         delay(200)
         loadingAnimation = true
 
-        delay(2500) // Let the advanced animation play for a moment
+        delay(2500) // Let the splash screen display for a brief moment
         val user = FirebaseAuth.getInstance().currentUser
         onNavigate(if (user == null) LoginActivity::class.java else MainActivity::class.java)
     }
@@ -111,91 +111,27 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
         label = "logo_alpha"
     )
 
-    // ── Infinite continuous animations ──
-    val infiniteTransition = rememberInfiniteTransition(label = "infinite")
-
-    // Breathing background glow
-    val pulseAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = EaseInOutSine),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pulse_alpha"
-    )
-
-    // Sleek orbital sweep rotation
-    val orbitalRotation by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "orbital_rotation"
-    )
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(bgColor),
         contentAlignment = Alignment.Center
     ) {
-
-        // ── Breathing Ambient Glow ──
-        Box(
-            modifier = Modifier
-                .size(250.dp)
-                .scale(logoScale)
-                .alpha(pulseAlpha * if (isDark) 0.15f else 0.08f)
-                .blur(40.dp)
-                .background(
-                    brush = Brush.radialGradient(listOf(BrandCyan, Color.Transparent)),
-                    shape = CircleShape
-                )
-        )
-
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
             modifier = Modifier.fillMaxWidth()
         ) {
-
-            // ── Advanced Logo & Orbital Ring ──
-            Box(contentAlignment = Alignment.Center) {
-                // Orbital Ring
-                if (loadingAnimation) {
-                    Canvas(
-                        modifier = Modifier
-                            .size(150.dp) // Slightly larger than logo
-                            .alpha(logoAlpha)
-                    ) {
-                        drawArc(
-                            brush = Brush.sweepGradient(
-                                0.0f to Color.Transparent,
-                                0.6f to BrandBlue.copy(alpha = 0.5f),
-                                1.0f to BrandCyan
-                            ),
-                            startAngle = orbitalRotation,
-                            sweepAngle = 280f,
-                            useCenter = false,
-                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
-                }
-
-                // Core Logo
-                Image(
-                    painter = painterResource(id = R.drawable.ic_app_logo),
-                    contentDescription = "AttendMate Logo",
-                    modifier = Modifier
-                        .size(110.dp)
-                        .scale(logoScale)
-                        .alpha(logoAlpha)
-                        .clip(CircleShape)
-                )
-            }
+            // ── Core Logo ──
+            Image(
+                painter = painterResource(id = R.drawable.ic_app_logo),
+                contentDescription = "AttendMate Logo",
+                modifier = Modifier
+                    .size(110.dp)
+                    .scale(logoScale)
+                    .alpha(logoAlpha)
+                    .clip(CircleShape)
+            )
 
             Spacer(modifier = Modifier.height(36.dp))
 
@@ -204,22 +140,22 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
                 visible = textAnimation,
                 enter = fadeIn(tween(800)) + slideInVertically(
                     initialOffsetY = { 30 },
-                    animationSpec = tween(800, easing = EaseOutExpo)
+                    animationSpec = tween(800, easing = EaseOut)
                 )
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             text = "Attend",
-                            fontSize = 38.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.SemiBold,
                             color = textColor,
                             letterSpacing = 0.5.sp
                         )
                         Text(
                             text = "Mate",
-                            fontSize = 38.sp,
-                            fontWeight = FontWeight.ExtraBold,
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.SemiBold,
                             color = BrandBlue,
                             letterSpacing = 0.5.sp
                         )
@@ -229,8 +165,8 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
 
                     Text(
                         text = "SMART ATTENDANCE TRACKING",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
                         color = mutedTextColor,
                         letterSpacing = 2.sp,
                         textAlign = TextAlign.Center
@@ -238,41 +174,15 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(60.dp))
+            Spacer(modifier = Modifier.height(48.dp))
 
-            // ── Status Pill (Advanced loading indicator) ──
-            AnimatedVisibility(
-                visible = loadingAnimation,
-                enter = fadeIn(tween(600))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .background(if (isDark) Color(0xFF111827) else Color(0xFFE2E8F0))
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        // Pulsing dot
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .alpha(pulseAlpha)
-                                .background(BrandCyan)
-                        )
-                        Text(
-                            text = "SYSTEM INITIALIZING...",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (isDark) BrandCyan else BrandBlue,
-                            letterSpacing = 1.5.sp
-                        )
-                    }
-                }
+            // ── Clean Progress Indicator ──
+            if (loadingAnimation) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(28.dp),
+                    strokeWidth = 3.dp,
+                    color = BrandBlue
+                )
             }
         }
 
@@ -286,22 +196,11 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
         ) {
             Text(
                 text = "MADE BY KISHAN POKAL",
-                fontSize = 10.sp,
+                style = MaterialTheme.typography.labelSmall,
                 color = mutedTextColor.copy(alpha = 0.4f),
                 letterSpacing = 3.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Medium
             )
         }
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-//  CUSTOM EASING FUNCTIONS (Fixed Kotlin Math)
-// ─────────────────────────────────────────────────────────────────────────────
-private val EaseOutExpo: Easing = Easing { t ->
-    if (t == 1f) 1f else 1f - 2f.pow(-10f * t)
-}
-
-private val EaseInOutSine: Easing = Easing { t ->
-    -(cos(PI * t).toFloat() - 1f) / 2f
 }

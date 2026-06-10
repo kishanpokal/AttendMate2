@@ -2,6 +2,7 @@ package com.kishan.attendmate
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -44,6 +45,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -65,8 +67,8 @@ import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.PersistentCacheSettings
 import com.google.firebase.firestore.Source
 import com.kishan.attendmate.ui.auth.LoginActivity
-import com.kishan.attendmate.ui.components.AttendMateNavigationBar
-import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.ui.components.*
+import com.kishan.attendmate.ui.theme.*
 import com.kishan.attendmate.ui.widget.WidgetUpdateWorker
 import java.text.SimpleDateFormat
 import java.time.LocalDate
@@ -95,12 +97,8 @@ class MainActivity : ComponentActivity() {
                         return
                 }
 
-                // Firestore persistence is now configured in AttendMateApplication.kt
-
                 // 🔔 Ensure notification channels exist
                 createNotificationChannels()
-
-
 
                 enableEdgeToEdge()
 
@@ -157,7 +155,8 @@ data class ActiveLecture(
         val subjectId: String,
         val subjectName: String,
         val startTime: String,
-        val endTime: String
+        val endTime: String,
+        val lectureId: String // Added property to handle snooze effectively
 )
 
 data class FetchResult(val lectures: List<TodayLecture>, val total: Int, val attended: Int)
@@ -168,9 +167,13 @@ data class FetchResult(val lectures: List<TodayLecture>, val total: Int, val att
 fun HomeScreen() {
         val haptic = LocalHapticFeedback.current
         val configuration = LocalConfiguration.current
+        val context = LocalContext.current
         val auth = FirebaseAuth.getInstance()
         val db = FirebaseFirestore.getInstance()
         val userId = auth.currentUser?.uid ?: return
+
+        // Shared Preferences for 10-minute snooze logic
+        val prefs = remember { context.getSharedPreferences("AttendMatePrefs", Context.MODE_PRIVATE) }
 
         var todayLectures by remember { mutableStateOf<List<TodayLecture>>(emptyList()) }
         var totalClasses by remember { mutableIntStateOf(0) }
@@ -199,7 +202,6 @@ fun HomeScreen() {
                 val observer =
                         androidx.lifecycle.LifecycleEventObserver { _, event ->
                                 if (event == Lifecycle.Event.ON_RESUME) {
-                                        // Instantly triggers the LaunchedEffect to run seamlessly
                                         refreshTrigger++
                                 }
                         }
@@ -215,7 +217,6 @@ fun HomeScreen() {
                 errorMessage = null
 
                 suspend fun fetchAttendanceData(source: Source): FetchResult {
-                        // 1. Get user info safely
                         val userDoc = db.collection("users").document(userId).get(source).await()
                         username = userDoc.getString("username") ?: "User"
 
@@ -237,27 +238,33 @@ fun HomeScreen() {
 
                                 val start =
                                         runCatching {
-                                                        LocalTime.parse(
-                                                                startTimeRaw.padStart(5, '0')
-                                                        )
-                                                }
-                                                .getOrNull()
-                                                ?: return@forEach
+                                                LocalTime.parse(
+                                                        startTimeRaw.padStart(5, '0')
+                                                )
+                                        }.getOrNull() ?: return@forEach
                                 val end =
                                         runCatching { LocalTime.parse(endTimeRaw.padStart(5, '0')) }
-                                                .getOrNull()
-                                                ?: return@forEach
+                                                .getOrNull() ?: return@forEach
 
                                 if (now.isAfter(start) && now.isBefore(end)) {
                                         val subjectId = doc.getString("subjectId") ?: return@forEach
-                                        val subjectName =
-                                                doc.getString("subjectName") ?: return@forEach
+                                        val subjectName = doc.getString("subjectName") ?: return@forEach
 
-                                        val todayDate =
-                                                SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                                                        .format(Date())
-                                        val lectureId =
-                                                "${todayDate}_${startTimeRaw.replace(":", "")}_${endTimeRaw.replace(":", "")}"
+                                        // Safely construct ID similar to AddAttendanceActivity
+                                        val startCalSafe = Calendar.getInstance().apply {
+                                                val (h, m) = startTimeRaw.split(":").map { it.trim().toInt() }
+                                                set(Calendar.HOUR_OF_DAY, h)
+                                                set(Calendar.MINUTE, m)
+                                        }
+                                        val endCalSafe = Calendar.getInstance().apply {
+                                                val (h, m) = endTimeRaw.split(":").map { it.trim().toInt() }
+                                                set(Calendar.HOUR_OF_DAY, h)
+                                                set(Calendar.MINUTE, m)
+                                        }
+                                        val safeDateKey = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+                                        val safeStartKey = SimpleDateFormat("HHmm", Locale.getDefault()).format(startCalSafe.time)
+                                        val safeEndKey = SimpleDateFormat("HHmm", Locale.getDefault()).format(endCalSafe.time)
+                                        val lectureId = "${safeDateKey}_${safeStartKey}_${safeEndKey}"
 
                                         val attendanceExists =
                                                 db.collection("users")
@@ -271,14 +278,22 @@ fun HomeScreen() {
                                                         .exists()
 
                                         if (!attendanceExists) {
-                                                activeLecture =
-                                                        ActiveLecture(
+                                                // Check snooze
+                                                val snoozeKey = "snooze_$lectureId"
+                                                val snoozeTime = prefs.getLong(snoozeKey, 0L)
+                                                val currentTimeMillis = System.currentTimeMillis()
+                                                val tenMinutesInMillis = 10 * 60 * 1000L
+
+                                                if (currentTimeMillis - snoozeTime > tenMinutesInMillis) {
+                                                        activeLecture = ActiveLecture(
                                                                 subjectId,
                                                                 subjectName,
                                                                 startTimeRaw,
-                                                                endTimeRaw
+                                                                endTimeRaw,
+                                                                lectureId
                                                         )
-                                                showPopup = true
+                                                        showPopup = true
+                                                }
                                         }
                                 }
                         }
@@ -392,7 +407,6 @@ fun HomeScreen() {
                 }
 
                 try {
-                        // SKIP CACHE if user explicitly swiped down or marked attendance
                         if (!forceServerFetch && !isRefreshing) {
                                 val cacheData = fetchAttendanceData(Source.CACHE)
                                 if (cacheData.total > 0 || cacheData.lectures.isNotEmpty()) {
@@ -402,20 +416,15 @@ fun HomeScreen() {
                                         isLoading = false
                                 }
                         }
-                } catch (e: Exception) {
-                        // Cache miss - totally normal
-                }
+                } catch (e: Exception) { }
 
                 try {
-                        // ALWAYS hit the server to ensure background changes/new marks are grabbed
                         val serverData = fetchAttendanceData(Source.SERVER)
 
                         todayLectures = serverData.lectures
                         totalClasses = serverData.total
                         attendedClasses = serverData.attended
 
-                        // GUARANTEED SAVE: Instantly update daily snapshot with pristine server
-                        // data
                         saveDailySnapshot(
                                 db = db,
                                 userId = userId,
@@ -430,15 +439,9 @@ fun HomeScreen() {
 
                         if (todayLectures.isEmpty() && totalClasses == 0) {
                                 errorMessage =
-                                        if (e.message?.contains("offline", ignoreCase = true) ==
-                                                        true ||
-                                                        e.message?.contains(
-                                                                "network",
-                                                                ignoreCase = true
-                                                        ) == true ||
-                                                        e is
-                                                                com.google.firebase.firestore.FirebaseFirestoreException
-                                        ) {
+                                        if (e.message?.contains("offline", ignoreCase = true) == true ||
+                                                e.message?.contains("network", ignoreCase = true) == true ||
+                                                e is com.google.firebase.firestore.FirebaseFirestoreException) {
                                                 "Unable to connect. Please check your internet."
                                         } else {
                                                 "An unexpected data error occurred. Please try again."
@@ -460,10 +463,8 @@ fun HomeScreen() {
                                                 Brush.verticalGradient(
                                                         colors =
                                                                 listOf(
-                                                                        MaterialTheme.colorScheme
-                                                                                .surface,
-                                                                        MaterialTheme.colorScheme
-                                                                                .surfaceContainerLowest
+                                                                        MaterialTheme.colorScheme.surface,
+                                                                        MaterialTheme.colorScheme.surfaceContainerLowest
                                                                 )
                                                 )
                                         )
@@ -480,18 +481,15 @@ fun HomeScreen() {
                         modifier = Modifier.fillMaxSize()
                 ) {
                         Column(modifier = Modifier.fillMaxSize()) {
-                                /* -------- COMPACT HEADER -------- */
                                 EnhancedHeader(username = username)
 
-                                /* -------- ERROR STATE -------- */
                                 if (errorMessage != null && todayLectures.isEmpty()) {
                                         Box(
                                                 modifier = Modifier.fillMaxSize(),
                                                 contentAlignment = Alignment.Center
                                         ) {
                                                 EnhancedErrorState(
-                                                        errorMessage = errorMessage
-                                                                        ?: "Unknown error",
+                                                        errorMessage = errorMessage ?: "Unknown error",
                                                         onRetry = {
                                                                 forceServerFetch = true
                                                                 refreshTrigger++
@@ -499,7 +497,6 @@ fun HomeScreen() {
                                                 )
                                         }
                                 } else {
-                                        /* -------- CONTENT -------- */
                                         LazyColumn(
                                                 modifier = Modifier.fillMaxSize(),
                                                 contentPadding =
@@ -509,55 +506,37 @@ fun HomeScreen() {
                                                         ),
                                                 verticalArrangement = Arrangement.spacedBy(20.dp)
                                         ) {
-                                                // Summary Card
                                                 item {
                                                         AnimatedVisibility(
                                                                 visible = true,
-                                                                enter =
-                                                                        fadeIn() +
-                                                                                slideInVertically()
+                                                                enter = fadeIn() + slideInVertically()
                                                         ) {
-                                                                if (isLoading &&
-                                                                                todayLectures
-                                                                                        .isEmpty()
-                                                                ) {
+                                                                if (isLoading && todayLectures.isEmpty()) {
                                                                         SkeletonSummaryCard()
                                                                 } else {
                                                                         ModernAttendanceSummaryCard(
-                                                                                total =
-                                                                                        totalClasses,
-                                                                                attended =
-                                                                                        attendedClasses,
-                                                                                screenWidth =
-                                                                                        configuration
-                                                                                                .screenWidthDp
-                                                                                                .dp
+                                                                                total = totalClasses,
+                                                                                attended = attendedClasses,
+                                                                                screenWidth = configuration.screenWidthDp.dp
                                                                         )
                                                                 }
                                                         }
                                                 }
 
-                                                // Section Header
                                                 item {
                                                         AnimatedVisibility(
                                                                 visible = true,
-                                                                enter =
-                                                                        fadeIn() +
-                                                                                slideInVertically()
+                                                                enter = fadeIn() + slideInVertically()
                                                         ) {
                                                                 EnhancedSectionHeader(
-                                                                        icon =
-                                                                                Icons.Outlined
-                                                                                        .EventNote,
+                                                                        icon = Icons.Outlined.EventNote,
                                                                         title = "Today's Lectures",
-                                                                        subtitle =
-                                                                                getCurrentDateString(),
+                                                                        subtitle = getCurrentDateString(),
                                                                         onActionClick = null
                                                                 )
                                                         }
                                                 }
 
-                                                // Lectures List
                                                 if (isLoading && todayLectures.isEmpty()) {
                                                         items(3) { SkeletonLectureCard() }
                                                 } else if (todayLectures.isEmpty()) {
@@ -568,8 +547,7 @@ fun HomeScreen() {
                                                                         item = lecture,
                                                                         onClick = {
                                                                                 haptic.performHapticFeedback(
-                                                                                        HapticFeedbackType
-                                                                                                .LongPress
+                                                                                        HapticFeedbackType.LongPress
                                                                                 )
                                                                         }
                                                                 )
@@ -581,8 +559,6 @@ fun HomeScreen() {
                                 }
                         }
                 }
-
-
         }
 
         /* -------------------- POPUP -------------------- */
@@ -594,6 +570,10 @@ fun HomeScreen() {
                         isSaving = isSavingPopup,
                         onDismiss = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+
+                                // Activate 10-Minute Snooze
+                                prefs.edit().putLong("snooze_${activeLecture!!.lectureId}", System.currentTimeMillis()).apply()
+
                                 showPopup = false
                                 activeLecture = null
                                 popupNote = ""
@@ -611,7 +591,6 @@ fun HomeScreen() {
                                         isSavingPopup = false
                                         showPopup = false
                                         popupNote = ""
-                                        // Force complete server override
                                         forceServerFetch = true
                                         refreshTrigger++
                                 }
@@ -629,7 +608,6 @@ fun HomeScreen() {
                                         isSavingPopup = false
                                         showPopup = false
                                         popupNote = ""
-                                        // Force complete server override
                                         forceServerFetch = true
                                         refreshTrigger++
                                 }
@@ -642,196 +620,91 @@ fun HomeScreen() {
 @Composable
 fun EnhancedHeader(username: String) {
         Card(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .shadow(
-                                        elevation = 4.dp,
-                                        shape =
-                                                RoundedCornerShape(
-                                                        bottomStart = 24.dp,
-                                                        bottomEnd = 24.dp
-                                                ),
-                                        spotColor =
-                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                                ),
+                modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(bottomStart = 24.dp, bottomEnd = 24.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
-                Box(
-                        modifier =
-                                Modifier.fillMaxWidth()
-                                        .background(
-                                                Brush.linearGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        MaterialTheme.colorScheme
-                                                                                .primaryContainer
-                                                                                .copy(alpha = 0.3f),
-                                                                        MaterialTheme.colorScheme
-                                                                                .surface
-                                                                )
-                                                )
+                Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                        ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                                text = getGreetingMessage(),
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.primary
                                         )
-                ) {
-                        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
-                                Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                        Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                        text = getGreetingMessage(),
-                                                        style = MaterialTheme.typography.labelLarge,
-                                                        color = MaterialTheme.colorScheme.primary,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        fontSize = 12.sp
-                                                )
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Text(
-                                                        text = "Hello, $username",
-                                                        style =
-                                                                MaterialTheme.typography
-                                                                        .headlineMedium,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.onSurface,
-                                                        fontSize = 24.sp
-                                                )
-                                        }
-
-                                        Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                        ) {
-                                                val context =
-                                                        androidx.compose.ui.platform.LocalContext
-                                                                .current
-
-                                                // AI Chat Button
-                                                Box(
-                                                        modifier =
-                                                                Modifier.size(48.dp)
-                                                                        .shadow(
-                                                                                elevation = 6.dp,
-                                                                                shape = CircleShape,
-                                                                                spotColor =
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .primary
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.3f
-                                                                                                )
-                                                                        )
-                                                                        .clip(CircleShape)
-                                                                        .background(
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .primaryContainer
-                                                                        )
-                                                                        .clickable {
-                                                                                context.startActivity(
-                                                                                        android.content
-                                                                                                .Intent(
-                                                                                                        context,
-                                                                                                        com.kishan
-                                                                                                                        .attendmate
-                                                                                                                        .ui
-                                                                                                                        .ai
-                                                                                                                        .AiChatActivity::class
-                                                                                                                .java
-                                                                                                )
-                                                                                )
-                                                                        },
-                                                        contentAlignment = Alignment.Center
-                                                ) {
-                                                        Icon(
-                                                                imageVector =
-                                                                        Icons.Default.AutoAwesome,
-                                                                contentDescription =
-                                                                        "AI Chat Assistant",
-                                                                tint =
-                                                                        MaterialTheme.colorScheme
-                                                                                .primary,
-                                                                modifier = Modifier.size(24.dp)
-                                                        )
-                                                }
-
-                                                // Profile Avatar
-                                                Box(
-                                                        modifier =
-                                                                Modifier.size(48.dp)
-                                                                        .shadow(
-                                                                                elevation = 6.dp,
-                                                                                shape = CircleShape,
-                                                                                spotColor =
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .primary
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.3f
-                                                                                                )
-                                                                        )
-                                                                        .clip(CircleShape)
-                                                                        .background(
-                                                                                Brush.linearGradient(
-                                                                                        colors =
-                                                                                                listOf(
-                                                                                                        MaterialTheme
-                                                                                                                .colorScheme
-                                                                                                                .primary,
-                                                                                                        MaterialTheme
-                                                                                                                .colorScheme
-                                                                                                                .tertiary
-                                                                                                )
-                                                                                )
-                                                                        ),
-                                                        contentAlignment = Alignment.Center
-                                                ) {
-                                                        Text(
-                                                                text =
-                                                                        username.firstOrNull()
-                                                                                ?.uppercaseChar()
-                                                                                ?.toString()
-                                                                                ?: "U",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .titleLarge,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color = Color.White,
-                                                                fontSize = 20.sp
-                                                        )
-                                                }
-                                        }
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                                text = "Hello, $username",
+                                                style = MaterialTheme.typography.headlineMedium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                        )
                                 }
 
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                // Date and Day
                                 Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                        Icon(
-                                                imageVector = Icons.Outlined.CalendarToday,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(16.dp)
-                                        )
-                                        Text(
-                                                text = getCurrentDateString(),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontWeight = FontWeight.Medium
-                                        )
+                                        val context = LocalContext.current
+                                        Box(
+                                                modifier = Modifier.size(48.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.primaryContainer)
+                                                        .clickable {
+                                                                context.startActivity(
+                                                                        Intent(context, com.kishan.attendmate.ui.ai.AiChatActivity::class.java)
+                                                                )
+                                                        },
+                                                contentAlignment = Alignment.Center
+                                        ) {
+                                                Icon(
+                                                        imageVector = Icons.Default.AutoAwesome,
+                                                        contentDescription = "AI Chat Assistant",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(24.dp)
+                                                )
+                                        }
+
+                                        Box(
+                                                modifier = Modifier.size(48.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.primary),
+                                                contentAlignment = Alignment.Center
+                                        ) {
+                                                Text(
+                                                        text = username.firstOrNull()?.uppercaseChar()?.toString() ?: "U",
+                                                        style = MaterialTheme.typography.titleLarge,
+                                                        color = MaterialTheme.colorScheme.onPrimary
+                                                )
+                                        }
                                 }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                                Icon(
+                                        imageVector = Icons.Outlined.CalendarToday,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                        text = getCurrentDateString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                         }
                 }
         }
 }
 
-/* -------------------- ENHANCED SECTION HEADER -------------------- */
 @Composable
 fun EnhancedSectionHeader(
         icon: ImageVector,
@@ -850,12 +723,9 @@ fun EnhancedSectionHeader(
                         modifier = Modifier.weight(1f)
                 ) {
                         Box(
-                                modifier =
-                                        Modifier.size(40.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(
-                                                        MaterialTheme.colorScheme.primaryContainer
-                                                ),
+                                modifier = Modifier.size(40.dp)
+                                        .clip(RoundedCornerShape(RadiusSM))
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
                                 contentAlignment = Alignment.Center
                         ) {
                                 Icon(
@@ -869,15 +739,12 @@ fun EnhancedSectionHeader(
                                 Text(
                                         text = title,
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 18.sp
+                                        color = MaterialTheme.colorScheme.onSurface
                                 )
                                 Text(
                                         text = subtitle,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 12.sp
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                         }
                 }
@@ -897,100 +764,26 @@ fun EnhancedSectionHeader(
 /* -------------------- PRO ERROR STATE -------------------- */
 @Composable
 fun EnhancedErrorState(errorMessage: String, onRetry: () -> Unit) {
-        Card(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .padding(horizontal = 32.dp)
-                                .shadow(
-                                        elevation = 8.dp,
-                                        shape = RoundedCornerShape(28.dp),
-                                        spotColor =
-                                                MaterialTheme.colorScheme.error.copy(alpha = 0.2f)
-                                ),
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-                Box(
-                        modifier =
-                                Modifier.fillMaxWidth()
-                                        .background(
-                                                Brush.verticalGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        MaterialTheme.colorScheme
-                                                                                .errorContainer
-                                                                                .copy(alpha = 0.3f),
-                                                                        MaterialTheme.colorScheme
-                                                                                .surface
-                                                                )
-                                                )
-                                        )
-                ) {
-                        Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.fillMaxWidth().padding(32.dp),
-                                verticalArrangement = Arrangement.spacedBy(20.dp)
+        StandardErrorState(
+                title = "Oops!",
+                subtitle = errorMessage,
+                action = {
+                        Spacer(modifier = Modifier.height(SpaceMD))
+                        Button(
+                                onClick = onRetry,
+                                shape = RoundedCornerShape(RadiusMD),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                         ) {
-                                Box(
-                                        modifier =
-                                                Modifier.size(100.dp)
-                                                        .clip(CircleShape)
-                                                        .background(
-                                                                MaterialTheme.colorScheme
-                                                                        .errorContainer.copy(
-                                                                        alpha = 0.5f
-                                                                )
-                                                        ),
-                                        contentAlignment = Alignment.Center
-                                ) {
-                                        Icon(
-                                                imageVector = Icons.Outlined.ErrorOutline,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(56.dp),
-                                                tint = MaterialTheme.colorScheme.error
-                                        )
-                                }
-
-                                Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                        Text(
-                                                text = "Oops!",
-                                                style = MaterialTheme.typography.headlineMedium,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = MaterialTheme.colorScheme.error
-                                        )
-                                        Text(
-                                                text = errorMessage,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                textAlign = TextAlign.Center,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                lineHeight = 20.sp
-                                        )
-                                }
-
-                                Button(
-                                        onClick = onRetry,
-                                        modifier = Modifier.fillMaxWidth(0.8f).height(50.dp),
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors =
-                                                ButtonDefaults.buttonColors(
-                                                        containerColor =
-                                                                MaterialTheme.colorScheme.error
-                                                )
-                                ) {
-                                        Icon(
-                                                imageVector = Icons.Default.Refresh,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Try Again", fontWeight = FontWeight.Bold)
-                                }
+                                Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(SpaceXS))
+                                Text("Try Again", style = MaterialTheme.typography.labelLarge)
                         }
                 }
-        }
+        )
 }
 
 /* -------------------- HELPER FUNCTIONS -------------------- */
@@ -1013,156 +806,81 @@ fun getCurrentDateString(): String {
 @Composable
 fun EnhancedTodayLectureCard(item: TodayLecture, onClick: () -> Unit) {
         val isPresent = item.status == "PRESENT"
-        val statusColor = if (isPresent) Color(0xFF10B981) else Color(0xFFEF4444)
-        val statusBgColor = statusColor.copy(alpha = 0.08f)
-        val scale by
-                animateFloatAsState(
-                        targetValue = 1f,
-                        animationSpec =
-                                spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessLow
-                                ),
-                        label = "lecture_card_scale"
-                )
+        val statusColor = if (isPresent) SuccessColor else DangerColor
 
         Card(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .scale(scale)
-                                .shadow(
-                                        elevation = 2.dp,
-                                        shape = RoundedCornerShape(20.dp),
-                                        spotColor = statusColor.copy(alpha = 0.1f)
-                                )
-                                .clickable(onClick = onClick),
-                shape = RoundedCornerShape(20.dp),
-                colors =
-                        CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(width = 1.dp, color = statusColor.copy(alpha = 0.2f))
+                modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(onClick = onClick),
+                shape = RoundedCornerShape(RadiusLG),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-                Box(
-                        modifier =
-                                Modifier.fillMaxWidth()
-                                        .background(
-                                                Brush.horizontalGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        statusBgColor,
-                                                                        MaterialTheme.colorScheme
-                                                                                .surface,
-                                                                        MaterialTheme.colorScheme
-                                                                                .surface
-                                                                ),
-                                                        startX = 0f,
-                                                        endX = 800f
-                                                )
-                                        )
+                Row(
+                        modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = SpaceMD, vertical = SpaceSM),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(SpaceMD)
                 ) {
-                        Row(
-                                modifier = Modifier.fillMaxWidth().padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        Box(
+                                modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(CircleShape)
+                                        .background(statusColor)
+                        )
+
+                        Column(
+                                modifier = Modifier.weight(1f),
+                                verticalArrangement = Arrangement.spacedBy(SpaceXXS)
                         ) {
-                                Box(
-                                        modifier =
-                                                Modifier.size(48.dp)
-                                                        .clip(RoundedCornerShape(14.dp))
-                                                        .background(
-                                                                statusColor.copy(alpha = 0.15f)
-                                                        ),
-                                        contentAlignment = Alignment.Center
+                                Text(
+                                        text = item.subjectName,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                )
+
+                                Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(SpaceXXS)
                                 ) {
                                         Icon(
-                                                imageVector =
-                                                        if (isPresent) Icons.Filled.CheckCircle
-                                                        else Icons.Filled.Cancel,
+                                                imageVector = Icons.Outlined.Schedule,
                                                 contentDescription = null,
-                                                tint = statusColor,
-                                                modifier = Modifier.size(28.dp)
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(14.dp)
                                         )
-                                }
-
-                                Column(
-                                        modifier = Modifier.weight(1f),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
                                         Text(
-                                                text = item.subjectName,
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                fontSize = 17.sp,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
+                                                text = "${item.startTime} - ${item.endTime}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
-
-                                        Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                                Row(
-                                                        verticalAlignment =
-                                                                Alignment.CenterVertically,
-                                                        horizontalArrangement =
-                                                                Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                        Icon(
-                                                                Icons.Outlined.Schedule,
-                                                                contentDescription = null,
-                                                                tint =
-                                                                        MaterialTheme.colorScheme
-                                                                                .onSurfaceVariant,
-                                                                modifier = Modifier.size(14.dp)
-                                                        )
-                                                        Text(
-                                                                text =
-                                                                        "${item.startTime} - ${item.endTime}",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .bodySmall,
-                                                                color =
-                                                                        MaterialTheme.colorScheme
-                                                                                .onSurfaceVariant,
-                                                                fontWeight = FontWeight.Medium
-                                                        )
-                                                }
-
-                                                Row(
-                                                        horizontalArrangement =
-                                                                Arrangement.spacedBy(6.dp),
-                                                        verticalAlignment =
-                                                                Alignment.CenterVertically
-                                                ) {
-                                                        if (!item.note.isNullOrBlank()) {
-                                                                Icon(
-                                                                        imageVector =
-                                                                                Icons.Outlined
-                                                                                        .EditNote,
-                                                                        contentDescription =
-                                                                                "Has note",
-                                                                        tint =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .primary,
-                                                                        modifier =
-                                                                                Modifier.size(18.dp)
-                                                                )
-                                                        }
-                                                        Text(
-                                                                text =
-                                                                        if (isPresent) "Present"
-                                                                        else "Absent",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .labelMedium,
-                                                                color = statusColor,
-                                                                fontWeight = FontWeight.Bold
-                                                        )
-                                                }
+                                        if (!item.note.isNullOrBlank()) {
+                                                Spacer(modifier = Modifier.width(SpaceXXS))
+                                                Icon(
+                                                        imageVector = Icons.Outlined.EditNote,
+                                                        contentDescription = "Has note",
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(16.dp)
+                                                )
                                         }
                                 }
+                        }
+
+                        Surface(
+                                shape = RoundedCornerShape(RadiusSM),
+                                color = statusColor.copy(alpha = 0.1f),
+                                border = BorderStroke(0.5.dp, statusColor.copy(alpha = 0.2f))
+                        ) {
+                                Text(
+                                        text = if (isPresent) "Present" else "Absent",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = statusColor,
+                                        modifier = Modifier.padding(horizontal = SpaceXS, vertical = SpaceXXS)
+                                )
                         }
                 }
         }
@@ -1171,110 +889,11 @@ fun EnhancedTodayLectureCard(item: TodayLecture, onClick: () -> Unit) {
 /* -------------------- ENHANCED EMPTY STATE -------------------- */
 @Composable
 fun EnhancedEmptyState() {
-        val infiniteTransition = rememberInfiniteTransition(label = "empty_state")
-        val floatOffset by
-                infiniteTransition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 15f,
-                        animationSpec =
-                                infiniteRepeatable(
-                                        animation = tween(2000, easing = EaseInOutCubic),
-                                        repeatMode = RepeatMode.Reverse
-                                ),
-                        label = "float_animation"
-                )
-
-        Card(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .shadow(
-                                        elevation = 4.dp,
-                                        shape = RoundedCornerShape(28.dp),
-                                        spotColor =
-                                                MaterialTheme.colorScheme.primary.copy(
-                                                        alpha = 0.15f
-                                                )
-                                ),
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-                Box(
-                        modifier =
-                                Modifier.fillMaxWidth()
-                                        .background(
-                                                Brush.verticalGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        MaterialTheme.colorScheme
-                                                                                .primaryContainer
-                                                                                .copy(alpha = 0.3f),
-                                                                        MaterialTheme.colorScheme
-                                                                                .surface
-                                                                )
-                                                )
-                                        )
-                ) {
-                        Column(
-                                modifier = Modifier.fillMaxWidth().padding(48.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(20.dp)
-                        ) {
-                                Box(
-                                        modifier =
-                                                Modifier.size(120.dp)
-                                                        .offset(y = floatOffset.dp)
-                                                        .shadow(
-                                                                elevation = 16.dp,
-                                                                shape = CircleShape,
-                                                                spotColor =
-                                                                        MaterialTheme.colorScheme
-                                                                                .primary.copy(
-                                                                                alpha = 0.3f
-                                                                        )
-                                                        )
-                                                        .clip(CircleShape)
-                                                        .background(
-                                                                Brush.radialGradient(
-                                                                        colors =
-                                                                                listOf(
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .primaryContainer,
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .secondaryContainer
-                                                                                )
-                                                                )
-                                                        ),
-                                        contentAlignment = Alignment.Center
-                                ) {
-                                        Icon(
-                                                imageVector = Icons.Outlined.EventNote,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(60.dp),
-                                                tint = MaterialTheme.colorScheme.primary
-                                        )
-                                }
-
-                                Text(
-                                        text = "No Lectures Today",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        textAlign = TextAlign.Center
-                                )
-
-                                Text(
-                                        text =
-                                                "Enjoy your day off! 🎉\nRelax and recharge for tomorrow.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        textAlign = TextAlign.Center,
-                                        lineHeight = 20.sp
-                                )
-                        }
-                }
-        }
+        StandardEmptyState(
+                icon = Icons.Outlined.EventNote,
+                title = "No Lectures Today",
+                subtitle = "Enjoy your day off! 🎉\nRelax and recharge for tomorrow."
+        )
 }
 
 /* -------------------- MODERN ATTENDANCE DIALOG -------------------- */
@@ -1303,155 +922,70 @@ fun ModernAttendanceDialog(
                 launch {
                         scale.animateTo(
                                 targetValue = 1f,
-                                animationSpec =
-                                        spring(
-                                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = Spring.StiffnessMedium
-                                        )
+                                animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                        stiffness = Spring.StiffnessMedium
+                                )
                         )
                 }
         }
 
         Dialog(
                 onDismissRequest = { if (!isSaving) onDismiss() },
-                properties =
-                        DialogProperties(
-                                usePlatformDefaultWidth = false,
-                                dismissOnBackPress = !isSaving,
-                                dismissOnClickOutside = !isSaving
-                        )
+                properties = DialogProperties(
+                        usePlatformDefaultWidth = false,
+                        dismissOnBackPress = !isSaving,
+                        dismissOnClickOutside = !isSaving
+                )
         ) {
                 Box(
-                        modifier =
-                                Modifier.fillMaxSize()
-                                        .background(Color.Black.copy(alpha = 0.65f * alpha.value))
-                                        .clickable(
-                                                indication = null,
-                                                interactionSource =
-                                                        remember { MutableInteractionSource() }
-                                        ) { if (!isSaving) onDismiss() },
+                        modifier = Modifier.fillMaxSize()
+                                .background(Color.Black.copy(alpha = 0.65f * alpha.value))
+                                .clickable(
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() }
+                                ) { if (!isSaving) onDismiss() },
                         contentAlignment = Alignment.Center
                 ) {
                         Card(
-                                modifier =
-                                        Modifier.fillMaxWidth(
-                                                        if (screenWidth > 600.dp) 0.85f else 0.92f
-                                                )
-                                                .scale(scale.value)
-                                                .alpha(alpha.value)
-                                                .clickable(
-                                                        indication = null,
-                                                        interactionSource =
-                                                                remember {
-                                                                        MutableInteractionSource()
-                                                                }
-                                                ) { /* Prevent dismissal */},
-                                shape = RoundedCornerShape(36.dp),
-                                colors =
-                                        CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surface
-                                        ),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 24.dp)
+                                modifier = Modifier.fillMaxWidth(if (screenWidth > 600.dp) 0.85f else 0.92f)
+                                        .scale(scale.value)
+                                        .alpha(alpha.value)
+                                        .clickable(
+                                                indication = null,
+                                                interactionSource = remember { MutableInteractionSource() }
+                                        ) { },
+                                shape = RoundedCornerShape(RadiusXL),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                         ) {
                                 Box(
-                                        modifier =
-                                                Modifier.fillMaxWidth()
-                                                        .background(
-                                                                Brush.verticalGradient(
-                                                                        colors =
-                                                                                listOf(
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .primaryContainer
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.25f
-                                                                                                ),
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .surface
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.95f
-                                                                                                ),
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .surface
-                                                                                )
-                                                                )
-                                                        )
+                                        modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)
                                 ) {
-                                        Canvas(modifier = Modifier.fillMaxSize()) {
-                                                drawCircle(
-                                                        color =
-                                                                Color(0xFF667EEA)
-                                                                        .copy(alpha = 0.04f),
-                                                        radius = 150f,
-                                                        center =
-                                                                Offset(
-                                                                        size.width * 0.2f,
-                                                                        size.height * 0.15f
-                                                                )
-                                                )
-                                                drawCircle(
-                                                        color =
-                                                                Color(0xFFF093FB)
-                                                                        .copy(alpha = 0.05f),
-                                                        radius = 180f,
-                                                        center =
-                                                                Offset(
-                                                                        size.width * 0.85f,
-                                                                        size.height * 0.75f
-                                                                )
-                                                )
-                                        }
-
                                         Column(
-                                                modifier = Modifier.fillMaxWidth().padding(28.dp),
+                                                modifier = Modifier.fillMaxWidth().padding(SpaceLG),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                         ) {
                                                 Box(modifier = Modifier.fillMaxWidth()) {
                                                         Surface(
-                                                                onClick = {
-                                                                        if (!isSaving) onDismiss()
-                                                                },
+                                                                onClick = { if (!isSaving) onDismiss() },
                                                                 enabled = !isSaving,
-                                                                modifier =
-                                                                        Modifier.align(
-                                                                                        Alignment
-                                                                                                .TopEnd
-                                                                                )
-                                                                                .offset(
-                                                                                        x = 8.dp,
-                                                                                        y = (-8).dp
-                                                                                )
-                                                                                .size(44.dp),
+                                                                modifier = Modifier.align(Alignment.TopEnd)
+                                                                        .offset(x = 8.dp, y = (-8).dp)
+                                                                        .size(44.dp),
                                                                 shape = CircleShape,
-                                                                color =
-                                                                        MaterialTheme.colorScheme
-                                                                                .surfaceContainerHighest,
-                                                                shadowElevation = 6.dp
+                                                                color = MaterialTheme.colorScheme.surfaceContainerHighest
                                                         ) {
                                                                 Box(
-                                                                        contentAlignment =
-                                                                                Alignment.Center,
-                                                                        modifier =
-                                                                                Modifier.fillMaxSize()
+                                                                        contentAlignment = Alignment.Center,
+                                                                        modifier = Modifier.fillMaxSize()
                                                                 ) {
                                                                         Icon(
-                                                                                imageVector =
-                                                                                        Icons.Outlined
-                                                                                                .Close,
-                                                                                contentDescription =
-                                                                                        "Close",
-                                                                                tint =
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .onSurface,
-                                                                                modifier =
-                                                                                        Modifier.size(
-                                                                                                22.dp
-                                                                                        )
+                                                                                imageVector = Icons.Outlined.Close,
+                                                                                contentDescription = "Close",
+                                                                                tint = MaterialTheme.colorScheme.onSurface,
+                                                                                modifier = Modifier.size(22.dp)
                                                                         )
                                                                 }
                                                         }
@@ -1459,373 +993,173 @@ fun ModernAttendanceDialog(
 
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 AnimatedDialogIcon()
-                                                Spacer(modifier = Modifier.height(28.dp))
+                                                Spacer(modifier = Modifier.height(SpaceLG))
 
                                                 Text(
                                                         text = "Mark Attendance",
-                                                        style =
-                                                                MaterialTheme.typography
-                                                                        .headlineMedium,
-                                                        fontWeight = FontWeight.ExtraBold,
-                                                        color = MaterialTheme.colorScheme.onSurface,
-                                                        fontSize = 28.sp,
-                                                        letterSpacing = 0.5.sp
+                                                        style = MaterialTheme.typography.headlineMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
                                                 )
 
                                                 Spacer(modifier = Modifier.height(12.dp))
 
                                                 Surface(
-                                                        shape = RoundedCornerShape(18.dp),
-                                                        color =
-                                                                MaterialTheme.colorScheme
-                                                                        .primaryContainer.copy(
-                                                                        alpha = 0.6f
-                                                                ),
-                                                        shadowElevation = 4.dp,
-                                                        border =
-                                                                BorderStroke(
-                                                                        width = 1.5.dp,
-                                                                        color =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .primary
-                                                                                        .copy(
-                                                                                                alpha =
-                                                                                                        0.3f
-                                                                                        )
-                                                                )
+                                                        shape = RoundedCornerShape(RadiusMD),
+                                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                                        border = BorderStroke(
+                                                                width = 1.dp,
+                                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                                                        )
                                                 ) {
                                                         Row(
-                                                                modifier =
-                                                                        Modifier.padding(
-                                                                                horizontal = 24.dp,
-                                                                                vertical = 14.dp
-                                                                        ),
-                                                                verticalAlignment =
-                                                                        Alignment.CenterVertically,
-                                                                horizontalArrangement =
-                                                                        Arrangement.spacedBy(10.dp)
+                                                                modifier = Modifier.padding(horizontal = SpaceLG, vertical = 14.dp),
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                                                         ) {
                                                                 Icon(
-                                                                        imageVector =
-                                                                                Icons.Default
-                                                                                        .MenuBook,
+                                                                        imageVector = Icons.Default.MenuBook,
                                                                         contentDescription = null,
-                                                                        tint =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .primary,
-                                                                        modifier =
-                                                                                Modifier.size(22.dp)
+                                                                        tint = MaterialTheme.colorScheme.primary,
+                                                                        modifier = Modifier.size(22.dp)
                                                                 )
                                                                 Text(
                                                                         text = lecture.subjectName,
-                                                                        style =
-                                                                                MaterialTheme
-                                                                                        .typography
-                                                                                        .titleLarge,
-                                                                        color =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .primary,
-                                                                        fontWeight =
-                                                                                FontWeight.Bold,
-                                                                        fontSize = 19.sp,
+                                                                        style = MaterialTheme.typography.titleLarge,
+                                                                        color = MaterialTheme.colorScheme.primary,
                                                                         maxLines = 1,
-                                                                        overflow =
-                                                                                TextOverflow
-                                                                                        .Ellipsis
+                                                                        overflow = TextOverflow.Ellipsis
                                                                 )
                                                         }
                                                 }
 
-                                                Spacer(modifier = Modifier.height(24.dp))
+                                                Spacer(modifier = Modifier.height(SpaceLG))
 
                                                 Surface(
                                                         modifier = Modifier.fillMaxWidth(),
-                                                        shape = RoundedCornerShape(22.dp),
-                                                        color =
-                                                                MaterialTheme.colorScheme
-                                                                        .surfaceContainerHigh,
-                                                        shadowElevation = 3.dp
+                                                        shape = RoundedCornerShape(RadiusMD),
+                                                        color = MaterialTheme.colorScheme.surfaceContainerHigh
                                                 ) {
                                                         Row(
-                                                                modifier =
-                                                                        Modifier.fillMaxWidth()
-                                                                                .padding(20.dp),
-                                                                verticalAlignment =
-                                                                        Alignment.CenterVertically,
-                                                                horizontalArrangement =
-                                                                        Arrangement.Center
+                                                                modifier = Modifier.fillMaxWidth().padding(20.dp),
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.Center
                                                         ) {
                                                                 Box(
-                                                                        modifier =
-                                                                                Modifier.size(44.dp)
-                                                                                        .clip(
-                                                                                                RoundedCornerShape(
-                                                                                                        12.dp
-                                                                                                )
-                                                                                        )
-                                                                                        .background(
-                                                                                                Brush.linearGradient(
-                                                                                                        colors =
-                                                                                                                listOf(
-                                                                                                                        AttendanceColors
-                                                                                                                                .Info
-                                                                                                                                .copy(
-                                                                                                                                        alpha =
-                                                                                                                                                0.2f
-                                                                                                                                ),
-                                                                                                                        AttendanceColors
-                                                                                                                                .InfoLight
-                                                                                                                                .copy(
-                                                                                                                                        alpha =
-                                                                                                                                                0.15f
-                                                                                                                                )
-                                                                                                                )
-                                                                                                )
-                                                                                        ),
-                                                                        contentAlignment =
-                                                                                Alignment.Center
+                                                                        modifier = Modifier.size(44.dp)
+                                                                                .clip(RoundedCornerShape(RadiusSM))
+                                                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                                                                        contentAlignment = Alignment.Center
                                                                 ) {
                                                                         Icon(
-                                                                                imageVector =
-                                                                                        Icons.Filled
-                                                                                                .Schedule,
-                                                                                contentDescription =
-                                                                                        null,
-                                                                                tint =
-                                                                                        AttendanceColors
-                                                                                                .Info,
-                                                                                modifier =
-                                                                                        Modifier.size(
-                                                                                                24.dp
-                                                                                        )
+                                                                                imageVector = Icons.Filled.Schedule,
+                                                                                contentDescription = null,
+                                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                                modifier = Modifier.size(24.dp)
                                                                         )
                                                                 }
 
-                                                                Spacer(
-                                                                        modifier =
-                                                                                Modifier.width(
-                                                                                        16.dp
-                                                                                )
-                                                                )
+                                                                Spacer(modifier = Modifier.width(SpaceMD))
 
                                                                 Text(
                                                                         text = lecture.startTime,
-                                                                        style =
-                                                                                MaterialTheme
-                                                                                        .typography
-                                                                                        .titleLarge,
-                                                                        fontWeight =
-                                                                                FontWeight.Bold,
-                                                                        color =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .onSurface,
-                                                                        fontSize = 20.sp
+                                                                        style = MaterialTheme.typography.titleLarge,
+                                                                        color = MaterialTheme.colorScheme.onSurface
                                                                 )
 
-                                                                Spacer(
-                                                                        modifier =
-                                                                                Modifier.width(
-                                                                                        12.dp
-                                                                                )
-                                                                )
+                                                                Spacer(modifier = Modifier.width(12.dp))
 
                                                                 Box(
-                                                                        modifier =
-                                                                                Modifier.size(8.dp)
-                                                                                        .clip(
-                                                                                                CircleShape
-                                                                                        )
-                                                                                        .background(
-                                                                                                MaterialTheme
-                                                                                                        .colorScheme
-                                                                                                        .primary
-                                                                                        )
+                                                                        modifier = Modifier.size(8.dp)
+                                                                                .clip(CircleShape)
+                                                                                .background(MaterialTheme.colorScheme.primary)
                                                                 )
 
-                                                                Spacer(
-                                                                        modifier =
-                                                                                Modifier.width(
-                                                                                        12.dp
-                                                                                )
-                                                                )
+                                                                Spacer(modifier = Modifier.width(12.dp))
 
                                                                 Text(
                                                                         text = lecture.endTime,
-                                                                        style =
-                                                                                MaterialTheme
-                                                                                        .typography
-                                                                                        .titleLarge,
-                                                                        fontWeight =
-                                                                                FontWeight.Bold,
-                                                                        color =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .onSurface,
-                                                                        fontSize = 20.sp
+                                                                        style = MaterialTheme.typography.titleLarge,
+                                                                        color = MaterialTheme.colorScheme.onSurface
                                                                 )
                                                         }
                                                 }
 
-                                                Spacer(modifier = Modifier.height(28.dp))
+                                                Spacer(modifier = Modifier.height(SpaceLG))
 
                                                 OutlinedTextField(
                                                         value = note,
                                                         onValueChange = onNoteChange,
-                                                        modifier =
-                                                                Modifier.fillMaxWidth()
-                                                                        .heightIn(min = 120.dp),
+                                                        modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp),
                                                         label = {
                                                                 Text(
                                                                         "Add a Note (Optional)",
-                                                                        fontWeight =
-                                                                                FontWeight.SemiBold,
-                                                                        fontSize = 14.sp
+                                                                        style = MaterialTheme.typography.bodyMedium
                                                                 )
                                                         },
                                                         placeholder = {
                                                                 Text(
                                                                         "e.g., Medical emergency, Family function, Late arrival...",
-                                                                        fontSize = 13.sp
+                                                                        style = MaterialTheme.typography.bodyMedium
                                                                 )
                                                         },
                                                         maxLines = 4,
                                                         leadingIcon = {
                                                                 Box(
-                                                                        modifier =
-                                                                                Modifier.padding(
-                                                                                                start =
-                                                                                                        4.dp
-                                                                                        )
-                                                                                        .size(40.dp)
-                                                                                        .clip(
-                                                                                                RoundedCornerShape(
-                                                                                                        10.dp
-                                                                                                )
-                                                                                        )
-                                                                                        .background(
-                                                                                                MaterialTheme
-                                                                                                        .colorScheme
-                                                                                                        .primaryContainer
-                                                                                                        .copy(
-                                                                                                                alpha =
-                                                                                                                        0.5f
-                                                                                                        )
-                                                                                        ),
-                                                                        contentAlignment =
-                                                                                Alignment.Center
+                                                                        modifier = Modifier.padding(start = 4.dp).size(40.dp)
+                                                                                .clip(RoundedCornerShape(RadiusSM))
+                                                                                .background(
+                                                                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                                                                ),
+                                                                        contentAlignment = Alignment.Center
                                                                 ) {
                                                                         Icon(
-                                                                                Icons.Default
-                                                                                        .EditNote,
-                                                                                contentDescription =
-                                                                                        null,
-                                                                                tint =
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .primary,
-                                                                                modifier =
-                                                                                        Modifier.size(
-                                                                                                24.dp
-                                                                                        )
+                                                                                Icons.Default.EditNote,
+                                                                                contentDescription = null,
+                                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                                modifier = Modifier.size(24.dp)
                                                                         )
                                                                 }
                                                         },
                                                         supportingText = {
                                                                 Row(
-                                                                        modifier =
-                                                                                Modifier.fillMaxWidth(),
-                                                                        horizontalArrangement =
-                                                                                Arrangement
-                                                                                        .SpaceBetween,
-                                                                        verticalAlignment =
-                                                                                Alignment
-                                                                                        .CenterVertically
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                                        verticalAlignment = Alignment.CenterVertically
                                                                 ) {
                                                                         Text(
                                                                                 "Keep it brief and relevant",
-                                                                                style =
-                                                                                        MaterialTheme
-                                                                                                .typography
-                                                                                                .labelSmall,
-                                                                                color =
-                                                                                        MaterialTheme
-                                                                                                .colorScheme
-                                                                                                .onSurfaceVariant
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.7f
-                                                                                                )
+                                                                                style = MaterialTheme.typography.labelSmall,
+                                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                                                         )
                                                                         Text(
                                                                                 "${note.length}/200",
-                                                                                style =
-                                                                                        MaterialTheme
-                                                                                                .typography
-                                                                                                .labelSmall,
-                                                                                fontWeight =
-                                                                                        FontWeight
-                                                                                                .Bold,
-                                                                                color =
-                                                                                        if (note.length >
-                                                                                                        180
-                                                                                        )
-                                                                                                AttendanceColors
-                                                                                                        .Absent
-                                                                                        else if (note.length >
-                                                                                                        150
-                                                                                        )
-                                                                                                AttendanceColors
-                                                                                                        .Warning
-                                                                                        else
-                                                                                                MaterialTheme
-                                                                                                        .colorScheme
-                                                                                                        .primary
+                                                                                style = MaterialTheme.typography.labelSmall,
+                                                                                color = if (note.length > 180) DangerColor
+                                                                                else if (note.length > 150) WarningColor
+                                                                                else MaterialTheme.colorScheme.primary
                                                                         )
                                                                 }
                                                         },
                                                         enabled = !isSaving,
-                                                        shape = RoundedCornerShape(18.dp),
-                                                        colors =
-                                                                OutlinedTextFieldDefaults.colors(
-                                                                        focusedBorderColor =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .primary,
-                                                                        unfocusedBorderColor =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .outline
-                                                                                        .copy(
-                                                                                                alpha =
-                                                                                                        0.5f
-                                                                                        ),
-                                                                        focusedContainerColor =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .surface,
-                                                                        unfocusedContainerColor =
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .surfaceContainerLowest
-                                                                )
+                                                        shape = RoundedCornerShape(RadiusMD),
+                                                        colors = OutlinedTextFieldDefaults.colors(
+                                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                                                focusedContainerColor = MaterialTheme.colorScheme.surface,
+                                                                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest
+                                                        )
                                                 )
 
-                                                Spacer(modifier = Modifier.height(32.dp))
+                                                Spacer(modifier = Modifier.height(SpaceXL))
 
                                                 Row(
                                                         modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement =
-                                                                Arrangement.spacedBy(14.dp)
+                                                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                                                 ) {
                                                         ModernActionButton(
                                                                 text = "Absent",
                                                                 icon = Icons.Outlined.Close,
-                                                                backgroundColor =
-                                                                        AttendanceColors.Absent,
+                                                                backgroundColor = DangerColor,
                                                                 isEnabled = !isSaving,
                                                                 isLoading = false,
                                                                 modifier = Modifier.weight(1f),
@@ -1835,8 +1169,7 @@ fun ModernAttendanceDialog(
                                                         ModernActionButton(
                                                                 text = "Present",
                                                                 icon = Icons.Filled.CheckCircle,
-                                                                backgroundColor =
-                                                                        AttendanceColors.Present,
+                                                                backgroundColor = SuccessColor,
                                                                 isEnabled = !isSaving,
                                                                 isLoading = isSaving,
                                                                 modifier = Modifier.weight(1f),
@@ -1870,126 +1203,22 @@ object AttendanceColors {
         val InfoBg = Color(0xFFDBEAFE)
 }
 
-/* -------------------- ANIMATED DIALOG ICON -------------------- */
+/* -------------------- MODERN ICON -------------------- */
 @Composable
 private fun AnimatedDialogIcon() {
-        val infiniteTransition = rememberInfiniteTransition(label = "dialog_icon")
-        val rotation by
-                infiniteTransition.animateFloat(
-                        initialValue = -10f,
-                        targetValue = 10f,
-                        animationSpec =
-                                infiniteRepeatable(
-                                        animation = tween(3000, easing = EaseInOutCubic),
-                                        repeatMode = RepeatMode.Reverse
-                                ),
-                        label = "rotation"
+        Box(
+                modifier = Modifier
+                        .size(72.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+        ) {
+                Icon(
+                        imageVector = Icons.Default.EventNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(36.dp)
                 )
-        val scale by
-                infiniteTransition.animateFloat(
-                        initialValue = 0.95f,
-                        targetValue = 1.05f,
-                        animationSpec =
-                                infiniteRepeatable(
-                                        animation = tween(2000, easing = EaseInOutCubic),
-                                        repeatMode = RepeatMode.Reverse
-                                ),
-                        label = "scale"
-                )
-
-        Box(contentAlignment = Alignment.Center) {
-                repeat(3) { index ->
-                        Box(
-                                modifier =
-                                        Modifier.size((120 + index * 25).dp)
-                                                .scale(scale)
-                                                .alpha(0.2f - (index * 0.05f))
-                                                .clip(CircleShape)
-                                                .background(
-                                                        Brush.radialGradient(
-                                                                colors =
-                                                                        listOf(
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .primary
-                                                                                        .copy(
-                                                                                                alpha =
-                                                                                                        0.4f
-                                                                                        ),
-                                                                                Color.Transparent
-                                                                        )
-                                                        )
-                                                )
-                        )
-                }
-
-                Box(
-                        modifier =
-                                Modifier.size(110.dp)
-                                        .scale(scale)
-                                        .shadow(
-                                                elevation = 24.dp,
-                                                shape = CircleShape,
-                                                spotColor =
-                                                        MaterialTheme.colorScheme.primary.copy(
-                                                                alpha = 0.5f
-                                                        )
-                                        )
-                                        .clip(CircleShape)
-                                        .background(
-                                                Brush.linearGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        Color(0xFF667EEA),
-                                                                        Color(0xFF764BA2),
-                                                                        Color(0xFFF093FB)
-                                                                ),
-                                                        start = Offset.Zero,
-                                                        end = Offset.Infinite
-                                                )
-                                        )
-                                        .border(
-                                                width = 4.dp,
-                                                brush =
-                                                        Brush.linearGradient(
-                                                                colors =
-                                                                        listOf(
-                                                                                Color.White.copy(
-                                                                                        alpha = 0.5f
-                                                                                ),
-                                                                                Color.White.copy(
-                                                                                        alpha = 0.2f
-                                                                                )
-                                                                        )
-                                                        ),
-                                                shape = CircleShape
-                                        ),
-                        contentAlignment = Alignment.Center
-                ) {
-                        Box(
-                                modifier =
-                                        Modifier.fillMaxSize()
-                                                .background(
-                                                        Brush.radialGradient(
-                                                                colors =
-                                                                        listOf(
-                                                                                Color.White.copy(
-                                                                                        alpha = 0.3f
-                                                                                ),
-                                                                                Color.Transparent
-                                                                        )
-                                                        )
-                                                )
-                        )
-
-                        Icon(
-                                imageVector = Icons.Default.EventNote,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier =
-                                        Modifier.size(56.dp).graphicsLayer { rotationZ = rotation }
-                        )
-                }
         }
 }
 
@@ -2006,70 +1235,54 @@ private fun ModernActionButton(
 ) {
         val interactionSource = remember { MutableInteractionSource() }
         val isPressed by interactionSource.collectIsPressedAsState()
-        val buttonScale by
-                animateFloatAsState(
-                        targetValue = if (isPressed) 0.95f else 1f,
-                        animationSpec =
-                                spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessMedium
-                                ),
-                        label = "button_scale"
-                )
+        val buttonScale by animateFloatAsState(
+                targetValue = if (isPressed) 0.95f else 1f,
+                animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMedium
+                ),
+                label = "button_scale"
+        )
 
         Button(
                 onClick = onClick,
                 enabled = isEnabled,
-                modifier =
-                        modifier.height(64.dp)
-                                .scale(buttonScale)
-                                .shadow(
-                                        elevation = if (isEnabled && !isLoading) 12.dp else 4.dp,
-                                        shape = RoundedCornerShape(20.dp),
-                                        spotColor = backgroundColor.copy(alpha = 0.4f)
-                                ),
-                shape = RoundedCornerShape(20.dp),
-                colors =
-                        ButtonDefaults.buttonColors(
-                                containerColor = Color.Transparent,
-                                disabledContainerColor =
-                                        MaterialTheme.colorScheme.surfaceContainerHighest
+                modifier = modifier.height(64.dp)
+                        .scale(buttonScale)
+                        .shadow(
+                                elevation = if (isEnabled && !isLoading) 12.dp else 4.dp,
+                                shape = RoundedCornerShape(20.dp),
+                                spotColor = backgroundColor.copy(alpha = 0.4f)
                         ),
+                shape = RoundedCornerShape(20.dp),
+                colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent,
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
+                ),
                 contentPadding = PaddingValues(0.dp),
                 interactionSource = interactionSource
         ) {
                 Box(
-                        modifier =
-                                Modifier.fillMaxSize()
-                                        .background(
-                                                if (isEnabled && !isLoading) {
-                                                        Brush.linearGradient(
-                                                                colors =
-                                                                        listOf(
-                                                                                backgroundColor,
-                                                                                backgroundColor
-                                                                                        .copy(
-                                                                                                alpha =
-                                                                                                        0.85f
-                                                                                        )
-                                                                        ),
-                                                                start = Offset(0f, 0f),
-                                                                end = Offset.Infinite
+                        modifier = Modifier.fillMaxSize()
+                                .background(
+                                        if (isEnabled && !isLoading) {
+                                                Brush.linearGradient(
+                                                        colors = listOf(
+                                                                backgroundColor,
+                                                                backgroundColor.copy(alpha = 0.85f)
+                                                        ),
+                                                        start = Offset(0f, 0f),
+                                                        end = Offset.Infinite
+                                                )
+                                        } else {
+                                                Brush.linearGradient(
+                                                        colors = listOf(
+                                                                MaterialTheme.colorScheme.surfaceContainerHighest,
+                                                                MaterialTheme.colorScheme.surfaceContainerHigh
                                                         )
-                                                } else {
-                                                        Brush.linearGradient(
-                                                                colors =
-                                                                        listOf(
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .surfaceContainerHighest,
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .surfaceContainerHigh
-                                                                        )
-                                                        )
-                                                }
-                                        ),
+                                                )
+                                        }
+                                ),
                         contentAlignment = Alignment.Center
                 ) {
                         if (isLoading) {
@@ -2087,21 +1300,13 @@ private fun ModernActionButton(
                                                 imageVector = icon,
                                                 contentDescription = null,
                                                 modifier = Modifier.size(24.dp),
-                                                tint =
-                                                        if (isEnabled) Color.White
-                                                        else
-                                                                MaterialTheme.colorScheme
-                                                                        .onSurfaceVariant
+                                                tint = if (isEnabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                         Text(
                                                 text = text,
                                                 style = MaterialTheme.typography.titleMedium,
                                                 fontWeight = FontWeight.ExtraBold,
-                                                color =
-                                                        if (isEnabled) Color.White
-                                                        else
-                                                                MaterialTheme.colorScheme
-                                                                        .onSurfaceVariant,
+                                                color = if (isEnabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontSize = 17.sp,
                                                 letterSpacing = 0.5.sp
                                         )
@@ -2123,66 +1328,86 @@ fun savePopupAttendance(
         val today = Calendar.getInstance()
         val dateKey = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(today.time)
 
-        val startCal =
-                Calendar.getInstance().apply {
-                        val (h, m) = lecture.startTime.split(":").map { it.toInt() }
-                        set(Calendar.HOUR_OF_DAY, h)
-                        set(Calendar.MINUTE, m)
-                }
+        val startCal = Calendar.getInstance().apply {
+                val (h, m) = lecture.startTime.split(":").map { it.trim().toInt() }
+                set(Calendar.HOUR_OF_DAY, h)
+                set(Calendar.MINUTE, m)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+        }
 
-        val endCal =
-                Calendar.getInstance().apply {
-                        val (h, m) = lecture.endTime.split(":").map { it.toInt() }
-                        set(Calendar.HOUR_OF_DAY, h)
-                        set(Calendar.MINUTE, m)
-                }
+        val endCal = Calendar.getInstance().apply {
+                val (h, m) = lecture.endTime.split(":").map { it.trim().toInt() }
+                set(Calendar.HOUR_OF_DAY, h)
+                set(Calendar.MINUTE, m)
+                set(Calendar.SECOND, 0)
+                set(Calendar.MILLISECOND, 0)
+        }
 
-        val lectureId =
-                "${dateKey}_${SimpleDateFormat("HHmm", Locale.getDefault()).format(startCal.time)}_" +
-                        SimpleDateFormat("HHmm", Locale.getDefault()).format(endCal.time)
+        // Creating identical lecture ID Format to AddAttendanceActivity
+        val startKey = SimpleDateFormat("HHmm", Locale.getDefault()).format(startCal.time)
+        val endKey = SimpleDateFormat("HHmm", Locale.getDefault()).format(endCal.time)
+        val lectureId = "${dateKey}_${startKey}_${endKey}"
 
-        val subjectRef =
-                db.collection("users")
-                        .document(userId)
-                        .collection("subjects")
-                        .document(lecture.subjectId)
+        val dayName = when (today.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.MONDAY -> "MONDAY"
+                Calendar.TUESDAY -> "TUESDAY"
+                Calendar.WEDNESDAY -> "WEDNESDAY"
+                Calendar.THURSDAY -> "THURSDAY"
+                Calendar.FRIDAY -> "FRIDAY"
+                Calendar.SATURDAY -> "SATURDAY"
+                Calendar.SUNDAY -> "SUNDAY"
+                else -> null
+        }
+
+        val startHour = startCal.get(Calendar.HOUR_OF_DAY)
+        val endHour = endCal.get(Calendar.HOUR_OF_DAY)
+        val slotIndex = startHour - 9
+        val durationHours = endHour - startHour
+
+        val lectureKey = if (dayName != null && slotIndex >= 0 && durationHours > 0) {
+                "${dayName}_${slotIndex}_${durationHours}"
+        } else null
+
+        val subjectRef = db.collection("users")
+                .document(userId)
+                .collection("subjects")
+                .document(lecture.subjectId)
 
         val attendanceRef = subjectRef.collection("attendance").document(lectureId)
 
-        db
-                .runTransaction { tx ->
-                        if (tx.get(attendanceRef).exists()) {
-                                throw Exception("Attendance already marked")
-                        }
-
-                        val subjectSnap = tx.get(subjectRef)
-                        val total = (subjectSnap.getLong("totalClasses") ?: 0) + 1
-                        val attended =
-                                if (status == "Present")
-                                        (subjectSnap.getLong("attendedClasses") ?: 0) + 1
-                                else subjectSnap.getLong("attendedClasses") ?: 0
-
-                        val attendanceData =
-                                mutableMapOf<String, Any>(
-                                        "status" to status,
-                                        "date" to today.time,
-                                        "startTime" to startCal.time,
-                                        "endTime" to endCal.time,
-                                        "createdAt" to Date()
-                                )
-
-                        // Save note only if user entered it
-                        if (note.isNotBlank()) {
-                                attendanceData["note"] = note.trim()
-                        }
-
-                        tx.set(attendanceRef, attendanceData)
-                        tx.update(
-                                subjectRef,
-                                mapOf("totalClasses" to total, "attendedClasses" to attended)
-                        )
+        db.runTransaction { tx ->
+                if (tx.get(attendanceRef).exists()) {
+                        throw Exception("Attendance already marked")
                 }
-                .addOnCompleteListener { onDone() }
+
+                val subjectSnap = tx.get(subjectRef)
+                val total = (subjectSnap.getLong("totalClasses") ?: 0) + 1
+                val attended = if (status == "Present")
+                        (subjectSnap.getLong("attendedClasses") ?: 0) + 1
+                else subjectSnap.getLong("attendedClasses") ?: 0
+
+                val attendanceData = mutableMapOf<String, Any>(
+                        "status" to status,
+                        "date" to today.time,
+                        "startTime" to startCal.time,
+                        "endTime" to endCal.time,
+                        "createdAt" to Date()
+                )
+
+                // Save note only if user entered it
+                if (note.isNotBlank()) {
+                        attendanceData["note"] = note.trim()
+                }
+
+                lectureKey?.let { attendanceData["lectureKey"] = it }
+
+                tx.set(attendanceRef, attendanceData)
+                tx.update(
+                        subjectRef,
+                        mapOf("totalClasses" to total, "attendedClasses" to attended)
+                )
+        }.addOnCompleteListener { onDone() }
 }
 
 suspend fun saveDailySnapshot(
@@ -2202,12 +1427,9 @@ suspend fun saveDailySnapshot(
 
         val percentage = if (total == 0) 0.0 else (attended.toDouble() / total.toDouble()) * 100.0
 
-        // ✅ FIXED: Create a unique key using "SubjectName_StartTime"
-        // This ensures that two lectures of the same subject at different times are both saved.
         val lectureMap =
                 todayLectures.associate { lecture ->
-                        val uniqueKey =
-                                "${lecture.subjectName}_${lecture.startTime.replace(":", "")}"
+                        val uniqueKey = "${lecture.subjectName}_${lecture.startTime.replace(":", "")}"
                         uniqueKey to
                                 mapOf(
                                         "subjectName" to lecture.subjectName,
@@ -2224,17 +1446,12 @@ suspend fun saveDailySnapshot(
                         "totalClasses" to total,
                         "attendedClasses" to attended,
                         "percentage" to percentage,
-                        "lectures" to
-                                lectureMap, // Now contains nested objects instead of just strings
+                        "lectures" to lectureMap,
                         "updatedAt" to FieldValue.serverTimestamp()
                 )
 
         try {
                 snapshotRef.set(data).await()
-                Log.d(
-                        "SNAPSHOT_SUCCESS",
-                        "Successfully saved snapshot with multiple same-subject lectures!"
-                )
         } catch (e: Exception) {
                 Log.e("SNAPSHOT_ERROR", "Failed to save snapshot", e)
         }
@@ -2244,104 +1461,46 @@ suspend fun saveDailySnapshot(
 @Composable
 fun SkeletonSummaryCard() {
         val infiniteTransition = rememberInfiniteTransition(label = "skeleton")
-        val alpha by
-                infiniteTransition.animateFloat(
-                        initialValue = 0.3f,
-                        targetValue = 0.7f,
-                        animationSpec =
-                                infiniteRepeatable(
-                                        animation = tween(1000),
-                                        repeatMode = RepeatMode.Reverse
-                                ),
-                        label = "skeleton alpha"
-                )
+        val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.3f,
+                targetValue = 0.7f,
+                animationSpec = infiniteRepeatable(
+                        animation = tween(1000),
+                        repeatMode = RepeatMode.Reverse
+                ),
+                label = "skeleton alpha"
+        )
 
         Card(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .padding(horizontal = 20.dp)
-                                .shadow(4.dp, RoundedCornerShape(28.dp)),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).shadow(4.dp, RoundedCornerShape(28.dp)),
                 shape = RoundedCornerShape(28.dp),
-                colors =
-                        CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                        )
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
                 Column(
                         modifier = Modifier.padding(28.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                         Box(
-                                modifier =
-                                        Modifier.width(180.dp)
-                                                .height(24.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(
-                                                        MaterialTheme.colorScheme.surfaceVariant
-                                                                .copy(alpha = alpha)
-                                                )
+                                modifier = Modifier.width(180.dp).height(24.dp).clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                         )
-
                         Spacer(modifier = Modifier.height(24.dp))
-
                         Box(
-                                modifier =
-                                        Modifier.size(160.dp)
-                                                .clip(CircleShape)
-                                                .background(
-                                                        MaterialTheme.colorScheme.surfaceVariant
-                                                                .copy(alpha = alpha)
-                                                )
+                                modifier = Modifier.size(160.dp).clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                         )
-
                         Spacer(modifier = Modifier.height(24.dp))
-
-                        Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                                 repeat(3) {
                                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                 Box(
-                                                        modifier =
-                                                                Modifier.width(70.dp)
-                                                                        .height(36.dp)
-                                                                        .clip(
-                                                                                RoundedCornerShape(
-                                                                                        10.dp
-                                                                                )
-                                                                        )
-                                                                        .background(
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .surfaceVariant
-                                                                                        .copy(
-                                                                                                alpha =
-                                                                                                        alpha
-                                                                                        )
-                                                                        )
+                                                        modifier = Modifier.width(70.dp).height(36.dp).clip(RoundedCornerShape(10.dp))
+                                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                                                 )
-
                                                 Spacer(modifier = Modifier.height(8.dp))
-
                                                 Box(
-                                                        modifier =
-                                                                Modifier.width(60.dp)
-                                                                        .height(18.dp)
-                                                                        .clip(
-                                                                                RoundedCornerShape(
-                                                                                        9.dp
-                                                                                )
-                                                                        )
-                                                                        .background(
-                                                                                MaterialTheme
-                                                                                        .colorScheme
-                                                                                        .surfaceVariant
-                                                                                        .copy(
-                                                                                                alpha =
-                                                                                                        alpha
-                                                                                        )
-                                                                        )
+                                                        modifier = Modifier.width(60.dp).height(18.dp).clip(RoundedCornerShape(9.dp))
+                                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                                                 )
                                         }
                                 }
@@ -2353,84 +1512,44 @@ fun SkeletonSummaryCard() {
 @Composable
 fun SkeletonLectureCard() {
         val infiniteTransition = rememberInfiniteTransition(label = "skeleton")
-        val alpha by
-                infiniteTransition.animateFloat(
-                        initialValue = 0.3f,
-                        targetValue = 0.7f,
-                        animationSpec =
-                                infiniteRepeatable(
-                                        animation = tween(1000),
-                                        repeatMode = RepeatMode.Reverse
-                                ),
-                        label = "skeleton alpha"
-                )
+        val alpha by infiniteTransition.animateFloat(
+                initialValue = 0.3f,
+                targetValue = 0.7f,
+                animationSpec = infiniteRepeatable(
+                        animation = tween(1000),
+                        repeatMode = RepeatMode.Reverse
+                ),
+                label = "skeleton alpha"
+        )
 
         Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
                 shape = RoundedCornerShape(24.dp),
-                colors =
-                        CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                        )
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
         ) {
                 Row(
                         modifier = Modifier.fillMaxWidth().padding(20.dp),
                         verticalAlignment = Alignment.CenterVertically
                 ) {
                         Box(
-                                modifier =
-                                        Modifier.size(72.dp)
-                                                .clip(CircleShape)
-                                                .background(
-                                                        MaterialTheme.colorScheme.surfaceVariant
-                                                                .copy(alpha = alpha)
-                                                )
+                                modifier = Modifier.size(72.dp).clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                         )
-
                         Spacer(modifier = Modifier.width(16.dp))
-
                         Column(modifier = Modifier.weight(1f)) {
                                 Box(
-                                        modifier =
-                                                Modifier.fillMaxWidth(0.7f)
-                                                        .height(22.dp)
-                                                        .clip(RoundedCornerShape(11.dp))
-                                                        .background(
-                                                                MaterialTheme.colorScheme
-                                                                        .surfaceVariant.copy(
-                                                                        alpha = alpha
-                                                                )
-                                                        )
+                                        modifier = Modifier.fillMaxWidth(0.7f).height(22.dp).clip(RoundedCornerShape(11.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                                 )
-
                                 Spacer(modifier = Modifier.height(10.dp))
-
                                 Box(
-                                        modifier =
-                                                Modifier.fillMaxWidth(0.5f)
-                                                        .height(18.dp)
-                                                        .clip(RoundedCornerShape(9.dp))
-                                                        .background(
-                                                                MaterialTheme.colorScheme
-                                                                        .surfaceVariant.copy(
-                                                                        alpha = alpha
-                                                                )
-                                                        )
+                                        modifier = Modifier.fillMaxWidth(0.5f).height(18.dp).clip(RoundedCornerShape(9.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                                 )
-
                                 Spacer(modifier = Modifier.height(10.dp))
-
                                 Box(
-                                        modifier =
-                                                Modifier.width(100.dp)
-                                                        .height(28.dp)
-                                                        .clip(RoundedCornerShape(14.dp))
-                                                        .background(
-                                                                MaterialTheme.colorScheme
-                                                                        .surfaceVariant.copy(
-                                                                        alpha = alpha
-                                                                )
-                                                        )
+                                        modifier = Modifier.width(100.dp).height(28.dp).clip(RoundedCornerShape(14.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = alpha))
                                 )
                         }
                 }
@@ -2450,411 +1569,208 @@ fun ModernAttendanceSummaryCard(
         LaunchedEffect(percentage) {
                 animatedPercentage.animateTo(
                         targetValue = percentage,
-                        animationSpec =
-                                spring(
-                                        dampingRatio = Spring.DampingRatioMediumBouncy,
-                                        stiffness = Spring.StiffnessLow
-                                )
+                        animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessLow
+                        )
                 )
         }
 
-        val statusColor =
-                when {
-                        percentage >= 75 -> AttendanceColors.Present
-                        percentage >= 60 -> AttendanceColors.Warning
-                        else -> AttendanceColors.Absent
-                }
+        val statusColor = when {
+                percentage >= 75 -> SuccessColor
+                percentage >= 60 -> WarningColor
+                else -> DangerColor
+        }
 
-        val statusText =
-                when {
-                        percentage >= 75 -> "Excellent"
-                        percentage >= 60 -> "Good"
-                        else -> "Needs Attention"
-                }
+        val statusText = when {
+                percentage >= 75 -> "Excellent"
+                percentage >= 60 -> "Good"
+                else -> "Needs Attention"
+        }
 
-        val statusIcon =
-                when {
-                        percentage >= 75 -> Icons.Default.CheckCircle
-                        percentage >= 60 -> Icons.Default.Warning
-                        else -> Icons.Default.ErrorOutline
-                }
+        val statusIcon = when {
+                percentage >= 75 -> Icons.Default.CheckCircle
+                percentage >= 60 -> Icons.Default.Warning
+                else -> Icons.Default.ErrorOutline
+        }
 
-        val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+        val deviceType = rememberDeviceType()
+        val progressSize = deviceType.circularProgressIndicatorSize
+        val padding = deviceType.contentPadding
 
         Card(
-                modifier =
-                        Modifier.fillMaxWidth()
-                                .shadow(
-                                        elevation = 12.dp,
-                                        shape = RoundedCornerShape(32.dp),
-                                        spotColor = statusColor.copy(alpha = 0.25f)
-                                ),
-                shape = RoundedCornerShape(32.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(RadiusLG),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
         ) {
-                Box(
-                        modifier =
-                                Modifier.fillMaxWidth()
-                                        .background(
-                                                Brush.verticalGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        statusColor.copy(
-                                                                                alpha = 0.08f
-                                                                        ),
-                                                                        MaterialTheme.colorScheme
-                                                                                .surface.copy(
-                                                                                alpha = 0.95f
-                                                                        ),
-                                                                        MaterialTheme.colorScheme
-                                                                                .surface
-                                                                )
-                                                )
-                                        )
+                Column(
+                        modifier = Modifier.fillMaxWidth().padding(padding),
+                        horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
-                                val circleRadius = 100f
-                                drawCircle(
-                                        color = statusColor.copy(alpha = 0.03f),
-                                        radius = circleRadius,
-                                        center = Offset(size.width * 0.85f, size.height * 0.2f)
-                                )
-                                drawCircle(
-                                        color = statusColor.copy(alpha = 0.05f),
-                                        radius = circleRadius * 1.5f,
-                                        center = Offset(size.width * 0.15f, size.height * 0.8f)
-                                )
-                        }
-
-                        Column(
-                                modifier = Modifier.fillMaxWidth().padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
+                        Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                                 Row(
-                                        modifier = Modifier.fillMaxWidth(),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
-                                        Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        Box(
+                                                modifier = Modifier.size(40.dp)
+                                                        .clip(RoundedCornerShape(RadiusSM))
+                                                        .background(statusColor.copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
                                         ) {
-                                                Box(
-                                                        modifier =
-                                                                Modifier.size(48.dp)
-                                                                        .shadow(
-                                                                                elevation = 8.dp,
-                                                                                shape =
-                                                                                        RoundedCornerShape(
-                                                                                                14.dp
-                                                                                        ),
-                                                                                spotColor =
-                                                                                        statusColor
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.3f
-                                                                                                )
-                                                                        )
-                                                                        .clip(
-                                                                                RoundedCornerShape(
-                                                                                        14.dp
-                                                                                )
-                                                                        )
-                                                                        .background(
-                                                                                Brush.linearGradient(
-                                                                                        colors =
-                                                                                                listOf(
-                                                                                                        statusColor,
-                                                                                                        statusColor
-                                                                                                                .copy(
-                                                                                                                        alpha =
-                                                                                                                                0.8f
-                                                                                                                )
-                                                                                                )
-                                                                                )
-                                                                        ),
-                                                        contentAlignment = Alignment.Center
-                                                ) {
-                                                        Icon(
-                                                                imageVector = Icons.Default.School,
-                                                                contentDescription = null,
-                                                                tint = Color.White,
-                                                                modifier = Modifier.size(26.dp)
-                                                        )
-                                                }
-
-                                                Column {
-                                                        Text(
-                                                                text = "Attendance",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .titleLarge,
-                                                                color =
-                                                                        MaterialTheme.colorScheme
-                                                                                .onSurface,
-                                                                fontWeight = FontWeight.ExtraBold,
-                                                                fontSize = 20.sp
-                                                        )
-                                                        Text(
-                                                                text = "Overall Performance",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .bodySmall,
-                                                                color =
-                                                                        MaterialTheme.colorScheme
-                                                                                .onSurfaceVariant,
-                                                                fontSize = 12.sp
-                                                        )
-                                                }
-                                        }
-
-                                        Surface(
-                                                shape = RoundedCornerShape(14.dp),
-                                                color = statusColor.copy(alpha = 0.15f),
-                                                border =
-                                                        BorderStroke(
-                                                                1.5.dp,
-                                                                statusColor.copy(alpha = 0.3f)
-                                                        )
-                                        ) {
-                                                Row(
-                                                        modifier =
-                                                                Modifier.padding(
-                                                                        horizontal = 12.dp,
-                                                                        vertical = 8.dp
-                                                                ),
-                                                        verticalAlignment =
-                                                                Alignment.CenterVertically,
-                                                        horizontalArrangement =
-                                                                Arrangement.spacedBy(6.dp)
-                                                ) {
-                                                        Icon(
-                                                                imageVector = statusIcon,
-                                                                contentDescription = null,
-                                                                tint = statusColor,
-                                                                modifier = Modifier.size(16.dp)
-                                                        )
-                                                        Text(
-                                                                text = statusText,
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .labelMedium,
-                                                                color = statusColor,
-                                                                fontWeight = FontWeight.Bold,
-                                                                fontSize = 12.sp
-                                                        )
-                                                }
-                                        }
-                                }
-
-                                Spacer(modifier = Modifier.height(32.dp))
-
-                                Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier.size(220.dp)
-                                ) {
-                                        repeat(3) { index ->
-                                                Canvas(
-                                                        modifier =
-                                                                Modifier.size(
-                                                                                220.dp -
-                                                                                        (index * 20)
-                                                                                                .dp
-                                                                        )
-                                                                        .alpha(
-                                                                                0.3f -
-                                                                                        (index *
-                                                                                                0.1f)
-                                                                        )
-                                                ) {
-                                                        drawCircle(
-                                                                brush =
-                                                                        Brush.radialGradient(
-                                                                                colors =
-                                                                                        listOf(
-                                                                                                statusColor
-                                                                                                        .copy(
-                                                                                                                alpha =
-                                                                                                                        0.3f
-                                                                                                        ),
-                                                                                                Color.Transparent
-                                                                                        )
-                                                                        ),
-                                                                radius = size.width / 2
-                                                        )
-                                                }
-                                        }
-
-                                        Canvas(modifier = Modifier.size(190.dp)) {
-                                                drawCircle(
-                                                        brush =
-                                                                Brush.radialGradient(
-                                                                        colors =
-                                                                                listOf(
-                                                                                        surfaceVariantColor
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.3f
-                                                                                                ),
-                                                                                        surfaceVariantColor
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.1f
-                                                                                                )
-                                                                                )
-                                                                ),
-                                                        style = Stroke(width = 20.dp.toPx())
+                                                Icon(
+                                                        imageVector = Icons.Default.School,
+                                                        contentDescription = null,
+                                                        tint = statusColor,
+                                                        modifier = Modifier.size(22.dp)
                                                 )
                                         }
 
-                                        CircularProgressIndicator(
-                                                progress = { animatedPercentage.value / 100f },
-                                                modifier = Modifier.size(190.dp),
-                                                strokeWidth = 20.dp,
-                                                trackColor = Color.Transparent,
-                                                color = statusColor,
-                                                strokeCap = StrokeCap.Round
-                                        )
-
-                                        Canvas(modifier = Modifier.size(150.dp)) {
-                                                drawCircle(
-                                                        brush =
-                                                                Brush.radialGradient(
-                                                                        colors =
-                                                                                listOf(
-                                                                                        Color.White
-                                                                                                .copy(
-                                                                                                        alpha =
-                                                                                                                0.1f
-                                                                                                ),
-                                                                                        Color.Transparent
-                                                                                )
-                                                                )
+                                        Column {
+                                                Text(
+                                                        text = "Attendance",
+                                                        style = MaterialTheme.typography.titleMedium,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                                Text(
+                                                        text = "Overall Performance",
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                         }
-
-                                        Column(
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                                Row(
-                                                        verticalAlignment = Alignment.Bottom,
-                                                        horizontalArrangement =
-                                                                Arrangement.spacedBy(2.dp)
-                                                ) {
-                                                        Text(
-                                                                text =
-                                                                        String.format(
-                                                                                Locale.getDefault(),
-                                                                                "%.1f",
-                                                                                animatedPercentage
-                                                                                        .value
-                                                                        ),
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .displayLarge,
-                                                                fontWeight = FontWeight.ExtraBold,
-                                                                color = statusColor,
-                                                                fontSize = 56.sp
-                                                        )
-                                                        Text(
-                                                                text = "%",
-                                                                style =
-                                                                        MaterialTheme.typography
-                                                                                .headlineLarge,
-                                                                fontWeight = FontWeight.Bold,
-                                                                color =
-                                                                        statusColor.copy(
-                                                                                alpha = 0.7f
-                                                                        ),
-                                                                fontSize = 32.sp,
-                                                                modifier =
-                                                                        Modifier.padding(
-                                                                                bottom = 10.dp
-                                                                        )
-                                                        )
-                                                }
-                                        }
                                 }
-
-                                Spacer(modifier = Modifier.height(32.dp))
 
                                 Surface(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(20.dp),
-                                        color =
-                                                MaterialTheme.colorScheme.surfaceContainerHighest
-                                                        .copy(alpha = 0.5f),
-                                        shadowElevation = 4.dp
+                                        shape = RoundedCornerShape(RadiusSM),
+                                        color = statusColor.copy(alpha = 0.15f),
+                                        border = BorderStroke(0.5.dp, statusColor.copy(alpha = 0.3f))
                                 ) {
                                         Row(
-                                                modifier = Modifier.padding(20.dp),
-                                                horizontalArrangement = Arrangement.SpaceEvenly,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
-                                                ModernStatItem(
-                                                        label = "Present",
-                                                        value = attended.toString(),
-                                                        icon = Icons.Default.CheckCircle,
-                                                        color = AttendanceColors.Present
+                                                Icon(
+                                                        imageVector = statusIcon,
+                                                        contentDescription = null,
+                                                        tint = statusColor,
+                                                        modifier = Modifier.size(16.dp)
                                                 )
-
-                                                VerticalDivider(
-                                                        modifier = Modifier.height(60.dp),
-                                                        thickness = 2.dp,
-                                                        color =
-                                                                MaterialTheme.colorScheme
-                                                                        .outlineVariant.copy(
-                                                                        alpha = 0.5f
-                                                                )
-                                                )
-
-                                                ModernStatItem(
-                                                        label = "Total",
-                                                        value = total.toString(),
-                                                        icon = Icons.Default.CalendarMonth,
-                                                        color = AttendanceColors.Info
-                                                )
-
-                                                VerticalDivider(
-                                                        modifier = Modifier.height(60.dp),
-                                                        thickness = 2.dp,
-                                                        color =
-                                                                MaterialTheme.colorScheme
-                                                                        .outlineVariant.copy(
-                                                                        alpha = 0.5f
-                                                                )
-                                                )
-
-                                                ModernStatItem(
-                                                        label = "Absent",
-                                                        value = (total - attended).toString(),
-                                                        icon = Icons.Default.Cancel,
-                                                        color = AttendanceColors.Absent
+                                                Text(
+                                                        text = statusText,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        color = statusColor
                                                 )
                                         }
                                 }
+                        }
 
-                                Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.height(SpaceLG))
 
-                                if (percentage < 75) {
-                                        val lecturesNeeded =
-                                                calculateLecturesNeededFor75Percent(attended, total)
-                                        MotivationalCard(
-                                                icon = "💪",
-                                                title = "Keep Going!",
-                                                message =
-                                                        "Attend $lecturesNeeded more ${if (lecturesNeeded == 1) "class" else "classes"} to reach 75%",
-                                                color = AttendanceColors.Warning
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(progressSize)) {
+                                CircularProgressIndicator(
+                                        progress = { animatedPercentage.value / 100f },
+                                        modifier = Modifier.size(progressSize - 20.dp),
+                                        strokeWidth = 14.dp,
+                                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                                        color = statusColor,
+                                        strokeCap = StrokeCap.Round
+                                )
+
+                                Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                        Row(
+                                                verticalAlignment = Alignment.Bottom,
+                                                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                        ) {
+                                                Text(
+                                                        text = String.format(Locale.getDefault(), "%.1f", animatedPercentage.value),
+                                                        style = MaterialTheme.typography.displayLarge,
+                                                        color = statusColor
+                                                )
+                                                Text(
+                                                        text = "%",
+                                                        style = MaterialTheme.typography.titleLarge,
+                                                        color = statusColor.copy(alpha = 0.7f),
+                                                        modifier = Modifier.padding(bottom = 12.dp)
+                                                )
+                                        }
+                                }
+                        }
+
+                        Spacer(modifier = Modifier.height(SpaceLG))
+
+                        Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(RadiusMD),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                                Row(
+                                        modifier = Modifier.padding(SpaceMD),
+                                        horizontalArrangement = Arrangement.SpaceEvenly,
+                                        verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                        ModernStatItem(
+                                                label = "Present",
+                                                value = attended.toString(),
+                                                icon = Icons.Default.CheckCircle,
+                                                color = SuccessColor
                                         )
-                                } else {
-                                        MotivationalCard(
-                                                icon = "🗿",
-                                                title = "Amazing Work!",
-                                                message = "You're maintaining excellent attendance",
-                                                color = AttendanceColors.Present
+
+                                        VerticalDivider(
+                                                modifier = Modifier.height(60.dp),
+                                                thickness = 1.dp,
+                                                color = MaterialTheme.colorScheme.outlineVariant
+                                        )
+
+                                        ModernStatItem(
+                                                label = "Total",
+                                                value = total.toString(),
+                                                icon = Icons.Default.CalendarMonth,
+                                                color = MaterialTheme.colorScheme.primary
+                                        )
+
+                                        VerticalDivider(
+                                                modifier = Modifier.height(60.dp),
+                                                thickness = 1.dp,
+                                                color = MaterialTheme.colorScheme.outlineVariant
+                                        )
+
+                                        ModernStatItem(
+                                                label = "Absent",
+                                                value = (total - attended).toString(),
+                                                icon = Icons.Default.Cancel,
+                                                color = DangerColor
                                         )
                                 }
+                        }
+
+                        Spacer(modifier = Modifier.height(SpaceMD))
+
+                        if (percentage < 75) {
+                                val lecturesNeeded = calculateLecturesNeededFor75Percent(attended, total)
+                                MotivationalCard(
+                                        icon = "💪",
+                                        title = "Keep Going!",
+                                        message = "Attend $lecturesNeeded more ${if (lecturesNeeded == 1) "class" else "classes"} to reach 75%",
+                                        color = WarningColor
+                                )
+                        } else {
+                                MotivationalCard(
+                                        icon = "🗿",
+                                        title = "Amazing Work!",
+                                        message = "You're maintaining excellent attendance",
+                                        color = SuccessColor
+                                )
                         }
                 }
         }
@@ -2865,96 +1781,67 @@ fun ModernAttendanceSummaryCard(
 private fun ModernStatItem(label: String, value: String, icon: ImageVector, color: Color) {
         Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement = Arrangement.spacedBy(SpaceXS)
         ) {
                 Box(
-                        modifier =
-                                Modifier.size(46.dp)
-                                        .shadow(
-                                                elevation = 6.dp,
-                                                shape = CircleShape,
-                                                spotColor = color.copy(alpha = 0.3f)
-                                        )
-                                        .clip(CircleShape)
-                                        .background(
-                                                Brush.radialGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        color.copy(alpha = 0.2f),
-                                                                        color.copy(alpha = 0.1f)
-                                                                )
-                                                )
-                                        ),
+                        modifier = Modifier.size(40.dp)
+                                .clip(CircleShape)
+                                .background(color.copy(alpha = 0.15f)),
                         contentAlignment = Alignment.Center
                 ) {
                         Icon(
                                 imageVector = icon,
                                 contentDescription = null,
                                 tint = color,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(20.dp)
                         )
                 }
 
                 Text(
                         text = value,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = color,
-                        fontSize = 24.sp
+                        style = MaterialTheme.typography.titleMedium,
+                        color = color
                 )
 
                 Text(
                         text = label,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Medium,
-                        fontSize = 12.sp
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
         }
 }
 
-/* -------------------- MOTIVATIONAL CARD -------------------- */
 @Composable
 private fun MotivationalCard(icon: String, title: String, message: String, color: Color) {
         Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(RadiusMD),
                 color = color.copy(alpha = 0.1f),
-                border = BorderStroke(1.5.dp, color.copy(alpha = 0.25f)),
-                shadowElevation = 2.dp
+                border = BorderStroke(1.dp, color.copy(alpha = 0.25f)),
+                shadowElevation = ElevationNone
         ) {
                 Row(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.padding(SpaceMD),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                 ) {
                         Box(
-                                modifier =
-                                        Modifier.size(44.dp)
-                                                .clip(CircleShape)
-                                                .background(
-                                                        Brush.linearGradient(
-                                                                colors =
-                                                                        listOf(
-                                                                                color.copy(
-                                                                                        alpha = 0.3f
-                                                                                ),
-                                                                                color.copy(
-                                                                                        alpha = 0.2f
-                                                                                )
-                                                                        )
-                                                        )
-                                                ),
+                                modifier = Modifier.size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(color.copy(alpha = 0.15f)),
                                 contentAlignment = Alignment.Center
-                        ) { Text(text = icon, fontSize = 22.sp) }
+                        ) {
+                                Text(
+                                        text = icon,
+                                        style = MaterialTheme.typography.titleLarge
+                                )
+                        }
 
                         Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                         text = title,
                                         style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 15.sp
+                                        color = MaterialTheme.colorScheme.onSurface
                                 )
 
                                 Spacer(modifier = Modifier.height(2.dp))
@@ -2962,9 +1849,7 @@ private fun MotivationalCard(icon: String, title: String, message: String, color
                                 Text(
                                         text = message,
                                         style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                         }
                 }

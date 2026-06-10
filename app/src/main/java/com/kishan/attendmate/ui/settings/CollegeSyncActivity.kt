@@ -1429,7 +1429,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
             )
         }
 
-        // ── Full-screen Premium 3D Loader Overlay ─────────────────────────
+        // ── Full-screen Loader Overlay ─────────────────────────
         AnimatedVisibility(
             visible = isInitialLoading,
             enter = fadeIn(animationSpec = tween(300)),
@@ -1438,11 +1438,26 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color(0xFF030712)) // Deep dark space
+                    .background(MaterialTheme.colorScheme.background)
                     .pointerInput(Unit) {}, // Block touches
                 contentAlignment = Alignment.Center
             ) {
-                Cyber3DDataLoader()
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = MaterialTheme.colorScheme.primary,
+                        strokeWidth = 3.dp
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "Syncing College Data...",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
             }
         }
     }
@@ -2419,147 +2434,7 @@ fun addScrapedRecordToApp(
         }
 }
 
-// ─── 3D Premium Loader ───────────────────────────────────────────────────────
-
-@Composable
-fun Cyber3DDataLoader() {
-    val infiniteTransition = rememberInfiniteTransition(label = "cyber_loader_infinite")
-
-    // Smooth time for mathematical rotations
-    val time by infiniteTransition.animateFloat(
-        initialValue = 0f, targetValue = 360f,
-        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing)),
-        label = "time_rot"
-    )
-
-    // Core breathing effect
-    val corePulse by infiniteTransition.animateFloat(
-        initialValue = 0.8f, targetValue = 1.3f,
-        animationSpec = infiniteRepeatable(
-            tween(1500, easing = EaseInOutSine), RepeatMode.Reverse
-        ), label = "core_pulse"
-    )
-
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(modifier = Modifier.size(240.dp), contentAlignment = Alignment.Center) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val radius = size.width * 0.35f
-
-                // --- Ambient Glow ---
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        listOf(Color(0xFF06B6D4).copy(alpha = 0.15f * corePulse), Color.Transparent),
-                        center = Offset(cx, cy),
-                        radius = radius * 2f
-                    )
-                )
-
-                // --- 3D Rotating Wireframe Rings ---
-                // Draw 3 primary intersecting rings representing dimensional scanning
-                val rings = 3
-                for (r in 0 until rings) {
-                    val angleOffset = r * (180f / rings)
-                    val currentRot = time + angleOffset
-
-                    val path = androidx.compose.ui.graphics.Path()
-                    val segments = 40
-
-                    for (i in 0..segments) {
-                        val angle = Math.toRadians((i * 360.0) / segments)
-
-                        // Create circle in 3D
-                        val x3d = kotlin.math.cos(angle) * radius
-                        val y3d = kotlin.math.sin(angle) * radius
-                        val z3d = 0.0
-
-                        // Rotate on X axis mapping to the current time rotation
-                        val thX = Math.toRadians((currentRot).toDouble())
-                        val y2 = y3d * kotlin.math.cos(thX) - z3d * kotlin.math.sin(thX)
-                        val z2 = y3d * kotlin.math.sin(thX) + z3d * kotlin.math.cos(thX)
-
-                        // Rotate on Y axis to stagger the rings
-                        val thY = Math.toRadians(angleOffset.toDouble() + (time*0.5))
-                        val x3 = x3d * kotlin.math.cos(thY) + z2 * kotlin.math.sin(thY)
-                        val y3 = y2
-                        val z3 = -x3d * kotlin.math.sin(thY) + z2 * kotlin.math.cos(thY)
-
-                        // Project onto 2D
-                        val scale = 600.0 / (600.0 + z3) // simple perspective
-                        val px = cx + (x3 * scale).toFloat()
-                        val py = cy + (y3 * scale).toFloat()
-
-                        if (i == 0) path.moveTo(px, py)
-                        else path.lineTo(px, py)
-                    }
-
-                    // Style the rings alternating colors
-                    val ringColor = if (r % 2 == 0) Color(0xFF06B6D4) else Color(0xFFA78BFA)
-                    drawPath(
-                        path = path,
-                        color = ringColor.copy(alpha = 0.5f),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = 1.dp.toPx()
-                        )
-                    )
-
-                    // Add spinning data particles along the rings
-                    val pAngle = Math.toRadians(time.toDouble() * (r+1))
-                    val pX3d = kotlin.math.cos(pAngle) * radius
-                    val pY3d = kotlin.math.sin(pAngle) * radius
-                    // Apply same rotation projection...
-                    val pThX = Math.toRadians((currentRot).toDouble())
-                    val pY2 = pY3d * kotlin.math.cos(pThX)
-                    val pZ2 = pY3d * kotlin.math.sin(pThX)
-                    val pThY = Math.toRadians(angleOffset.toDouble() + (time*0.5))
-                    val pX3 = pX3d * kotlin.math.cos(pThY) + pZ2 * kotlin.math.sin(pThY)
-                    val pY3 = pY2
-                    val pZ3 = -pX3d * kotlin.math.sin(pThY) + pZ2 * kotlin.math.cos(pThY)
-                    val pScale = 600.0 / (600.0 + pZ3)
-                    val dpX = cx + (pX3 * pScale).toFloat()
-                    val dpY = cy + (pY3 * pScale).toFloat()
-
-                    drawCircle(
-                        color = Color.White,
-                        radius = 2.dp.toPx() * pScale.toFloat(),
-                        center = Offset(dpX, dpY)
-                    )
-                }
-
-                // --- Core Energy Sphere ---
-                drawCircle(
-                    color = Color(0xFFA78BFA).copy(alpha = 0.8f),
-                    radius = 12.dp.toPx() * corePulse,
-                    center = Offset(cx, cy)
-                )
-                drawCircle(
-                    color = Color.White,
-                    radius = 4.dp.toPx() * corePulse,
-                    center = Offset(cx, cy)
-                )
-            }
-        }
-
-        Spacer(Modifier.height(16.dp))
-
-        // Digital Loading Text
-        Text(
-            text = "DECRYPTING LOGS...",
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF06B6D4),
-            letterSpacing = 4.sp
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = "Synchronizing local and cloud states",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFF94A3B8),
-            letterSpacing = 1.sp
-        )
-    }
-}
+// ─── Loader clean ───────────────────────────────────────────────────────────
 
 // ─── SHARED SCRAPER SCRIPTS ──────────────────────────────────────────────────
 

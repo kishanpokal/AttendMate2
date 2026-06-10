@@ -50,6 +50,21 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.kishan.attendmate.ui.components.AttendMateNavigationBar
 import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.ui.theme.RadiusSM
+import com.kishan.attendmate.ui.theme.RadiusMD
+import com.kishan.attendmate.ui.theme.RadiusLG
+import com.kishan.attendmate.ui.theme.RadiusXL
+import com.kishan.attendmate.ui.theme.SpaceXS
+import com.kishan.attendmate.ui.theme.SpaceSM
+import com.kishan.attendmate.ui.theme.SpaceMD
+import com.kishan.attendmate.ui.theme.SpaceLG
+import com.kishan.attendmate.ui.theme.ElevationLow
+import com.kishan.attendmate.ui.theme.ElevationHigh
+import com.kishan.attendmate.ui.theme.SuccessColor
+import com.kishan.attendmate.ui.theme.WarningColor
+import com.kishan.attendmate.ui.theme.DangerColor
+import com.kishan.attendmate.ui.theme.CardStyle
+import com.kishan.attendmate.ui.components.StandardEmptyState
 import java.time.LocalDate
 import java.time.YearMonth
 import java.time.ZoneId
@@ -171,9 +186,9 @@ fun maxBunkableLectures(present: Int, total: Int): Int {
 
 fun subjectColor(percent: Int): Color =
         when {
-            percent >= 75 -> Color(0xFF4CAF50)
-            percent >= 60 -> Color(0xFFFFC107)
-            else -> Color(0xFFF44336)
+            percent >= 75 -> SuccessColor
+            percent >= 60 -> WarningColor
+            else -> DangerColor
         }
 
 @Composable
@@ -289,9 +304,8 @@ fun AnalyticsScreen() {
                         Text(
                                 "Analytics",
                                 style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 26.sp
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                                 "Attendance insights & predictions",
@@ -309,7 +323,12 @@ fun AnalyticsScreen() {
             }
         } else {
             if (attendance.isEmpty()) {
-                EmptyAnalyticsState()
+                StandardEmptyState(
+                        icon = Icons.Outlined.Analytics,
+                        title = "No Data Available",
+                        subtitle = "Start tracking your attendance to see analytics here",
+                        modifier = Modifier.fillMaxSize()
+                )
             } else {
                 LazyColumn(
                         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
@@ -332,45 +351,7 @@ fun AnalyticsScreen() {
     }
 }
 
-@Composable
-fun EmptyAnalyticsState() {
-    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-        Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            Box(
-                    modifier =
-                            Modifier.size(120.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                                    ),
-                    contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                        Icons.Outlined.Analytics,
-                        null,
-                        modifier = Modifier.size(60.dp),
-                        tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                )
-            }
-            Text(
-                    "No Data Available",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textAlign = TextAlign.Center
-            )
-            Text(
-                    "Start tracking your attendance to see analytics here",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-            )
-        }
-    }
-}
+
 
 /* ------------------------------------------------ */
 /* ADVANCED TREND LINE CHART */
@@ -402,9 +383,10 @@ fun AttendanceTrendLineChart(attendance: List<AnalyticsAttendance>) {
     }
 
     Card(
-            modifier = Modifier.fillMaxWidth().shadow(6.dp, RoundedCornerShape(24.dp)),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            modifier = Modifier.fillMaxWidth().shadow(ElevationLow, CardStyle.shape),
+            shape = CardStyle.shape,
+            border = CardStyle.border(),
+            colors = CardDefaults.cardColors(containerColor = CardStyle.containerColor())
     ) {
         Column(Modifier.padding(24.dp)) {
             Row(
@@ -416,21 +398,13 @@ fun AttendanceTrendLineChart(attendance: List<AnalyticsAttendance>) {
                         modifier =
                                 Modifier.size(48.dp)
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                                Brush.linearGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        Color(0xFF8B5CF6),
-                                                                        Color(0xFF6366F1)
-                                                                )
-                                                )
-                                        ),
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                 ) {
                     Icon(
                             Icons.Default.Timeline,
                             null,
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(26.dp)
                     )
                 }
@@ -591,8 +565,8 @@ fun AttendanceTrendLineChart(attendance: List<AnalyticsAttendance>) {
 @Composable
 fun ModernOverallCard(percentage: Int, present: Int, total: Int, neededFor75: Int, bunkable: Int) {
     val primaryColor = MaterialTheme.colorScheme.primary
-    val errorColor = MaterialTheme.colorScheme.error
-    val successColor = Color(0xFF4CAF50)
+    val errorColor = DangerColor
+    val successColor = SuccessColor
 
     val animatedPercentage = remember { Animatable(0f) }
     LaunchedEffect(percentage) {
@@ -605,180 +579,168 @@ fun ModernOverallCard(percentage: Int, present: Int, total: Int, neededFor75: In
     val statusColor =
             when {
                 percentage >= 75 -> successColor
-                percentage >= 60 -> Color(0xFFFFC107)
+                percentage >= 60 -> WarningColor
                 else -> errorColor
             }
 
     Card(
-            modifier = Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(24.dp)),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            modifier = Modifier.fillMaxWidth().shadow(ElevationLow, CardStyle.shape),
+            shape = CardStyle.shape,
+            border = CardStyle.border(),
+            colors = CardDefaults.cardColors(containerColor = CardStyle.containerColor())
     ) {
-        Box(
-                modifier =
-                        Modifier.background(
-                                Brush.verticalGradient(
-                                        colors =
-                                                listOf(
-                                                        statusColor.copy(alpha = 0.12f),
-                                                        statusColor.copy(alpha = 0.04f)
-                                                )
-                                )
-                        )
-        ) {
-            Column(modifier = Modifier.padding(24.dp)) {
-                Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                            text = "Overall Performance",
-                            fontWeight = FontWeight.ExtraBold,
-                            style = MaterialTheme.typography.titleLarge,
-                            color = statusColor
-                    )
-                    Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = statusColor.copy(alpha = 0.15f)
-                    ) {
-                        Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                    imageVector =
-                                            when {
-                                                percentage >= 75 -> Icons.Default.TrendingUp
-                                                percentage >= 60 -> Icons.Default.Remove
-                                                else -> Icons.Default.TrendingDown
-                                            },
-                                    contentDescription = null,
-                                    tint = statusColor,
-                                    modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                    text =
-                                            when {
-                                                percentage >= 75 -> "Good"
-                                                percentage >= 60 -> "Average"
-                                                else -> "Low"
-                                            },
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = statusColor
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(20.dp))
-                // Circular Progress
-                Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier.fillMaxWidth().height(160.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(160.dp)) {
-                        CircularProgressIndicator(
-                                progress = { animatedPercentage.value / 100f },
-                                modifier = Modifier.fillMaxSize(),
-                                strokeWidth = 14.dp,
-                                trackColor =
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                color = statusColor,
-                                strokeCap = StrokeCap.Round
-                        )
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                    text = "${animatedPercentage.value.toInt()}%",
-                                    style = MaterialTheme.typography.displayMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = statusColor
-                            )
-                            Text(
-                                    text = "Attendance",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                Spacer(modifier = Modifier.height(20.dp))
-                // Stats Row
-                Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                ) {
-                    StatColumn(
-                            label = "Present",
-                            value = present.toString(),
-                            icon = Icons.Default.CheckCircle,
-                            color = successColor
-                    )
-                    VerticalDivider(
-                            modifier = Modifier.height(50.dp),
-                            thickness = 1.dp,
-                            color = MaterialTheme.colorScheme.outlineVariant
-                    )
-                    StatColumn(
-                            label = "Total",
-                            value = total.toString(),
-                            icon = Icons.Default.EventNote,
-                            color = primaryColor
-                    )
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                HorizontalDivider(
-                        thickness = 1.dp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+        Column(modifier = Modifier.padding(24.dp)) {
+            Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                        text = "Overall Performance",
+                        fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = statusColor
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                // Prediction Card
                 Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color =
-                                if (percentage < 75) errorColor.copy(alpha = 0.1f)
-                                else successColor.copy(alpha = 0.1f)
+                        shape = RoundedCornerShape(12.dp),
+                        color = statusColor.copy(alpha = 0.15f)
                 ) {
                     Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
                                 imageVector =
-                                        if (percentage < 75) Icons.Default.Warning
-                                        else Icons.Default.CheckCircle,
+                                        when {
+                                            percentage >= 75 -> Icons.Default.TrendingUp
+                                            percentage >= 60 -> Icons.Default.Remove
+                                            else -> Icons.Default.TrendingDown
+                                        },
                                 contentDescription = null,
-                                tint = if (percentage < 75) errorColor else successColor,
-                                modifier = Modifier.size(24.dp)
+                                tint = statusColor,
+                                modifier = Modifier.size(16.dp)
                         )
-                        Column(modifier = Modifier.weight(1f)) {
-                            if (percentage < 75) {
-                                Text(
-                                        text = "Action Required",
-                                        fontWeight = FontWeight.Bold,
-                                        color = errorColor,
-                                        style = MaterialTheme.typography.titleSmall
-                                )
-                                Text(
-                                        text = "Attend $neededFor75 more lectures to reach 75%",
-                                        color = errorColor.copy(alpha = 0.8f),
-                                        style = MaterialTheme.typography.bodyMedium
-                                )
-                            } else {
-                                Text(
-                                        text = "Great Performance!",
-                                        fontWeight = FontWeight.Bold,
-                                        color = successColor,
-                                        style = MaterialTheme.typography.titleSmall
-                                )
-                                Text(
-                                        text = "You can skip $bunkable lectures safely",
-                                        color = successColor.copy(alpha = 0.8f),
-                                        style = MaterialTheme.typography.bodyMedium
-                                )
-                            }
+                        Text(
+                                text =
+                                        when {
+                                            percentage >= 75 -> "Good"
+                                            percentage >= 60 -> "Average"
+                                            else -> "Low"
+                                        },
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = statusColor
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+            // Circular Progress
+            Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.fillMaxWidth().height(160.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(160.dp)) {
+                    CircularProgressIndicator(
+                            progress = { animatedPercentage.value / 100f },
+                            modifier = Modifier.fillMaxSize(),
+                            strokeWidth = 14.dp,
+                            trackColor =
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            color = statusColor,
+                            strokeCap = StrokeCap.Round
+                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                                text = "${animatedPercentage.value.toInt()}%",
+                                style = MaterialTheme.typography.displayMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = statusColor
+                        )
+                        Text(
+                                text = "Attendance",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+            // Stats Row
+            Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                StatColumn(
+                        label = "Present",
+                        value = present.toString(),
+                        icon = Icons.Default.CheckCircle,
+                        color = successColor
+                )
+                VerticalDivider(
+                        modifier = Modifier.height(50.dp),
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outlineVariant
+                )
+                StatColumn(
+                        label = "Total",
+                        value = total.toString(),
+                        icon = Icons.Default.EventNote,
+                        color = primaryColor
+                )
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            // Prediction Card
+            Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color =
+                            if (percentage < 75) errorColor.copy(alpha = 0.1f)
+                            else successColor.copy(alpha = 0.1f)
+            ) {
+                Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                            imageVector =
+                                    if (percentage < 75) Icons.Default.Warning
+                                    else Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = if (percentage < 75) errorColor else successColor,
+                            modifier = Modifier.size(24.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        if (percentage < 75) {
+                            Text(
+                                    text = "Action Required",
+                                    fontWeight = FontWeight.Bold,
+                                    color = errorColor,
+                                    style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                    text = "Attend $neededFor75 more lectures to reach 75%",
+                                    color = errorColor.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.bodyMedium
+                            )
+                        } else {
+                            Text(
+                                    text = "Great Performance!",
+                                    fontWeight = FontWeight.Bold,
+                                    color = successColor,
+                                    style = MaterialTheme.typography.titleSmall
+                            )
+                            Text(
+                                    text = "You can skip $bunkable lectures safely",
+                                    color = successColor.copy(alpha = 0.8f),
+                                    style = MaterialTheme.typography.bodyMedium
+                            )
                         }
                     }
                 }
@@ -834,12 +796,10 @@ fun SubjectBarGraph(attendance: List<AnalyticsAttendance>) {
     val grouped = attendance.groupBy { it.subject }
 
     Card(
-            modifier = Modifier.fillMaxWidth().shadow(6.dp, RoundedCornerShape(24.dp)),
-            shape = RoundedCornerShape(24.dp),
-            colors =
-                    CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
+            modifier = Modifier.fillMaxWidth().shadow(ElevationLow, CardStyle.shape),
+            shape = CardStyle.shape,
+            border = CardStyle.border(),
+            colors = CardDefaults.cardColors(containerColor = CardStyle.containerColor())
     ) {
         Column(Modifier.padding(24.dp)) {
             // Enhanced Header
@@ -852,21 +812,13 @@ fun SubjectBarGraph(attendance: List<AnalyticsAttendance>) {
                         modifier =
                                 Modifier.size(48.dp)
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                                Brush.linearGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        Color(0xFF3B82F6),
-                                                                        Color(0xFF2563EB)
-                                                                )
-                                                )
-                                        ),
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                 ) {
                     Icon(
                             imageVector = Icons.Default.BarChart,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(26.dp)
                     )
                 }
@@ -893,10 +845,10 @@ fun SubjectBarGraph(attendance: List<AnalyticsAttendance>) {
                     modifier =
                             Modifier.fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(Color(0xFFEF4444).copy(alpha = 0.1f))
+                                    .background(DangerColor.copy(alpha = 0.1f))
                                     .border(
                                             width = 1.dp,
-                                            color = Color(0xFFEF4444).copy(alpha = 0.3f),
+                                            color = DangerColor.copy(alpha = 0.3f),
                                             shape = RoundedCornerShape(12.dp)
                                     )
                                     .padding(12.dp),
@@ -906,14 +858,14 @@ fun SubjectBarGraph(attendance: List<AnalyticsAttendance>) {
                 Icon(
                         imageVector = Icons.Default.Info,
                         contentDescription = null,
-                        tint = Color(0xFFEF4444),
+                        tint = DangerColor,
                         modifier = Modifier.size(20.dp)
                 )
                 Text(
                         text = "Red line indicates 75% threshold",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
-                        color = Color(0xFFEF4444)
+                        color = DangerColor
                 )
             }
 
@@ -1082,7 +1034,7 @@ private fun EnhancedSubjectBar(
                                     Modifier.fillMaxHeight()
                                             .width(2.dp)
                                             .offset(x = barWidth * 0.75f - 1.dp)
-                                            .background(Color(0xFFEF4444))
+                                            .background(DangerColor)
                     )
                 }
 
@@ -1097,7 +1049,7 @@ private fun EnhancedSubjectBar(
                                             )
                                             .padding(top = 4.dp),
                             shape = RoundedCornerShape(4.dp),
-                            color = Color(0xFFEF4444)
+                            color = DangerColor
                     ) {
                         Text(
                                 text = "75%",
@@ -1123,7 +1075,7 @@ private fun EnhancedSubjectBar(
                                 .padding(10.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            StatBadge(label = "Present", value = "$present", color = Color(0xFF10B981))
+            StatBadge(label = "Present", value = "$present", color = SuccessColor)
 
             Box(
                     modifier =
@@ -1134,7 +1086,7 @@ private fun EnhancedSubjectBar(
                                     )
             )
 
-            StatBadge(label = "Absent", value = "${total - present}", color = Color(0xFFEF4444))
+            StatBadge(label = "Absent", value = "${total - present}", color = DangerColor)
 
             Box(
                     modifier =
@@ -1225,14 +1177,10 @@ fun AttendanceCalendar(
     val today = LocalDate.now()
 
     Card(
-            modifier =
-                    Modifier.fillMaxWidth()
-                            .shadow(4.dp, RoundedCornerShape(config.cornerRadiusLarge)),
-            shape = RoundedCornerShape(config.cornerRadiusLarge),
-            colors =
-                    CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
+            modifier = Modifier.fillMaxWidth().shadow(ElevationLow, CardStyle.shape),
+            shape = CardStyle.shape,
+            border = CardStyle.border(),
+            colors = CardDefaults.cardColors(containerColor = CardStyle.containerColor())
     ) {
         Column(Modifier.padding(config.cardPadding)) {
             // Header
@@ -1245,25 +1193,13 @@ fun AttendanceCalendar(
                         modifier =
                                 Modifier.size(config.iconSizeLarge * 1.8f)
                                         .clip(RoundedCornerShape(config.cornerRadiusMedium))
-                                        .background(
-                                                Brush.linearGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        MaterialTheme.colorScheme
-                                                                                .primary,
-                                                                        MaterialTheme.colorScheme
-                                                                                .primary.copy(
-                                                                                alpha = 0.8f
-                                                                        )
-                                                                )
-                                                )
-                                        ),
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                 ) {
                     Icon(
                             imageVector = Icons.Default.CalendarMonth,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(config.iconSizeMedium)
                     )
                 }
@@ -1378,25 +1314,25 @@ fun AttendanceCalendar(
                                                 alpha = 0.3f
                                         )
                                 !hasData -> Color.Transparent
-                                allPresent -> Color(0xFF4CAF50).copy(alpha = 0.15f)
-                                allAbsent -> Color(0xFFF44336).copy(alpha = 0.15f)
-                                else -> Color(0xFF0CFDCD).copy(alpha = 0.15f)
+                                allPresent -> SuccessColor.copy(alpha = 0.15f)
+                                allAbsent -> DangerColor.copy(alpha = 0.15f)
+                                else -> WarningColor.copy(alpha = 0.15f)
                             }
 
                     val borderColor =
                             when {
                                 isToday && !hasData -> MaterialTheme.colorScheme.primary
-                                allPresent -> Color(0xFF4CAF50)
-                                allAbsent -> Color(0xFFF44336)
-                                hasData -> Color(0xFF0CFDCD)
+                                allPresent -> SuccessColor
+                                allAbsent -> DangerColor
+                                hasData -> WarningColor
                                 else -> Color.Transparent
                             }
 
                     val textColor =
                             when {
-                                allPresent -> Color(0xFF2E7D32)
-                                allAbsent -> Color(0xFFC62828)
-                                hasData -> Color(0xFF0CFDCD)
+                                allPresent -> SuccessColor
+                                allAbsent -> DangerColor
+                                hasData -> WarningColor
                                 isToday -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                             }
@@ -1460,9 +1396,9 @@ fun AttendanceCalendar(
                         verticalArrangement = Arrangement.spacedBy(config.itemSpacing / 2),
                         horizontalAlignment = Alignment.Start
                 ) {
-                    EnhancedLegendItem(config, Color(0xFF4CAF50), "Present")
-                    EnhancedLegendItem(config, Color(0xFFF44336), "Absent")
-                    EnhancedLegendItem(config, Color(0xFF0CFDCD), "Mixed")
+                    EnhancedLegendItem(config, SuccessColor, "Present")
+                    EnhancedLegendItem(config, DangerColor, "Absent")
+                    EnhancedLegendItem(config, WarningColor, "Mixed")
                 }
             } else {
                 Row(
@@ -1476,9 +1412,9 @@ fun AttendanceCalendar(
                                         .padding(config.itemSpacing),
                         horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    EnhancedLegendItem(config, Color(0xFF4CAF50), "Present")
-                    EnhancedLegendItem(config, Color(0xFFF44336), "Absent")
-                    EnhancedLegendItem(config, Color(0xFF0CFDCD), "Mixed")
+                    EnhancedLegendItem(config, SuccessColor, "Present")
+                    EnhancedLegendItem(config, DangerColor, "Absent")
+                    EnhancedLegendItem(config, WarningColor, "Mixed")
                 }
             }
         }
@@ -1530,14 +1466,10 @@ fun CompactAttendanceCalendar(
     val today = LocalDate.now()
 
     Card(
-            modifier =
-                    Modifier.fillMaxWidth()
-                            .shadow(4.dp, RoundedCornerShape(config.cornerRadiusLarge)),
-            shape = RoundedCornerShape(config.cornerRadiusLarge),
-            colors =
-                    CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
+            modifier = Modifier.fillMaxWidth().shadow(ElevationLow, CardStyle.shape),
+            shape = CardStyle.shape,
+            border = CardStyle.border(),
+            colors = CardDefaults.cardColors(containerColor = CardStyle.containerColor())
     ) {
         Column(Modifier.padding(config.cardPadding)) {
             // Compact Header
@@ -1550,25 +1482,13 @@ fun CompactAttendanceCalendar(
                         modifier =
                                 Modifier.size(config.iconSizeLarge * 1.5f)
                                         .clip(RoundedCornerShape(config.cornerRadiusMedium))
-                                        .background(
-                                                Brush.linearGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        MaterialTheme.colorScheme
-                                                                                .primary,
-                                                                        MaterialTheme.colorScheme
-                                                                                .primary.copy(
-                                                                                alpha = 0.8f
-                                                                        )
-                                                                )
-                                                )
-                                        ),
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                 ) {
                     Icon(
                             imageVector = Icons.Default.CalendarMonth,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(config.iconSizeMedium)
                     )
                 }
@@ -1688,25 +1608,25 @@ fun CompactAttendanceCalendar(
                                                 alpha = 0.3f
                                         )
                                 !hasData -> Color.Transparent
-                                allPresent -> Color(0xFF4CAF50).copy(alpha = 0.15f)
-                                allAbsent -> Color(0xFFF44336).copy(alpha = 0.15f)
-                                else -> Color(0xFF0CFDCD).copy(alpha = 0.15f)
+                                allPresent -> SuccessColor.copy(alpha = 0.15f)
+                                allAbsent -> DangerColor.copy(alpha = 0.15f)
+                                else -> WarningColor.copy(alpha = 0.15f)
                             }
 
                     val borderColor =
                             when {
                                 isToday && !hasData -> MaterialTheme.colorScheme.primary
-                                allPresent -> Color(0xFF4CAF50)
-                                allAbsent -> Color(0xFFF44336)
-                                hasData -> Color(0xFF0CFDCD)
+                                allPresent -> SuccessColor
+                                allAbsent -> DangerColor
+                                hasData -> WarningColor
                                 else -> Color.Transparent
                             }
 
                     val textColor =
                             when {
-                                allPresent -> Color(0xFF2E7D32)
-                                allAbsent -> Color(0xFFC62828)
-                                hasData -> Color(0xFF0CFDCD)
+                                allPresent -> SuccessColor
+                                allAbsent -> DangerColor
+                                hasData -> WarningColor
                                 isToday -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                             }
@@ -1775,9 +1695,9 @@ fun CompactAttendanceCalendar(
                     verticalArrangement = Arrangement.spacedBy(config.itemSpacing / 3),
                     horizontalAlignment = Alignment.Start
             ) {
-                CompactLegendItem(config, Color(0xFF4CAF50), "Present")
-                CompactLegendItem(config, Color(0xFFF44336), "Absent")
-                CompactLegendItem(config, Color(0xFF0CFDCD), "Mixed")
+                CompactLegendItem(config, SuccessColor, "Present")
+                CompactLegendItem(config, DangerColor, "Absent")
+                CompactLegendItem(config, WarningColor, "Mixed")
             }
         }
     }
@@ -1859,12 +1779,10 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
     val outlineColor = MaterialTheme.colorScheme.outline
 
     Card(
-            modifier = Modifier.fillMaxWidth().shadow(6.dp, RoundedCornerShape(24.dp)),
-            shape = RoundedCornerShape(24.dp),
-            colors =
-                    CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
+            modifier = Modifier.fillMaxWidth().shadow(ElevationLow, CardStyle.shape),
+            shape = CardStyle.shape,
+            border = CardStyle.border(),
+            colors = CardDefaults.cardColors(containerColor = CardStyle.containerColor())
     ) {
         Column(Modifier.padding(24.dp)) {
             // Enhanced Header
@@ -1877,21 +1795,13 @@ fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
                         modifier =
                                 Modifier.size(48.dp)
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                                Brush.linearGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        Color(0xFF6366F1),
-                                                                        Color(0xFF8B5CF6)
-                                                                )
-                                                )
-                                        ),
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                 ) {
                     Icon(
                             imageVector = Icons.Default.PieChart,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(26.dp)
                     )
                 }
@@ -2317,13 +2227,13 @@ fun ModernDateDialog(
                             label = "Present",
                             value = presentCount.toString(),
                             icon = Icons.Default.CheckCircle,
-                            color = Color(0xFF4CAF50)
+                            color = SuccessColor
                     )
                     SmallStatCard(
                             label = "Absent",
                             value = absentCount.toString(),
                             icon = Icons.Outlined.Cancel,
-                            color = Color(0xFFF44336)
+                            color = DangerColor
                     )
                 }
                 Spacer(modifier = Modifier.height(20.dp))
@@ -2346,7 +2256,7 @@ fun ModernDateDialog(
                 ) {
                     dayAttendance.forEach { item ->
                         val isPresent = item.status == "PRESENT"
-                        val statusColor = if (isPresent) Color(0xFF4CAF50) else Color(0xFFF44336)
+                        val statusColor = if (isPresent) SuccessColor else DangerColor
                         Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -2494,12 +2404,10 @@ fun SkipAttendancePrediction(present: Int, total: Int) {
     val currentPercentage = if (total > 0) (present.toFloat() / total * 100).toInt() else 0
 
     Card(
-            modifier = Modifier.fillMaxWidth().shadow(6.dp, RoundedCornerShape(24.dp)),
-            shape = RoundedCornerShape(24.dp),
-            colors =
-                    CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
-                    )
+            modifier = Modifier.fillMaxWidth().shadow(ElevationLow, CardStyle.shape),
+            shape = CardStyle.shape,
+            border = CardStyle.border(),
+            colors = CardDefaults.cardColors(containerColor = CardStyle.containerColor())
     ) {
         Column(
                 modifier = Modifier.padding(24.dp),
@@ -2515,21 +2423,13 @@ fun SkipAttendancePrediction(present: Int, total: Int) {
                         modifier =
                                 Modifier.size(48.dp)
                                         .clip(RoundedCornerShape(14.dp))
-                                        .background(
-                                                Brush.linearGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        Color(0xFFFF6B6B),
-                                                                        Color(0xFFEE5A6F)
-                                                                )
-                                                )
-                                        ),
+                                        .background(MaterialTheme.colorScheme.primaryContainer),
                         contentAlignment = Alignment.Center
                 ) {
                     Icon(
                             imageVector = Icons.Filled.ArrowDownward,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(26.dp)
                     )
                 }
@@ -2638,10 +2538,10 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
 
     val (statusColor, statusText, statusIcon) =
             when {
-                percent >= 75 -> Triple(Color(0xFF4CAF50), "Safe Zone", Icons.Default.CheckCircle)
-                percent >= 65 -> Triple(Color(0xFFFF9800), "Warning", Icons.Default.Warning)
-                percent >= 60 -> Triple(Color(0xFFFF6B6B), "Risk Zone", Icons.Default.Error)
-                else -> Triple(Color(0xFFF44336), "Critical", Icons.Default.Dangerous)
+                percent >= 75 -> Triple(SuccessColor, "Safe Zone", Icons.Default.CheckCircle)
+                percent >= 65 -> Triple(WarningColor, "Warning", Icons.Default.Warning)
+                percent >= 60 -> Triple(WarningColor, "Risk Zone", Icons.Default.Error)
+                else -> Triple(DangerColor, "Critical", Icons.Default.Dangerous)
             }
 
     var isExpanded by remember { mutableStateOf(false) }
@@ -2779,7 +2679,7 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
                                             .clip(RoundedCornerShape(10.dp))
                                             .background(
                                                     if (recoverLectures == 0)
-                                                            Color(0xFF4CAF50).copy(alpha = 0.1f)
+                                                            SuccessColor.copy(alpha = 0.1f)
                                                     else
                                                             MaterialTheme.colorScheme
                                                                     .secondaryContainer.copy(
@@ -2796,7 +2696,7 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
                                         else Icons.Filled.ArrowUpward,
                                 contentDescription = null,
                                 tint =
-                                        if (recoverLectures == 0) Color(0xFF4CAF50)
+                                        if (recoverLectures == 0) SuccessColor
                                         else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                         )
@@ -2831,7 +2731,7 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
                                 label = "Present",
                                 value = "$present",
                                 icon = Icons.Default.CheckCircle,
-                                color = Color(0xFF4CAF50)
+                                color = SuccessColor
                         )
                         StatItem(
                                 label = "After Skip",
@@ -2854,7 +2754,7 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
                                 label = "Diff.",
                                 value = "-$difference%",
                                 icon = Icons.Filled.ArrowDownward,
-                                color = Color(0xFFFF6B6B)
+                                color = DangerColor
                         )
                     }
                 }

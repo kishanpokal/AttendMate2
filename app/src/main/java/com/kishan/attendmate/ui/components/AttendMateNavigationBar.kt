@@ -38,6 +38,7 @@ import com.kishan.attendmate.ui.attendance.AddAttendanceActivity
 import com.kishan.attendmate.ui.attendance.AttendanceListActivity
 import com.kishan.attendmate.ui.analytics.AnalyticsActivity
 import com.kishan.attendmate.ui.settings.SettingsActivity
+import com.kishan.attendmate.ui.theme.ElevationLow
 import kotlinx.coroutines.delay
 
 data class NavItem(
@@ -90,23 +91,15 @@ fun AttendMateNavigationBar(
             .padding(bottom = 32.dp)
     ) {
         // Main navigation container
-        Box(
+        Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(68.dp) // Slightly slimmer
-                // Increased drop shadow
-                .shadow(
-                    elevation = 20.dp,
-                    shape = RoundedCornerShape(34.dp),
-                    ambientColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f),
-                    spotColor = MaterialTheme.colorScheme.scrim.copy(alpha = 0.5f)
-                )
-                .clip(RoundedCornerShape(34.dp))
+                .height(68.dp),
+            shape = RoundedCornerShape(34.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            shadowElevation = ElevationLow
         ) {
-            // Glass background with lower alpha for transparency
-            TransparentGlassBackground(isDark = isDark)
-
             // Navigation content
             Row(
                 modifier = Modifier
@@ -158,63 +151,30 @@ fun AttendMateNavigationBar(
             }
         }
 
-        // Floating Action Button - repositioned for the floating pill
-        FloatingActionButton(
-            isDark = isDark,
+        // Clean standard FAB - repositioned for the floating pill
+        androidx.compose.material3.FloatingActionButton(
             onClick = {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 context.startActivity(Intent(context, AddAttendanceActivity::class.java))
             },
+            shape = CircleShape,
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            elevation = FloatingActionButtonDefaults.elevation(
+                defaultElevation = ElevationLow,
+                pressedElevation = ElevationLow
+            ),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                // Adjusted offset to straddle the top of the pill perfectly
+                .size(64.dp)
                 .offset(y = (-30).dp)
-        )
-    }
-}
-
-@Composable
-private fun TransparentGlassBackground(isDark: Boolean) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        val color1 = MaterialTheme.colorScheme.surface.copy(alpha = if (isDark) 0.35f else 0.5f)
-        val color2 = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDark) 0.5f else 0.7f)
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(color1, color2)
-                    )
-                )
-        )
-
-        // Top highlight
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(1.dp)
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.White.copy(alpha = if (isDark) 0.2f else 0.4f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
-        // Border
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .border(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (isDark) 0.1f else 0.15f),
-                    shape = RoundedCornerShape(34.dp)
-                )
-        )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Add Attendance",
+                modifier = Modifier.size(28.dp)
+            )
+        }
     }
 }
 
@@ -312,142 +272,6 @@ private fun NavIcon(
                             Color.Transparent
                     )
             )
-        }
-    }
-}
-
-@Composable
-private fun FloatingActionButton(
-    isDark: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "fab_glow")
-    val primaryColor = MaterialTheme.colorScheme.primary
-
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.7f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = EaseInOutCubic),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glow"
-    )
-
-    var isPressed by remember { mutableStateOf(false) }
-    val pressScale by animateFloatAsState(
-        targetValue = if (isPressed) 0.88f else 1f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessHigh
-        ),
-        label = "press"
-    )
-
-    Box(
-        modifier = modifier.zIndex(10f),
-        contentAlignment = Alignment.Center
-    ) {
-        // Animated glow
-        Canvas(
-            modifier = Modifier.size(88.dp)
-        ) {
-            val center = Offset(size.width / 2, size.height / 2)
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        primaryColor.copy(alpha = 0.3f * glowAlpha),
-                        primaryColor.copy(alpha = 0.1f * glowAlpha),
-                        Color.Transparent
-                    ),
-                    center = center
-                ),
-                radius = size.width / 2,
-                center = center
-            )
-        }
-
-        // FAB button
-        Box(
-            modifier = Modifier
-                .size(64.dp)
-                .scale(pressScale)
-        ) {
-            // Gradient background
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .shadow(8.dp, CircleShape) // Added shadow to FAB itself
-                    .background(
-                        Brush.linearGradient(
-                            colors = listOf(
-                                primaryColor,
-                                primaryColor.copy(alpha = 0.8f)
-                            ),
-                            start = Offset(0f, 0f),
-                            end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
-                        )
-                    )
-            )
-
-            // Glass overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.White.copy(alpha = 0.3f),
-                                Color.Transparent,
-                                Color.Black.copy(alpha = 0.2f)
-                            )
-                        )
-                    )
-            )
-
-            // Outer ring border
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .border(
-                        width = 1.5.dp,
-                        color = Color.White.copy(alpha = 0.4f),
-                        shape = CircleShape
-                    )
-            )
-
-            // Clickable area with icon
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = {
-                            isPressed = true
-                            onClick()
-                        }
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = "Add Attendance",
-                    tint = Color.White,
-                    modifier = Modifier.size(28.dp)
-                )
-            }
-        }
-
-        // Reset press state
-        LaunchedEffect(isPressed) {
-            if (isPressed) {
-                delay(100)
-                isPressed = false
-            }
         }
     }
 }
