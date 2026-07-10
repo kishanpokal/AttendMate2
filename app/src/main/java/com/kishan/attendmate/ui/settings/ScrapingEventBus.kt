@@ -35,4 +35,5 @@ sealed class ScrapingEvent {
     data class FinishSubject(val name: String) : ScrapingEvent()
     data class RecordExtracted(val count: Int) : ScrapingEvent()
     data class SetPhase(val phase: ScrapePhase) : ScrapingEvent()
+    data class SubjectsFetched(val subjects: List<String>) : ScrapingEvent()
 }

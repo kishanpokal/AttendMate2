@@ -95,7 +95,6 @@ private fun SplashUI(
 
             Text(
                 text = "AttendMate",
-                fontSize = 28.sp,
                 color = Color.White,
                 modifier = Modifier.graphicsLayer(alpha = nameAlpha)
             )
@@ -104,7 +103,6 @@ private fun SplashUI(
 
             Text(
                 text = "Track smart. Attend better.",
-                fontSize = 14.sp,
                 color = Color.White.copy(alpha = 0.85f),
                 modifier = Modifier.graphicsLayer(alpha = sloganAlpha)
             )

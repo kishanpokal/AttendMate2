@@ -1,5 +1,7 @@
 package com.kishan.attendmate.ui.friends
 
+import com.kishan.attendmate.ui.theme.statusColors
+
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -213,7 +215,7 @@ fun FriendsScreen(onBack: () -> Unit, openProfile: (String) -> Unit) {
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Friends", fontWeight = FontWeight.ExtraBold, fontSize = 22.sp,
+                        Text("Friends", fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.onSurface)
                         Spacer(Modifier.width(10.dp))
                         AnimatedContent(
@@ -231,7 +233,7 @@ fun FriendsScreen(onBack: () -> Unit, openProfile: (String) -> Unit) {
                                     "$count / 10",
                                     Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
                                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    fontWeight = FontWeight.Bold, fontSize = 12.sp
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
                         }
@@ -359,8 +361,7 @@ fun FriendsSearchBar(
         modifier        = modifier,
         placeholder     = {
             Text("Search by name or email…",
-                color    = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f),
-                fontSize = 14.sp)
+                color    = MaterialTheme.colorScheme.onSurfaceVariant.copy(0.7f))
         },
         singleLine    = true,
         shape         = RoundedCornerShape(20.dp),
@@ -390,7 +391,7 @@ fun FriendsSearchBar(
             cursorColor             = MaterialTheme.colorScheme.primary
         ),
         textStyle = LocalTextStyle.current.copy(
-            fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+             color = MaterialTheme.colorScheme.onSurface)
     )
 }
 
@@ -431,10 +432,11 @@ fun FriendList(
 /* ══════════════════════════════════════════════════════
    FRIEND CARD
 ══════════════════════════════════════════════════════ */
-private val AvatarPalette = listOf(
+@androidx.compose.runtime.Composable
+private fun getAvatarPalette() = listOf(
     Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFFEC4899),
-    Color(0xFF06B6D4), Color(0xFF10B981), Color(0xFFF59E0B),
-    Color(0xFFEF4444), Color(0xFF3B82F6)
+    Color(0xFF06B6D4), statusColors().success, statusColors().warning,
+    statusColors().error, MaterialTheme.colorScheme.primary
 )
 
 @Composable
@@ -449,8 +451,8 @@ fun FriendCard(friend: Friend, onClick: () -> Unit) {
     val elevation by animateFloatAsState(
         if (pressed) 8f else 2f, tween(150), label = "elev")
 
-    val avatarColor = AvatarPalette[
-        friend.uid.hashCode().let { if (it < 0) -it else it } % AvatarPalette.size
+    val avatarColor = getAvatarPalette()[
+        friend.uid.hashCode().let { if (it < 0) -it else it } % getAvatarPalette().size
     ]
 
     Card(
@@ -481,20 +483,19 @@ fun FriendCard(friend: Friend, onClick: () -> Unit) {
             ) {
                 Text(
                     friend.username.firstOrNull()?.uppercase() ?: "?",
-                    color = Color.White, fontWeight = FontWeight.ExtraBold,
-                    fontSize = 19.sp, letterSpacing = (-0.5).sp
+                    color = Color.White, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp
                 )
             }
 
             Spacer(Modifier.width(14.dp))
 
             Column(Modifier.weight(1f)) {
-                Text(friend.username, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                Text(friend.username, fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (friend.email.isNotEmpty()) {
                     Spacer(Modifier.height(2.dp))
-                    Text(friend.email, fontSize = 12.sp,
+                    Text(friend.email,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -721,7 +722,7 @@ fun AddFriendDialog(
         },
         title = {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Add a Friend", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+                Text("Add a Friend", fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(4.dp))
                 Surface(
                     shape = RoundedCornerShape(50),
@@ -749,7 +750,7 @@ fun AddFriendDialog(
                     isError         = inputError != null,
                     supportingText  = {
                         AnimatedVisibility(inputError != null) {
-                            Text(inputError ?: "", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                            Text(inputError ?: "", color = MaterialTheme.colorScheme.error)
                         }
                     },
                     leadingIcon  = {

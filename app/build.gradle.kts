@@ -84,6 +84,12 @@ dependencies {
     // Icons
     implementation("androidx.compose.material:material-icons-extended")
 
+    // Google Fonts
+    implementation("androidx.compose.ui:ui-text-google-fonts")
+
+    // Frosted-glass backdrop blur for the floating navigation bar (Compose 1.7 compatible)
+    implementation(libs.haze)
+
     /* ---------------- SPLASH SCREEN ---------------- */
     implementation("androidx.core:core-splashscreen:1.0.1")
 

@@ -1,5 +1,7 @@
 package com.kishan.attendmate.ui.theme
 
+import com.kishan.attendmate.ui.theme.statusColors
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -26,10 +28,16 @@ val ElevationNone = 0.dp
 val ElevationLow  = 2.dp
 val ElevationHigh = 6.dp
 
-// SEMANTIC COLORS
-val SuccessColor = Color(0xFF16A34A)
-val WarningColor = Color(0xFFD97706)
-val DangerColor  = Color(0xFFDC2626)
+@Deprecated("Use statusColors().success instead")
+val SuccessColor = Color(0xFF1E8E3E)
+
+@Deprecated("Use statusColors().warning instead")
+val WarningColor = Color(0xFFC4720B)
+
+@Deprecated("Use statusColors().error (or MaterialTheme.colorScheme.error) instead")
+val DangerColor  = Color(0xFFBA1A1A)
+
+
 
 // CARD CONFIGURATION
 object CardStyle {
@@ -42,3 +50,11 @@ object CardStyle {
     @Composable
     fun border() = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
 }
+
+// GLASS TOKENS
+val NavBarHeight = 68.dp
+val NavContentBottomPadding = 120.dp
+val GlassTintAlpha = 0.65f
+val GlassBlurRadius = 24.dp
+val GlassBorder = 0.5.dp
+

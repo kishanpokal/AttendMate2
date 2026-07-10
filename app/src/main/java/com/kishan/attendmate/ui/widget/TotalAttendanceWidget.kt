@@ -210,7 +210,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                                     style =
                                             TextStyle(
                                                     color = ColorProvider(White55),
-                                                    fontSize = 11.sp,
                                                     fontWeight = FontWeight.Medium
                                             )
                             )
@@ -221,7 +220,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                                 style =
                                         TextStyle(
                                                 color = ColorProvider(White85),
-                                                fontSize = 13.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 fontFamily = FontFamily.Monospace
                                         )
@@ -233,7 +231,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                             style =
                                     TextStyle(
                                             color = ColorProvider(ac),
-                                            fontSize = 28.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace
                                     )
@@ -294,7 +291,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                         style =
                                 TextStyle(
                                         color = ColorProvider(White55),
-                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Medium
                                 ),
                         modifier = GlanceModifier.defaultWeight()
@@ -320,7 +316,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                         style =
                                 TextStyle(
                                         color = ColorProvider(ac),
-                                        fontSize = 38.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
                                 )
@@ -336,7 +331,7 @@ class TotalAttendanceWidget : GlanceAppWidget() {
             Row(modifier = GlanceModifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Text(
                         text = insight,
-                        style = TextStyle(color = ColorProvider(White35), fontSize = 10.sp),
+                        style = TextStyle(color = ColorProvider(White35)),
                         maxLines = 1,
                         modifier = GlanceModifier.defaultWeight()
                 )
@@ -346,7 +341,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                         style =
                                 TextStyle(
                                         color = ColorProvider(White85),
-                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
                                 )
@@ -406,7 +400,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                         style =
                                 TextStyle(
                                         color = ColorProvider(White35),
-                                        fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium
                                 ),
                         modifier = GlanceModifier.defaultWeight()
@@ -428,7 +421,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                     style =
                             TextStyle(
                                     color = ColorProvider(ac),
-                                    fontSize = 52.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                             )
@@ -448,7 +440,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                         style =
                                 TextStyle(
                                         color = ColorProvider(White55),
-                                        fontSize = 12.sp,
                                         fontFamily = FontFamily.Monospace
                                 )
                 )
@@ -519,7 +510,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                         style =
                                 TextStyle(
                                         color = ColorProvider(TickLine),
-                                        fontSize = 9.sp,
                                         fontWeight = FontWeight.Medium
                                 )
                 )
@@ -530,7 +520,7 @@ class TotalAttendanceWidget : GlanceAppWidget() {
             // Row 6 — insight
             Text(
                     text = insight,
-                    style = TextStyle(color = ColorProvider(White25), fontSize = 11.sp),
+                    style = TextStyle(color = ColorProvider(White25)),
                     maxLines = 2
             )
         }
@@ -552,7 +542,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                     style =
                             TextStyle(
                                     color = ColorProvider(White25),
-                                    fontSize = 9.sp,
                                     fontWeight = FontWeight.Medium
                             )
             )
@@ -562,7 +551,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                     style =
                             TextStyle(
                                     color = ColorProvider(valueColor),
-                                    fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                             )
@@ -589,7 +577,6 @@ class TotalAttendanceWidget : GlanceAppWidget() {
                     style =
                             TextStyle(
                                     color = ColorProvider(ac),
-                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                             )
             )

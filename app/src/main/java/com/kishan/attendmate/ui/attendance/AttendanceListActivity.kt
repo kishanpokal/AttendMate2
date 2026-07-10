@@ -1,5 +1,7 @@
 package com.kishan.attendmate.ui.attendance
 
+import com.kishan.attendmate.ui.theme.statusColors
+
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -51,6 +53,7 @@ import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.kishan.attendmate.ui.components.AttendMateNavigationBar
+import com.kishan.attendmate.ui.components.GlassNavScaffold
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
@@ -83,39 +86,22 @@ class AttendanceListActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AttendMateTheme {
-                Scaffold(
-                    bottomBar = {
-                        AttendMateNavigationBar(selectedRoute = "attendance")
-                    }
-                ) { paddingValues ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(paddingValues)
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.surface,
-                                        MaterialTheme.colorScheme.surfaceContainerLowest
-                                    )
-                                )
+                GlassNavScaffold("attendance") { paddingValues ->
+                    AttendanceListScreen(
+                        bottomPadding = paddingValues,
+                        initialSearchQuery = filterDate,
+                        onEdit = { subjectId, attendanceId ->
+                            startActivity(
+                                Intent(
+                                    this@AttendanceListActivity,
+                                    EditAttendanceActivity::class.java
+                                ).apply {
+                                    putExtra("subjectId", subjectId)
+                                    putExtra("attendanceId", attendanceId)
+                                }
                             )
-                    ) {
-                        AttendanceListScreen(
-                            initialSearchQuery = filterDate,
-                            onEdit = { subjectId, attendanceId ->
-                                startActivity(
-                                    Intent(
-                                        this@AttendanceListActivity,
-                                        EditAttendanceActivity::class.java
-                                    ).apply {
-                                        putExtra("subjectId", subjectId)
-                                        putExtra("attendanceId", attendanceId)
-                                    }
-                                )
-                            }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         }
@@ -143,6 +129,7 @@ data class FilterOption(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun AttendanceListScreen(
+    bottomPadding: PaddingValues = PaddingValues(),
     initialSearchQuery: String = "",
     onEdit: (String, String) -> Unit
 ) {
@@ -264,7 +251,19 @@ fun AttendanceListScreen(
     val missed = filteredList.count { it.status == "ABSENT" }
     val percentage = if (total == 0) 0 else ((attended.toFloat() / total.toFloat()) * 100).toInt()
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = bottomPadding.calculateTopPadding())
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        MaterialTheme.colorScheme.surface,
+                        MaterialTheme.colorScheme.surfaceContainerLowest
+                    )
+                )
+            )
+    ) {
         /* -------- SLEEK HEADER -------- */
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -296,8 +295,7 @@ fun AttendanceListScreen(
                             text = "History",
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 26.sp
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = "Your complete attendance record",
@@ -317,7 +315,7 @@ fun AttendanceListScreen(
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 24.dp),
+                contentPadding = PaddingValues(bottom = bottomPadding.calculateBottomPadding()),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 item {
@@ -331,7 +329,7 @@ fun AttendanceListScreen(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search by date or subject...", fontSize = 14.sp) },
+                        placeholder = { Text("Search by date or subject...") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
@@ -445,7 +443,7 @@ fun AttendanceSummaryCard(total: Int, present: Int, absent: Int, percentage: Int
         )
     }
 
-    val statusColor = if (percentage >= 75) Color(0xFF10B981) else if (percentage >= 60) Color(0xFFF59E0B) else Color(0xFFEF4444)
+    val statusColor = if (percentage >= 75) statusColors().success else if (percentage >= 60) statusColors().warning else statusColors().error
 
     Card(
         modifier = Modifier
@@ -519,8 +517,8 @@ fun AttendanceSummaryCard(total: Int, present: Int, absent: Int, percentage: Int
 
                     // Stats Column
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        ProStatItem(label = "Present", value = present.toString(), color = Color(0xFF10B981), icon = Icons.Default.CheckCircle)
-                        ProStatItem(label = "Absent", value = absent.toString(), color = Color(0xFFEF4444), icon = Icons.Default.Cancel)
+                        ProStatItem(label = "Present", value = present.toString(), color = statusColors().success, icon = Icons.Default.CheckCircle)
+                        ProStatItem(label = "Absent", value = absent.toString(), color = statusColors().error, icon = Icons.Default.Cancel)
                         ProStatItem(label = "Total", value = total.toString(), color = MaterialTheme.colorScheme.onSurfaceVariant, icon = Icons.Default.List)
                     }
                 }
@@ -568,7 +566,7 @@ fun ProfessionalFilterChips(
                 FilterChip(
                     selected = isSelected,
                     onClick = { if (filterOption.name == "Subject") showSubjectMenu = true else onFilterChange(filterOption.name) },
-                    label = { Text(displayLabel, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, fontSize = 13.sp) },
+                    label = { Text(displayLabel, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium) },
                     leadingIcon = { Icon(filterOption.icon, null, modifier = Modifier.size(16.dp)) },
                     shape = RoundedCornerShape(12.dp),
                     colors = FilterChipDefaults.filterChipColors(
@@ -614,71 +612,34 @@ fun DateHeader(date: String) {
 @Composable
 fun ModernAttendanceCard(item: AttendanceItem, onClick: () -> Unit) {
     val isPresent = item.status == "PRESENT"
-    val statusColor = if (isPresent) Color(0xFF10B981) else Color(0xFFEF4444)
-
-    val interactionSource = remember { MutableInteractionSource() }
-    val isPressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(targetValue = if (isPressed) 0.97f else 1f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
-
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).scale(scale)
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-    ) {
-        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.size(46.dp).clip(RoundedCornerShape(14.dp)).background(statusColor.copy(alpha = 0.12f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(if (isPresent) Icons.Filled.CheckCircle else Icons.Filled.Cancel, null, tint = statusColor, modifier = Modifier.size(24.dp))
-            }
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(text = item.subjectName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (!item.note.isNullOrBlank()) Icon(Icons.Default.EditNote, "Has note", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
-                }
-                if (item.startTime.isNotEmpty() && item.endTime.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Default.Schedule, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(text = "${item.startTime} - ${item.endTime}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-            }
-            Surface(shape = RoundedCornerShape(8.dp), color = statusColor.copy(alpha = 0.15f)) {
-                Text(
-                    text = if (isPresent) "Present" else "Absent",
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = statusColor,
-                    fontWeight = FontWeight.ExtraBold
-                )
-            }
-        }
+    val subtitle = if (item.startTime.isNotEmpty() && item.endTime.isNotEmpty()) {
+        "${item.startTime} - ${item.endTime}" + if (!item.note.isNullOrBlank()) " • Has note" else ""
+    } else {
+        if (!item.note.isNullOrBlank()) "Has note" else null
     }
+
+    com.kishan.attendmate.ui.components.SubjectListItem(
+        title = item.subjectName,
+        attendancePercentage = if (isPresent) 1f else 0f,
+        onClick = onClick,
+        subtitle = subtitle
+    )
 }
 
 @Composable
 fun EmptyState(filter: String) {
-    Column(modifier = Modifier.fillMaxWidth().padding(32.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(modifier = Modifier.size(100.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-            Icon(if (filter == "Present") Icons.Default.CheckCircle else if (filter == "Absent") Icons.Default.Cancel else Icons.Outlined.EventNote, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(text = "No Records Found", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        Text(text = "Try adjusting your filters or search query.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-    }
+    com.kishan.attendmate.ui.components.EmptyState(
+        title = "No Records Found",
+        message = "Try adjusting your filters or search query.",
+        icon = if (filter == "Present") Icons.Default.CheckCircle else if (filter == "Absent") Icons.Default.Cancel else Icons.Outlined.EventNote
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModernAttendanceDialog(attendance: AttendanceItem, onDismiss: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit) {
     val isPresent = attendance.status == "PRESENT"
-    val statusColor = if (isPresent) Color(0xFF10B981) else Color(0xFFEF4444)
+    val statusColor = if (isPresent) statusColors().success else statusColors().error
     val formattedDate = SimpleDateFormat("dd MMMM yyyy", Locale.getDefault()).format(attendance.date)
     var isDeleting by remember { mutableStateOf(false) }
 
@@ -719,37 +680,23 @@ fun ModernAttendanceDialog(attendance: AttendanceItem, onDismiss: () -> Unit, on
 
                     // Buttons
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(
+                        com.kishan.attendmate.ui.components.SecondaryButton(
+                            text = if (isDeleting) "Deleting..." else "Delete",
                             onClick = {
                                 if (!isDeleting) {
                                     isDeleting = true
                                     onDelete()
                                 }
                             },
-                            modifier = Modifier.weight(1f).height(50.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                        ) {
-                            AnimatedContent(targetState = isDeleting, label = "delete_anim") { deleting ->
-                                if (deleting) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = MaterialTheme.colorScheme.error,
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Text("Delete", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
+                            modifier = Modifier.weight(1f),
+                            isLoading = isDeleting
+                        )
 
-                        Button(
+                        com.kishan.attendmate.ui.components.PrimaryButton(
+                            text = "Edit Record",
                             onClick = onEdit,
-                            modifier = Modifier.weight(1f).height(50.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                        ) { Text("Edit Record", fontWeight = FontWeight.Bold) }
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }

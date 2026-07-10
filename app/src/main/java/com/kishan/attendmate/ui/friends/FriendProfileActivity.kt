@@ -1,5 +1,7 @@
 package com.kishan.attendmate.ui.friends
 
+import com.kishan.attendmate.ui.theme.statusColors
+
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -152,7 +154,7 @@ fun FriendProfileScreen(friendUid: String, onBack: () -> Unit) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Friend Profile", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp) },
+                title = { Text("Friend Profile", fontWeight = FontWeight.ExtraBold) },
                 navigationIcon = {
                     FilledIconButton(
                         onClick = onBack,
@@ -325,7 +327,7 @@ fun ProfileHeaderCard(username: String, email: String, percentage: Float) {
     }
     val avatarPalette = listOf(
         Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFFEC4899),
-        Color(0xFF06B6D4), Color(0xFF10B981), Color(0xFFF59E0B)
+        Color(0xFF06B6D4), statusColors().success, statusColors().warning
     )
     val avatarColor = avatarPalette[username.hashCode().let { if (it < 0) -it else it } % avatarPalette.size]
 
@@ -378,14 +380,14 @@ fun ProfileHeaderCard(username: String, email: String, percentage: Float) {
                 ) {
                     Text(
                         username.firstOrNull()?.uppercase() ?: "?",
-                        color = Color.White, fontWeight = FontWeight.ExtraBold, fontSize = 28.sp
+                        color = Color.White, fontWeight = FontWeight.ExtraBold
                     )
                 }
 
                 Column(Modifier.weight(1f)) {
                     Text(
                         username,
-                        fontWeight = FontWeight.ExtraBold, fontSize = 22.sp,
+                        fontWeight = FontWeight.ExtraBold,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
@@ -401,7 +403,7 @@ fun ProfileHeaderCard(username: String, email: String, percentage: Float) {
                                 modifier = Modifier.size(14.dp)
                             )
                             Text(
-                                email, fontSize = 13.sp,
+                                email,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis
                             )
@@ -427,7 +429,6 @@ fun ProfileHeaderCard(username: String, email: String, percentage: Float) {
                                     else -> "Low Attendance"
                                 },
                                 color = statusColor,
-                                fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold
                             )
                         }
@@ -514,9 +515,9 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                             )
                         }
                         Column {
-                            Text("Attendance", fontWeight = FontWeight.ExtraBold, fontSize = 20.sp,
+                            Text("Attendance", fontWeight = FontWeight.ExtraBold,
                                 color = MaterialTheme.colorScheme.onSurface)
-                            Text("Overall Performance", fontSize = 12.sp,
+                            Text("Overall Performance",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
@@ -531,7 +532,7 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Icon(statusIcon, null, tint = statusColor, modifier = Modifier.size(16.dp))
-                            Text(statusText, fontSize = 12.sp, color = statusColor, fontWeight = FontWeight.Bold)
+                            Text(statusText, color = statusColor, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -565,10 +566,10 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                         Row(verticalAlignment = Alignment.Bottom) {
                             Text(
                                 String.format(Locale.getDefault(), "%.1f", animPct.value),
-                                fontWeight = FontWeight.ExtraBold, fontSize = 50.sp,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = statusColor
                             )
-                            Text("%", fontWeight = FontWeight.Bold, fontSize = 28.sp,
+                            Text("%", fontWeight = FontWeight.Bold,
                                 color = statusColor.copy(0.7f),
                                 modifier = Modifier.padding(bottom = 8.dp))
                         }
@@ -630,8 +631,8 @@ private fun FriendStatItem(label: String, value: String, icon: androidx.compose.
                 .background(Brush.radialGradient(listOf(color.copy(0.2f), color.copy(0.1f)))),
             Alignment.Center
         ) { Icon(icon, null, tint = color, modifier = Modifier.size(22.dp)) }
-        Text(value, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = color)
-        Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        Text(value, fontWeight = FontWeight.ExtraBold, color = color)
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Medium)
     }
 }
@@ -653,12 +654,12 @@ private fun FriendMotivationalCard(icon: String, title: String, message: String,
                 Modifier.size(44.dp).clip(CircleShape)
                     .background(Brush.linearGradient(listOf(color.copy(0.3f), color.copy(0.2f)))),
                 Alignment.Center
-            ) { Text(icon, fontSize = 22.sp) }
+            ) { Text(icon) }
             Column(Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                Text(title, fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface)
                 Spacer(Modifier.height(2.dp))
-                Text(message, fontSize = 13.sp,
+                Text(message,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 18.sp)
             }
         }
@@ -690,9 +691,9 @@ fun ProfileSectionHeader(
             )
         }
         Column {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp,
+            Text(title, fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface)
-            Text(subtitle, fontSize = 12.sp,
+            Text(subtitle,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -744,7 +745,6 @@ fun FriendLectureCard(lecture: FriendLecture) {
                     Text(
                         lecture.subjectName,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1, overflow = TextOverflow.Ellipsis
                     )
@@ -765,7 +765,6 @@ fun FriendLectureCard(lecture: FriendLecture) {
                             )
                             Text(
                                 "${lecture.startTime} - ${lecture.endTime}",
-                                fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontWeight = FontWeight.Medium
                             )
@@ -779,7 +778,7 @@ fun FriendLectureCard(lecture: FriendLecture) {
                             Text(
                                 if (isPresent) "Present" else "Absent",
                                 Modifier.padding(horizontal = 10.dp, vertical = 3.dp),
-                                color = statusColor, fontSize = 12.sp, fontWeight = FontWeight.Bold
+                                color = statusColor, fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -908,10 +907,10 @@ fun ProfileErrorScreen(errorMessage: String, onRetry: () -> Unit, padding: Paddi
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("Oops!", fontWeight = FontWeight.ExtraBold, fontSize = 26.sp,
+                        Text("Oops!", fontWeight = FontWeight.ExtraBold,
                             color = MaterialTheme.colorScheme.error)
                         Text(errorMessage, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center, fontSize = 14.sp, lineHeight = 20.sp)
+                            textAlign = TextAlign.Center, lineHeight = 20.sp)
                     }
                     Button(
                         onClick = onRetry,

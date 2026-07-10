@@ -1,5 +1,7 @@
 package com.kishan.attendmate.ui.attendance
 
+import com.kishan.attendmate.ui.theme.statusColors
+
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.os.Bundle
@@ -138,14 +140,12 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
                     Column {
                         Text(
                             "Mark Attendance",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 20.sp
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             "Track your class participation",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
@@ -496,8 +496,7 @@ fun AnimatedProgressIndicator(
                 Text(
                     "Current: ${stepLabels[currentStep]}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 12.sp
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -557,15 +556,13 @@ fun HeroCard() {
                         "Mark Your Attendance",
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        fontSize = 20.sp
+                        color = Color.White
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "Keep track of every class you attend",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = 13.sp
+                        color = Color.White.copy(alpha = 0.9f)
                     )
                 }
             }
@@ -604,14 +601,12 @@ fun SectionHeader(
                 title,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontSize = 18.sp
+                color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -731,7 +726,6 @@ fun ModernSubjectSelector(
                             "Subject",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
                         Spacer(Modifier.height(4.dp))
@@ -745,8 +739,7 @@ fun ModernSubjectSelector(
                             color = if (selectedSubjectName.isEmpty())
                                 MaterialTheme.colorScheme.onSurfaceVariant
                             else
-                                MaterialTheme.colorScheme.onPrimaryContainer,
-                            fontSize = 16.sp
+                                MaterialTheme.colorScheme.onPrimaryContainer
                         )
                     }
                 }
@@ -1008,7 +1001,6 @@ fun ModernSelectionCard(
                         label,
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 11.sp,
                         fontWeight = FontWeight.Medium
                     )
                     Spacer(Modifier.height(4.dp))
@@ -1019,8 +1011,7 @@ fun ModernSelectionCard(
                         color = if (isSelected)
                             MaterialTheme.colorScheme.onSecondaryContainer
                         else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 15.sp
+                            MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -1053,7 +1044,7 @@ fun ModernStatusSelector(
                 text = "Present",
                 icon = Icons.Filled.CheckCircle,
                 selected = status == "Present",
-                selectedColor = Color(0xFF34C759),
+                selectedColor = statusColors().success,
                 onClick = { onStatusChange("Present") }
             )
         }
@@ -1063,7 +1054,7 @@ fun ModernStatusSelector(
                 text = "Absent",
                 icon = Icons.Filled.Cancel,
                 selected = status == "Absent",
-                selectedColor = Color(0xFFFF3B30),
+                selectedColor = statusColors().error,
                 onClick = { onStatusChange("Absent") }
             )
         }
@@ -1144,8 +1135,7 @@ fun EnhancedStatusCard(
                 text,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-                color = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface,
-                fontSize = 16.sp
+                color = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface
             )
 
             if (selected) {
@@ -1242,89 +1232,17 @@ fun ModernSaveButton(
     isSaving: Boolean,
     onClick: () -> Unit
 ) {
-    val scale by animateFloatAsState(
-        targetValue = if (enabled && !isSaving) 1f else 0.95f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "button_scale"
-    )
-
-    Button(
-        enabled = enabled,
+    com.kishan.attendmate.ui.components.PrimaryButton(
+        text = "Save Attendance",
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(64.dp)
-            .scale(scale)
-            .shadow(
-                elevation = if (enabled && !isSaving) 12.dp else 4.dp,
-                shape = RoundedCornerShape(20.dp),
-                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-            ),
-        shape = RoundedCornerShape(20.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-        ),
-        contentPadding = PaddingValues(0.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    if (enabled && !isSaving) {
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.tertiary
-                            )
-                        )
-                    } else {
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surfaceContainerHighest,
-                                MaterialTheme.colorScheme.surfaceContainerHighest
-                            )
-                        )
-                    }
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            if (isSaving) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        strokeWidth = 3.dp,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Text(
-                        "Saving...",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        color = Color.White
-                    )
-                }
-            } else {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.Save,
-                        contentDescription = null,
-                        modifier = Modifier.size(24.dp),
-                        tint = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        "Save Attendance",
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (enabled) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
+        enabled = enabled,
+        isLoading = isSaving,
+        icon = {
+            Icon(
+                Icons.Default.Check,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
         }
-    }
+    )
 }

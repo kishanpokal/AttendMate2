@@ -76,11 +76,6 @@
         <activity android:name=".ui.settings.CollegeSyncActivity" android:exported="false" />
 
         <!-- ===================================================== -->
-        <!-- AI CHAT -->
-        <!-- ===================================================== -->
-        <activity android:name=".ui.ai.AiChatActivity" android:exported="false" />
-
-        <!-- ===================================================== -->
         <!-- WIDGET -->
         <!-- ===================================================== -->
         <receiver

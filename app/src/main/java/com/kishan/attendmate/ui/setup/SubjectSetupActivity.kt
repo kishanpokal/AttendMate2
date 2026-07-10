@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import com.kishan.attendmate.ui.components.PrimaryButton
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -94,8 +95,7 @@ class SubjectSetupActivity : ComponentActivity() {
                             text = "Add Your Subjects",
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
-                            fontSize = 32.sp
+                            color = Color.White
                         )
 
                         Text(
@@ -138,7 +138,7 @@ class SubjectSetupActivity : ComponentActivity() {
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = Color(0xFF8B5CF6),
                                         unfocusedBorderColor = Color(0xFFE5E7EB),
-                                        focusedLabelColor = Color(0xFF000000),
+                                        focusedLabelColor = androidx.compose.material3.MaterialTheme.colorScheme.outline,
                                         unfocusedTextColor = Color.Black,
                                         focusedTextColor = Color.Black,
                                         cursorColor = Color(0xFF8B5CF6)
@@ -149,7 +149,7 @@ class SubjectSetupActivity : ComponentActivity() {
 
                                 Spacer(Modifier.height(16.dp))
 
-                                Button(
+                                PrimaryButton(
                                     onClick = {
                                         if (subjectName.isBlank()) {
                                             Toast.makeText(
@@ -157,37 +157,26 @@ class SubjectSetupActivity : ComponentActivity() {
                                                 "Please enter subject name",
                                                 Toast.LENGTH_SHORT
                                             ).show()
-                                            return@Button
+                                            return@PrimaryButton
                                         }
                                         subjects.add(subjectName.trim())
                                         subjectName = ""
                                     },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF8B5CF6)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(50.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(
-                                        "ADD SUBJECT",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                                    text = "ADD SUBJECT",
+                                    icon = {
+                                        Icon(
+                                            Icons.Default.Add,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                )
 
                                 if (subjects.isNotEmpty()) {
                                     Spacer(Modifier.height(24.dp))
 
                                     Divider(
-                                        color = Color(0xFF000000),
+                                        color = androidx.compose.material3.MaterialTheme.colorScheme.outline,
                                         thickness = 1.dp
                                     )
 
@@ -195,9 +184,8 @@ class SubjectSetupActivity : ComponentActivity() {
 
                                     Text(
                                         text = "Added Subjects (${subjects.size})",
-                                        fontSize = 16.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFF374151),
+                                        color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                                         modifier = Modifier.fillMaxWidth()
                                     )
 
@@ -237,8 +225,7 @@ class SubjectSetupActivity : ComponentActivity() {
                                                         Spacer(Modifier.width(12.dp))
                                                         Text(
                                                             text = subjects[index],
-                                                            fontSize = 15.sp,
-                                                            color = Color(0xFF374151),
+                                                            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
                                                             fontWeight = FontWeight.Medium
                                                         )
                                                     }
@@ -265,9 +252,9 @@ class SubjectSetupActivity : ComponentActivity() {
 
                         Spacer(Modifier.height(24.dp))
 
-                        // Continue Button
-                        Button(
-                            enabled = subjects.isNotEmpty() && !loading,
+                        PrimaryButton(
+                            enabled = subjects.isNotEmpty(),
+                            isLoading = loading,
                             onClick = {
                                 saveSubjects(subjects, onDone = {
                                     startActivity(
@@ -279,37 +266,14 @@ class SubjectSetupActivity : ComponentActivity() {
                                     finish()
                                 }, onLoading = { loading = it })
                             },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color.White,
-                                disabledContainerColor = Color.White.copy(alpha = 0.5f)
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                        ) {
-                            if (loading) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.5.dp,
-                                    color = Color(0xFF8B5CF6)
-                                )
-                            } else {
-                                Text(
-                                    "CONTINUE",
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF8B5CF6)
-                                )
-                            }
-                        }
+                            text = "CONTINUE"
+                        )
 
                         if (subjects.isEmpty()) {
                             Spacer(Modifier.height(12.dp))
                             Text(
                                 text = "Add at least one subject to continue",
                                 color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 13.sp,
                                 textAlign = TextAlign.Center
                             )
                         }

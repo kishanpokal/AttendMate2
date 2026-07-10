@@ -1,5 +1,7 @@
 package com.kishan.attendmate.ui.auth
 
+import com.kishan.attendmate.ui.theme.statusColors
+
 import android.content.Intent
 import android.os.Bundle
 import android.util.Patterns
@@ -513,7 +515,7 @@ class RegisterActivity : ComponentActivity() {
                 Icon(
                     if (isMet) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
                     contentDescription = null,
-                    tint = if (isMet) Color(0xFF10B981) else MaterialTheme.colorScheme.outline,
+                    tint = if (isMet) statusColors().success else MaterialTheme.colorScheme.outline,
                     modifier = Modifier.size(16.dp)
                 )
             }
@@ -718,78 +720,19 @@ class RegisterActivity : ComponentActivity() {
         onClick: () -> Unit,
         isCompact: Boolean
     ) {
-        val scale by animateFloatAsState(
-            targetValue = if (loading) 0.95f else 1f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-            label = "scale"
-        )
-
-        Button(
+        com.kishan.attendmate.ui.components.PrimaryButton(
+            text = text,
             onClick = onClick,
-            enabled = !loading,
-            shape = RoundedCornerShape(RadiusLG),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent
-            ),
-            contentPadding = PaddingValues(0.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (isCompact) 56.dp else 60.dp)
-                .scale(scale)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color(0xFFEC4899),
-                                Color(0xFF8B5CF6),
-                                Color(0xFF6366F1)
-                            )
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                AnimatedContent(
-                    targetState = loading,
-                    transitionSpec = {
-                        fadeIn(tween(300)) + scaleIn() togetherWith
-                                fadeOut(tween(300)) + scaleOut()
-                    },
-                    label = "button_content"
-                ) { isLoading ->
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            modifier = Modifier.size(28.dp),
-                            strokeWidth = 3.dp
-                        )
-                    } else {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                icon,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (isCompact) 16.sp else 17.sp,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                    }
-                }
+            isLoading = loading,
+            icon = {
+                Icon(
+                    icon,
+                    contentDescription = text,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
             }
-        }
+        )
     }
 
     // Validation and Registration Functions

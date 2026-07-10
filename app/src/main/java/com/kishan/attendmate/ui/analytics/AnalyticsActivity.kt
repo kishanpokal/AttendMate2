@@ -1,5 +1,10 @@
 package com.kishan.attendmate.ui.analytics
 
+import com.kishan.attendmate.ui.components.PrimaryButton
+import com.kishan.attendmate.ui.components.SecondaryButton
+
+import com.kishan.attendmate.ui.theme.statusColors
+
 import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
 import java.text.SimpleDateFormat
@@ -48,6 +53,7 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
+import com.kishan.attendmate.ui.components.GlassNavScaffold
 import com.kishan.attendmate.ui.components.AttendMateNavigationBar
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import com.kishan.attendmate.ui.theme.RadiusSM
@@ -60,9 +66,6 @@ import com.kishan.attendmate.ui.theme.SpaceMD
 import com.kishan.attendmate.ui.theme.SpaceLG
 import com.kishan.attendmate.ui.theme.ElevationLow
 import com.kishan.attendmate.ui.theme.ElevationHigh
-import com.kishan.attendmate.ui.theme.SuccessColor
-import com.kishan.attendmate.ui.theme.WarningColor
-import com.kishan.attendmate.ui.theme.DangerColor
 import com.kishan.attendmate.ui.theme.CardStyle
 import com.kishan.attendmate.ui.components.StandardEmptyState
 import java.time.LocalDate
@@ -158,14 +161,9 @@ class AnalyticsActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AttendMateTheme {
-                Scaffold(
-                        bottomBar = {
-                            Column {
-
-                                AttendMateNavigationBar("analytics")
-                            }
-                        }
-                ) { padding -> Box(Modifier.padding(padding)) { AnalyticsScreen() } }
+                GlassNavScaffold("analytics") { padding ->
+                    AnalyticsScreen(padding)
+                }
             }
         }
     }
@@ -184,15 +182,16 @@ fun maxBunkableLectures(present: Int, total: Int): Int {
     return floor(present / 0.75 - total).toInt().coerceAtLeast(0)
 }
 
+@androidx.compose.runtime.Composable
 fun subjectColor(percent: Int): Color =
         when {
-            percent >= 75 -> SuccessColor
-            percent >= 60 -> WarningColor
-            else -> DangerColor
+            percent >= 75 -> statusColors().success
+            percent >= 60 -> statusColors().warning
+            else -> statusColors().error
         }
 
 @Composable
-fun AnalyticsScreen() {
+fun AnalyticsScreen(bottomPadding: PaddingValues = PaddingValues()) {
     val db = FirebaseFirestore.getInstance()
     val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return
     var loading by remember { mutableStateOf(true) }
@@ -268,6 +267,7 @@ fun AnalyticsScreen() {
     Column(
             modifier =
                     Modifier.fillMaxSize()
+                            .padding(top = bottomPadding.calculateTopPadding())
                             .background(
                                     Brush.verticalGradient(
                                             colors =
@@ -331,7 +331,12 @@ fun AnalyticsScreen() {
                 )
             } else {
                 LazyColumn(
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                        contentPadding = PaddingValues(
+                            start = 20.dp,
+                            top = 16.dp,
+                            end = 20.dp,
+                            bottom = bottomPadding.calculateBottomPadding()
+                        ),
                         verticalArrangement = Arrangement.spacedBy(20.dp)
                 ) {
                     item { ModernOverallCard(percentage, present, total, neededFor75, bunkable) }
@@ -550,7 +555,6 @@ fun AttendanceTrendLineChart(attendance: List<AnalyticsAttendance>) {
                             text = trendPoints[index].first.format(formatter),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                     )
                 }
@@ -565,8 +569,8 @@ fun AttendanceTrendLineChart(attendance: List<AnalyticsAttendance>) {
 @Composable
 fun ModernOverallCard(percentage: Int, present: Int, total: Int, neededFor75: Int, bunkable: Int) {
     val primaryColor = MaterialTheme.colorScheme.primary
-    val errorColor = DangerColor
-    val successColor = SuccessColor
+    val errorColor = statusColors().error
+    val successColor = statusColors().success
 
     val animatedPercentage = remember { Animatable(0f) }
     LaunchedEffect(percentage) {
@@ -579,7 +583,7 @@ fun ModernOverallCard(percentage: Int, present: Int, total: Int, neededFor75: In
     val statusColor =
             when {
                 percentage >= 75 -> successColor
-                percentage >= 60 -> WarningColor
+                percentage >= 60 -> statusColors().warning
                 else -> errorColor
             }
 
@@ -845,10 +849,10 @@ fun SubjectBarGraph(attendance: List<AnalyticsAttendance>) {
                     modifier =
                             Modifier.fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(DangerColor.copy(alpha = 0.1f))
+                                    .background(statusColors().error.copy(alpha = 0.1f))
                                     .border(
                                             width = 1.dp,
-                                            color = DangerColor.copy(alpha = 0.3f),
+                                            color = statusColors().error.copy(alpha = 0.3f),
                                             shape = RoundedCornerShape(12.dp)
                                     )
                                     .padding(12.dp),
@@ -858,14 +862,14 @@ fun SubjectBarGraph(attendance: List<AnalyticsAttendance>) {
                 Icon(
                         imageVector = Icons.Default.Info,
                         contentDescription = null,
-                        tint = DangerColor,
+                        tint = statusColors().error,
                         modifier = Modifier.size(20.dp)
                 )
                 Text(
                         text = "Red line indicates 75% threshold",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium,
-                        color = DangerColor
+                        color = statusColors().error
                 )
             }
 
@@ -1034,7 +1038,7 @@ private fun EnhancedSubjectBar(
                                     Modifier.fillMaxHeight()
                                             .width(2.dp)
                                             .offset(x = barWidth * 0.75f - 1.dp)
-                                            .background(DangerColor)
+                                            .background(statusColors().error)
                     )
                 }
 
@@ -1049,15 +1053,14 @@ private fun EnhancedSubjectBar(
                                             )
                                             .padding(top = 4.dp),
                             shape = RoundedCornerShape(4.dp),
-                            color = DangerColor
+                            color = statusColors().error
                     ) {
                         Text(
                                 text = "75%",
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 style = MaterialTheme.typography.labelSmall,
                                 color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 10.sp
+                                fontWeight = FontWeight.Bold
                         )
                     }
                 }
@@ -1075,7 +1078,7 @@ private fun EnhancedSubjectBar(
                                 .padding(10.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            StatBadge(label = "Present", value = "$present", color = SuccessColor)
+            StatBadge(label = "Present", value = "$present", color = statusColors().success)
 
             Box(
                     modifier =
@@ -1086,7 +1089,7 @@ private fun EnhancedSubjectBar(
                                     )
             )
 
-            StatBadge(label = "Absent", value = "${total - present}", color = DangerColor)
+            StatBadge(label = "Absent", value = "${total - present}", color = statusColors().error)
 
             Box(
                     modifier =
@@ -1314,25 +1317,25 @@ fun AttendanceCalendar(
                                                 alpha = 0.3f
                                         )
                                 !hasData -> Color.Transparent
-                                allPresent -> SuccessColor.copy(alpha = 0.15f)
-                                allAbsent -> DangerColor.copy(alpha = 0.15f)
-                                else -> WarningColor.copy(alpha = 0.15f)
+                                allPresent -> statusColors().success.copy(alpha = 0.15f)
+                                allAbsent -> statusColors().error.copy(alpha = 0.15f)
+                                else -> statusColors().warning.copy(alpha = 0.15f)
                             }
 
                     val borderColor =
                             when {
                                 isToday && !hasData -> MaterialTheme.colorScheme.primary
-                                allPresent -> SuccessColor
-                                allAbsent -> DangerColor
-                                hasData -> WarningColor
+                                allPresent -> statusColors().success
+                                allAbsent -> statusColors().error
+                                hasData -> statusColors().warning
                                 else -> Color.Transparent
                             }
 
                     val textColor =
                             when {
-                                allPresent -> SuccessColor
-                                allAbsent -> DangerColor
-                                hasData -> WarningColor
+                                allPresent -> statusColors().success
+                                allAbsent -> statusColors().error
+                                hasData -> statusColors().warning
                                 isToday -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                             }
@@ -1396,9 +1399,9 @@ fun AttendanceCalendar(
                         verticalArrangement = Arrangement.spacedBy(config.itemSpacing / 2),
                         horizontalAlignment = Alignment.Start
                 ) {
-                    EnhancedLegendItem(config, SuccessColor, "Present")
-                    EnhancedLegendItem(config, DangerColor, "Absent")
-                    EnhancedLegendItem(config, WarningColor, "Mixed")
+                    EnhancedLegendItem(config, statusColors().success, "Present")
+                    EnhancedLegendItem(config, statusColors().error, "Absent")
+                    EnhancedLegendItem(config, statusColors().warning, "Mixed")
                 }
             } else {
                 Row(
@@ -1412,9 +1415,9 @@ fun AttendanceCalendar(
                                         .padding(config.itemSpacing),
                         horizontalArrangement = Arrangement.SpaceEvenly
                 ) {
-                    EnhancedLegendItem(config, SuccessColor, "Present")
-                    EnhancedLegendItem(config, DangerColor, "Absent")
-                    EnhancedLegendItem(config, WarningColor, "Mixed")
+                    EnhancedLegendItem(config, statusColors().success, "Present")
+                    EnhancedLegendItem(config, statusColors().error, "Absent")
+                    EnhancedLegendItem(config, statusColors().warning, "Mixed")
                 }
             }
         }
@@ -1608,25 +1611,25 @@ fun CompactAttendanceCalendar(
                                                 alpha = 0.3f
                                         )
                                 !hasData -> Color.Transparent
-                                allPresent -> SuccessColor.copy(alpha = 0.15f)
-                                allAbsent -> DangerColor.copy(alpha = 0.15f)
-                                else -> WarningColor.copy(alpha = 0.15f)
+                                allPresent -> statusColors().success.copy(alpha = 0.15f)
+                                allAbsent -> statusColors().error.copy(alpha = 0.15f)
+                                else -> statusColors().warning.copy(alpha = 0.15f)
                             }
 
                     val borderColor =
                             when {
                                 isToday && !hasData -> MaterialTheme.colorScheme.primary
-                                allPresent -> SuccessColor
-                                allAbsent -> DangerColor
-                                hasData -> WarningColor
+                                allPresent -> statusColors().success
+                                allAbsent -> statusColors().error
+                                hasData -> statusColors().warning
                                 else -> Color.Transparent
                             }
 
                     val textColor =
                             when {
-                                allPresent -> SuccessColor
-                                allAbsent -> DangerColor
-                                hasData -> WarningColor
+                                allPresent -> statusColors().success
+                                allAbsent -> statusColors().error
+                                hasData -> statusColors().warning
                                 isToday -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                             }
@@ -1695,9 +1698,9 @@ fun CompactAttendanceCalendar(
                     verticalArrangement = Arrangement.spacedBy(config.itemSpacing / 3),
                     horizontalAlignment = Alignment.Start
             ) {
-                CompactLegendItem(config, SuccessColor, "Present")
-                CompactLegendItem(config, DangerColor, "Absent")
-                CompactLegendItem(config, WarningColor, "Mixed")
+                CompactLegendItem(config, statusColors().success, "Present")
+                CompactLegendItem(config, statusColors().error, "Absent")
+                CompactLegendItem(config, statusColors().warning, "Mixed")
             }
         }
     }
@@ -1750,15 +1753,19 @@ fun SmartAttendanceCalendar(
 fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
     val grouped = attendance.groupBy { it.subject }
     val total = attendance.size.toFloat().coerceAtLeast(1f)
-    val colors = remember {
+    val warningColor = statusColors().warning
+    val successColor = statusColors().success
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val errorColor = statusColors().error
+    val colors = remember(warningColor, successColor, primaryColor, errorColor) {
         listOf(
                 Color(0xFF6366F1),
                 Color(0xFF8B5CF6),
                 Color(0xFFEC4899),
-                Color(0xFFF59E0B),
-                Color(0xFF10B981),
-                Color(0xFF3B82F6),
-                Color(0xFFEF4444),
+                warningColor,
+                successColor,
+                primaryColor,
+                errorColor,
                 Color(0xFF14B8A6),
                 Color(0xFFF97316),
                 Color(0xFF06B6D4)
@@ -2227,13 +2234,13 @@ fun ModernDateDialog(
                             label = "Present",
                             value = presentCount.toString(),
                             icon = Icons.Default.CheckCircle,
-                            color = SuccessColor
+                            color = statusColors().success
                     )
                     SmallStatCard(
                             label = "Absent",
                             value = absentCount.toString(),
                             icon = Icons.Outlined.Cancel,
-                            color = DangerColor
+                            color = statusColors().error
                     )
                 }
                 Spacer(modifier = Modifier.height(20.dp))
@@ -2256,7 +2263,7 @@ fun ModernDateDialog(
                 ) {
                     dayAttendance.forEach { item ->
                         val isPresent = item.status == "PRESENT"
-                        val statusColor = if (isPresent) SuccessColor else DangerColor
+                        val statusColor = if (isPresent) statusColors().success else statusColors().error
                         Surface(
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
@@ -2320,7 +2327,7 @@ fun ModernDateDialog(
                     Date.from(date.atStartOfDay(ZoneId.systemDefault()).toInstant())
                 )
 
-                Button(
+                SecondaryButton(
                     onClick = {
                         val intent = Intent(context, com.kishan.attendmate.ui.attendance.AttendanceListActivity::class.java).apply {
                             putExtra("filterDate", formattedDate)
@@ -2328,27 +2335,16 @@ fun ModernDateDialog(
                         context.startActivity(intent)
                         onDismiss()
                     },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors =
-                        ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                ) { Text("View Full Attendance List") }
+                    text = "View Full Attendance List"
+                )
 
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 // Close Button
-                Button(
+                PrimaryButton(
                         onClick = onDismiss,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        colors =
-                                ButtonDefaults.buttonColors(
-                                        containerColor = MaterialTheme.colorScheme.primary
-                                )
-                ) { Text("Close") }
+                        text = "Close"
+                )
             }
         }
     }
@@ -2538,10 +2534,10 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
 
     val (statusColor, statusText, statusIcon) =
             when {
-                percent >= 75 -> Triple(SuccessColor, "Safe Zone", Icons.Default.CheckCircle)
-                percent >= 65 -> Triple(WarningColor, "Warning", Icons.Default.Warning)
-                percent >= 60 -> Triple(WarningColor, "Risk Zone", Icons.Default.Error)
-                else -> Triple(DangerColor, "Critical", Icons.Default.Dangerous)
+                percent >= 75 -> Triple(statusColors().success, "Safe Zone", Icons.Default.CheckCircle)
+                percent >= 65 -> Triple(statusColors().warning, "Warning", Icons.Default.Warning)
+                percent >= 60 -> Triple(statusColors().warning, "Risk Zone", Icons.Default.Error)
+                else -> Triple(statusColors().error, "Critical", Icons.Default.Dangerous)
             }
 
     var isExpanded by remember { mutableStateOf(false) }
@@ -2679,7 +2675,7 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
                                             .clip(RoundedCornerShape(10.dp))
                                             .background(
                                                     if (recoverLectures == 0)
-                                                            SuccessColor.copy(alpha = 0.1f)
+                                                            statusColors().success.copy(alpha = 0.1f)
                                                     else
                                                             MaterialTheme.colorScheme
                                                                     .secondaryContainer.copy(
@@ -2696,7 +2692,7 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
                                         else Icons.Filled.ArrowUpward,
                                 contentDescription = null,
                                 tint =
-                                        if (recoverLectures == 0) SuccessColor
+                                        if (recoverLectures == 0) statusColors().success
                                         else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                         )
@@ -2731,7 +2727,7 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
                                 label = "Present",
                                 value = "$present",
                                 icon = Icons.Default.CheckCircle,
-                                color = SuccessColor
+                                color = statusColors().success
                         )
                         StatItem(
                                 label = "After Skip",
@@ -2754,7 +2750,7 @@ private fun AdvancedPredictionCard(skip: Int, present: Int, total: Int) {
                                 label = "Diff.",
                                 value = "-$difference%",
                                 icon = Icons.Filled.ArrowDownward,
-                                color = DangerColor
+                                color = statusColors().error
                         )
                     }
                 }

@@ -121,7 +121,10 @@ class CollegeSyncService : Service() {
                         currentPhase == ScrapePhase.SCRAPING && url.contains("/students/current/attendances") -> {
                             currentPhase = ScrapePhase.EXTRACTING
                             ScrapingEventBus.tryEmit(ScrapingEvent.SetPhase(currentPhase))
-                            view.evaluateJavascript(ScraperScripts.buildScrapingScript(), null)
+                            val syncPrefs = CollegeSyncPreferences(this@CollegeSyncService)
+                            val sem = syncPrefs.selectedSemester ?: "Sem9"
+                            val subjects = syncPrefs.targetSubjects?.toList() ?: emptyList()
+                            view.evaluateJavascript(ScraperScripts.buildScrapingScript(sem, subjects), null)
                         }
                     }
                 }

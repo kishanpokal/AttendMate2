@@ -125,8 +125,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                                 text = "Manage Subjects",
                                 style = MaterialTheme.typography.headlineLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
-                                fontSize = 32.sp
+                                color = Color.White
                         )
 
                         Text(
@@ -236,7 +235,6 @@ class ManageSubjectsActivity : ComponentActivity() {
                                         Spacer(Modifier.width(8.dp))
                                         Text(
                                                 "ADD SUBJECT",
-                                                fontSize = 15.sp,
                                                 fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -251,7 +249,6 @@ class ManageSubjectsActivity : ComponentActivity() {
 
                                     Text(
                                             text = "Your Subjects (${subjects.size})",
-                                            fontSize = 16.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = Color(0xFF374151),
                                             modifier = Modifier.fillMaxWidth()
@@ -294,7 +291,6 @@ class ManageSubjectsActivity : ComponentActivity() {
                                                     Spacer(Modifier.width(12.dp))
                                                     Text(
                                                             text = subject.name,
-                                                            fontSize = 15.sp,
                                                             color = Color(0xFF374151),
                                                             fontWeight = FontWeight.Medium
                                                     )
@@ -345,7 +341,6 @@ class ManageSubjectsActivity : ComponentActivity() {
                         ) {
                             Text(
                                     "DONE",
-                                    fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF8B5CF6)
                             )

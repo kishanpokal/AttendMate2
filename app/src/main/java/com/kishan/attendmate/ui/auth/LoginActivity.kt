@@ -404,7 +404,6 @@ class LoginActivity : ComponentActivity() {
                                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 11.sp,
                                         letterSpacing = 1.sp
                                     )
                                 }
@@ -684,78 +683,19 @@ class LoginActivity : ComponentActivity() {
         onClick: () -> Unit,
         isCompact: Boolean
     ) {
-        val scale by animateFloatAsState(
-            targetValue = if (loading) 0.95f else 1f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-            label = "scale"
-        )
-
-        Button(
+        com.kishan.attendmate.ui.components.PrimaryButton(
+            text = text,
             onClick = onClick,
-            enabled = !loading,
-            shape = RoundedCornerShape(RadiusLG),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent
-            ),
-            contentPadding = PaddingValues(0.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (isCompact) 56.dp else 60.dp)
-                .scale(scale)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                Color(0xFF6366F1),
-                                Color(0xFF8B5CF6),
-                                Color(0xFFEC4899)
-                            )
-                        )
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                AnimatedContent(
-                    targetState = loading,
-                    transitionSpec = {
-                        fadeIn(tween(300)) + scaleIn() togetherWith
-                                fadeOut(tween(300)) + scaleOut()
-                    },
-                    label = "button_content"
-                ) { isLoading ->
-                    if (isLoading) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            modifier = Modifier.size(28.dp),
-                            strokeWidth = 3.dp
-                        )
-                    } else {
-                        Row(
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                icon,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                text,
-                                color = Color.White,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = if (isCompact) 16.sp else 17.sp,
-                                letterSpacing = 0.5.sp
-                            )
-                        }
-                    }
-                }
+            isLoading = loading,
+            icon = {
+                Icon(
+                    icon,
+                    contentDescription = text,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(22.dp)
+                )
             }
-        }
+        )
     }
 
     @Composable
@@ -764,46 +704,19 @@ class LoginActivity : ComponentActivity() {
         onClick: () -> Unit,
         isCompact: Boolean
     ) {
-        val scale by animateFloatAsState(
-            targetValue = if (loading) 0.95f else 1f,
-            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-            label = "scale"
-        )
-
-        OutlinedButton(
+        com.kishan.attendmate.ui.components.SecondaryButton(
+            text = "Continue with Google",
             onClick = onClick,
-            enabled = !loading,
-            shape = RoundedCornerShape(RadiusLG),
-            border = BorderStroke(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant
-            ),
-            colors = ButtonDefaults.outlinedButtonColors(
-                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (isCompact) 56.dp else 60.dp)
-                .scale(scale)
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            isLoading = loading,
+            icon = {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_google),
-                    contentDescription = null,
+                    contentDescription = "Google Logo",
                     modifier = Modifier.size(24.dp),
                     tint = Color.Unspecified
                 )
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "Continue with Google",
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = if (isCompact) 15.sp else 16.sp
-                )
             }
-        }
+        )
     }
 
     // Validation and Login Functions (Keep your existing logic)

@@ -33,6 +33,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import com.kishan.attendmate.ui.theme.GlassBlurRadius
+import com.kishan.attendmate.ui.theme.GlassTintAlpha
+import com.kishan.attendmate.ui.theme.GlassBorder
+import com.kishan.attendmate.ui.theme.NavBarHeight
 import com.kishan.attendmate.MainActivity
 import com.kishan.attendmate.ui.attendance.AddAttendanceActivity
 import com.kishan.attendmate.ui.attendance.AttendanceListActivity
@@ -55,7 +63,8 @@ data class NavItem(
 @Composable
 fun AttendMateNavigationBar(
     selectedRoute: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    hazeState: HazeState? = null
 ) {
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -82,6 +91,22 @@ fun AttendMateNavigationBar(
         }?.let { context.startActivity(it) }
     }
 
+    val containerShape = RoundedCornerShape(34.dp)
+    val glassModifier = if (hazeState != null) {
+        val surfaceColor = MaterialTheme.colorScheme.surface
+        Modifier.hazeChild(
+            state = hazeState,
+            shape = containerShape,
+            style = HazeStyle(
+                backgroundColor = surfaceColor,
+                blurRadius = GlassBlurRadius,
+                tint = HazeTint(color = surfaceColor.copy(alpha = GlassTintAlpha))
+            )
+        )
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -95,9 +120,15 @@ fun AttendMateNavigationBar(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .height(68.dp),
-            shape = RoundedCornerShape(34.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer,
+                .height(NavBarHeight)
+                .then(glassModifier)
+                .border(
+                    width = GlassBorder,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                    shape = containerShape
+                ),
+            shape = containerShape,
+            color = if (hazeState != null) Color.Transparent else MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.9f),
             shadowElevation = ElevationLow
         ) {
             // Navigation content
@@ -257,14 +288,20 @@ private fun NavIcon(
 
             Spacer(modifier = Modifier.height(2.dp))
 
-            // Indicator dot
+            // Indicator pill with spring transition
+            val indicatorWidth by animateDpAsState(
+                targetValue = if (selected) 16.dp else 0.dp,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                ),
+                label = "indicator_width"
+            )
+
             Box(
                 modifier = Modifier
-                    .size(
-                        width = if (selected) 5.dp else 0.dp,
-                        height = if (selected) 5.dp else 0.dp
-                    )
-                    .clip(CircleShape)
+                    .size(width = indicatorWidth, height = 4.dp)
+                    .clip(RoundedCornerShape(2.dp))
                     .background(
                         if (selected)
                             MaterialTheme.colorScheme.primary

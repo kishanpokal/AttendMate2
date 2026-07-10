@@ -285,7 +285,9 @@ class ForgotPasswordActivity : ComponentActivity() {
                             Spacer(Modifier.height(32.dp))
 
                             /* SEND RESET LINK BUTTON */
-                            Button(
+                            com.kishan.attendmate.ui.components.PrimaryButton(
+                                text = "Send Reset Link",
+                                isLoading = loading,
                                 onClick = {
                                     if (email.isBlank()) {
                                         Toast.makeText(
@@ -293,7 +295,7 @@ class ForgotPasswordActivity : ComponentActivity() {
                                             "Please enter email",
                                             Toast.LENGTH_SHORT
                                         ).show()
-                                        return@Button
+                                        return@PrimaryButton
                                     }
 
                                     loading = true
@@ -327,31 +329,8 @@ class ForgotPasswordActivity : ComponentActivity() {
                                                 ).show()
                                             }
                                         }
-                                },
-                                enabled = !loading,
-                                shape = RoundedCornerShape(16.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp)
-                            ) {
-                                if (loading) {
-                                    CircularProgressIndicator(
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                        modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp
-                                    )
-                                } else {
-                                    Text(
-                                        "Send Reset Link",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp
-                                    )
                                 }
-                            }
+                            )
 
                             Spacer(Modifier.height(16.dp))
 

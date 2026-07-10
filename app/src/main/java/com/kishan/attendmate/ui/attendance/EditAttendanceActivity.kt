@@ -1,5 +1,7 @@
 package com.kishan.attendmate.ui.attendance
 
+import com.kishan.attendmate.ui.theme.statusColors
+
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.os.Bundle
@@ -186,14 +188,12 @@ fun EditAttendanceScreen(
                     Column {
                         Text(
                             "Edit Attendance",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 19.sp
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             "All fields are editable",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 11.sp
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 },
@@ -379,7 +379,7 @@ fun EditAttendanceScreen(
                             icon = Icons.Filled.PlayArrow,
                             label = "Start Time",
                             value = startTime?.let { timeFormatter.format(it.time) } ?: "Set time",
-                            accentColor = Color(0xFF34C759),
+                            accentColor = statusColors().success,
                             isSet = startTime != null,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -406,7 +406,7 @@ fun EditAttendanceScreen(
                             icon = Icons.Filled.Stop,
                             label = "End Time",
                             value = endTime?.let { timeFormatter.format(it.time) } ?: "Set time",
-                            accentColor = Color(0xFFFF9500),
+                            accentColor = statusColors().warning,
                             isSet = endTime != null,
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -489,7 +489,7 @@ fun EditAttendanceScreen(
                         label = "Present",
                         icon = Icons.Filled.CheckCircle,
                         selected = status == "PRESENT",
-                        selectedColor = Color(0xFF34C759),
+                        selectedColor = statusColors().success,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             status = "PRESENT"
@@ -500,7 +500,7 @@ fun EditAttendanceScreen(
                         label = "Absent",
                         icon = Icons.Filled.Cancel,
                         selected = status == "ABSENT",
-                        selectedColor = Color(0xFFFF3B30),
+                        selectedColor = statusColors().error,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             status = "ABSENT"
@@ -691,7 +691,6 @@ private fun SectionCard(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 14.sp,
                     letterSpacing = 0.3.sp
                 )
             }
@@ -759,8 +758,7 @@ private fun EditableClickCard(
                 Text(
                     label,
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -768,8 +766,7 @@ private fun EditableClickCard(
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = if (isSet) FontWeight.SemiBold else FontWeight.Normal,
                     color = if (isSet) MaterialTheme.colorScheme.onSurface
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 14.sp
+                    else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Icon(
@@ -843,8 +840,7 @@ private fun StatusToggleCard(
             Text(
                 label,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
-                color = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface,
-                fontSize = 15.sp
+                color = if (selected) selectedColor else MaterialTheme.colorScheme.onSurface
             )
             AnimatedVisibility(visible = selected) {
                 Box(
@@ -864,84 +860,16 @@ private fun SaveButton(
     isSaving: Boolean,
     onClick: () -> Unit
 ) {
-    val scale by animateFloatAsState(
-        targetValue = if (isSaving) 0.97f else 1f,
-        animationSpec = spring(Spring.DampingRatioMediumBouncy),
-        label = "save_scale"
-    )
-
-    Button(
+    com.kishan.attendmate.ui.components.PrimaryButton(
+        text = "Save Changes",
         onClick = onClick,
-        enabled = !isSaving,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(60.dp)
-            .scale(scale),
-        shape = RoundedCornerShape(18.dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest
-        ),
-        contentPadding = PaddingValues(0.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    if (!isSaving)
-                        Brush.horizontalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.primary,
-                                MaterialTheme.colorScheme.tertiary
-                            )
-                        )
-                    else
-                        Brush.horizontalGradient(
-                            listOf(
-                                MaterialTheme.colorScheme.surfaceContainerHighest,
-                                MaterialTheme.colorScheme.surfaceContainerHighest
-                            )
-                        )
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            AnimatedContent(
-                targetState = isSaving,
-                transitionSpec = { fadeIn() togetherWith fadeOut() },
-                label = "save_content"
-            ) { saving ->
-                if (saving) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CircularProgressIndicator(
-                            color = Color.White,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text("Saving…", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = Color.White)
-                    }
-                } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Text(
-                            "Update Attendance",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = Color.White
-                        )
-                    }
-                }
-            }
+        isLoading = isSaving,
+        icon = {
+            Icon(
+                Icons.Default.Save,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary
+            )
         }
-    }
+    )
 }
