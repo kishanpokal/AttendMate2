@@ -56,7 +56,7 @@ fun CollegeSyncSetupWizard(onSetupComplete: () -> Unit, onBack: () -> Unit) {
     var passwordInput by remember { mutableStateOf(password) }
 
     var currentStep by remember { mutableStateOf(SetupStep.SEMESTER) }
-    var selectedSemester by remember { mutableStateOf("Sem9") }
+    var selectedSemester by remember { mutableStateOf(syncPrefs.selectedSemester ?: "Sem9") }
     var fetchedSubjects by remember { mutableStateOf<List<String>>(emptyList()) }
     var selectedSubjects by remember { mutableStateOf<Set<String>>(emptySet()) }
     var fetchStatus by remember { mutableStateOf("Logging in to fetch subjects...") }

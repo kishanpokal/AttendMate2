@@ -83,7 +83,13 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
             onSetupComplete = {
                 isSetupMode = false
             },
-            onBack = onBack
+            onBack = {
+                if (syncPrefs.isConfigured) {
+                    isSetupMode = false
+                } else {
+                    onBack()
+                }
+            }
         )
         return
     }
@@ -218,8 +224,8 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
             }
         }
 
-    val displayItems =
-        remember(filteredData, appData, selectedSubject, compareFilter) {
+    val allCompareItems =
+        remember(filteredData, appData, selectedSubject) {
             val list = mutableListOf<CompareDisplayItem>()
             val matchedAppRecords = mutableSetOf<CollegeAttendanceRecord>()
 
@@ -251,6 +257,19 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                     s1.contains(s2) || s2.contains(s1)
                                 }
                                 .maxByOrNull { it.length }
+                    }
+                    
+                    // Advanced fuzzy / acronym match
+                    if (bestMatch == null) {
+                        bestMatch = allScrapedSubjects.find { scrapedSubj ->
+                            val scrapedWords = scrapedSubj.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+                            val appWords = appSubj.lowercase().split(Regex("[^a-z0-9]+")).filter { it.isNotEmpty() }
+                            val acronym = scrapedWords.joinToString("") { it.take(1) }
+                            
+                            appWords.all { aw ->
+                                scrapedWords.any { it.contains(aw) || aw.contains(it) } || acronym.contains(aw) || aw.contains(acronym)
+                            }
+                        }
                     }
 
                     bestMatch ?: appSubj // Fallback
@@ -300,7 +319,22 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                 list.add(CompareDisplayItem(null, app, app.subject))
             }
 
-            var filteredList = list.toList()
+            list.sortedByDescending {
+                val dateStr = it.scrapedRecord?.date ?: it.appRecord?.date ?: ""
+                try {
+                    java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
+                        .parse(dateStr)
+                        ?.time
+                        ?: 0L
+                } catch (e: Exception) {
+                    0L
+                }
+            }
+        }
+
+    val displayItems =
+        remember(allCompareItems, compareFilter) {
+            var filteredList = allCompareItems.toList()
             if (compareFilter != null) {
                 filteredList =
                     filteredList.filter { item ->
@@ -319,18 +353,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                         }
                     }
             }
-
-            filteredList.sortedByDescending {
-                val dateStr = it.scrapedRecord?.date ?: it.appRecord?.date ?: ""
-                try {
-                    java.text.SimpleDateFormat("dd/MM/yyyy", java.util.Locale.getDefault())
-                        .parse(dateStr)
-                        ?.time
-                        ?: 0L
-                } catch (e: Exception) {
-                    0L
-                }
-            }
+            filteredList
         }
 
     val lastSyncTime = prefs.getString("lastSyncTime", "Never")
@@ -412,7 +435,6 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                     actions = {
                         IconButton(
                             onClick = {
-                                syncPrefs.clearConfig()
                                 isSetupMode = true
                             }
                         ) {
@@ -515,7 +537,6 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                     Spacer(Modifier.height(16.dp))
                                     Button(
                                         onClick = {
-                                            syncPrefs.clearConfig()
                                             isSetupMode = true
                                         },
                                         modifier = Modifier.fillMaxWidth(),
@@ -800,7 +821,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                     )
                             ) {
                                 Row(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
-                                    val mismatches = displayItems.count { it.hasMismatch() }
+                                    val mismatches = allCompareItems.count { it.hasMismatch() }
                                     SegmentedTab(
                                         selected = pagerState.currentPage == 0,
                                         text = "Subject Data",
@@ -1060,7 +1081,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                     // ── Tab 1: Compare Data ──────────────────────────
                                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                                         val matched =
-                                            displayItems.count {
+                                            allCompareItems.count {
                                                 it.scrapedRecord != null &&
                                                         it.appRecord != null &&
                                                         it.scrapedRecord.status.equals(
@@ -1068,10 +1089,10 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                                             ignoreCase = true
                                                         )
                                             }
-                                        val mismatched = displayItems.count { it.hasMismatch() }
-                                        val missingInApp = displayItems.count { it.appRecord == null }
+                                        val mismatched = allCompareItems.count { it.hasMismatch() }
+                                        val missingInApp = allCompareItems.count { it.appRecord == null }
                                         val missingInCollege =
-                                            displayItems.count { it.scrapedRecord == null }
+                                            allCompareItems.count { it.scrapedRecord == null }
 
                                         // Horizontally scrollable summary bar
                                         LazyRow(

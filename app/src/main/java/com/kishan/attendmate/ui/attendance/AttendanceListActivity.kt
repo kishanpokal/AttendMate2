@@ -617,13 +617,63 @@ fun ModernAttendanceCard(item: AttendanceItem, onClick: () -> Unit) {
     } else {
         if (!item.note.isNullOrBlank()) "Has note" else null
     }
+    
+    val statusColor = if (isPresent) statusColors().success else statusColors().error
 
-    com.kishan.attendmate.ui.components.SubjectListItem(
-        title = item.subjectName,
-        attendancePercentage = if (isPresent) 1f else 0f,
-        onClick = onClick,
-        subtitle = subtitle
-    )
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = com.kishan.attendmate.ui.theme.CardStyle.shape,
+        colors = CardDefaults.cardColors(containerColor = com.kishan.attendmate.ui.theme.CardStyle.containerColor()),
+        border = com.kishan.attendmate.ui.theme.CardStyle.border(),
+        elevation = CardDefaults.cardElevation(defaultElevation = com.kishan.attendmate.ui.theme.CardStyle.elevation)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(com.kishan.attendmate.ui.theme.SpaceMD),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(com.kishan.attendmate.ui.theme.SpaceSM)
+            ) {
+                Text(
+                    text = item.subjectName,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(statusColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+            }
+        }
+    }
 }
 
 @Composable
