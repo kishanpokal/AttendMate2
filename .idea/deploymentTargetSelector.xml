@@ -4,7 +4,7 @@
     <selectionStates>
       <SelectionState runConfigName="AttendMate">
         <option name="selectionMode" value="DROPDOWN" />
-        <DropdownSelection timestamp="2026-07-15T11:14:01.662465100Z">
+        <DropdownSelection timestamp="2026-07-19T06:22:11.516800700Z">
           <Target type="DEFAULT_BOOT">
             <handle>
               <DeviceId pluginId="PhysicalDevice" identifier="serial=RZCW12H66PP" />

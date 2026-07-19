@@ -19,6 +19,8 @@ private val LightColorScheme = lightColorScheme(
     primaryContainer = PrimaryContainerLight, onPrimaryContainer = OnPrimaryContainerLight,
     secondary = SecondaryLight, onSecondary = OnSecondaryLight,
     secondaryContainer = SecondaryContainerLight, onSecondaryContainer = OnSecondaryContainerLight,
+    tertiary = TertiaryLight, onTertiary = OnTertiaryLight,
+    tertiaryContainer = TertiaryContainerLight, onTertiaryContainer = OnTertiaryContainerLight,
     background = BackgroundLight, surface = SurfaceLight, surfaceVariant = SurfaceVariantLight,
     onSurface = OnSurfaceLight, onSurfaceVariant = OnSurfaceVariantLight,
     outline = OutlineLight, outlineVariant = OutlineVariantLight,
@@ -31,6 +33,8 @@ private val DarkColorScheme = darkColorScheme(
     primaryContainer = PrimaryContainerDark, onPrimaryContainer = OnPrimaryContainerDark,
     secondary = SecondaryDark, onSecondary = OnSecondaryDark,
     secondaryContainer = SecondaryContainerDark, onSecondaryContainer = OnSecondaryContainerDark,
+    tertiary = TertiaryDark, onTertiary = OnTertiaryDark,
+    tertiaryContainer = TertiaryContainerDark, onTertiaryContainer = OnTertiaryContainerDark,
     background = BackgroundDark, surface = SurfaceDark, surfaceVariant = SurfaceVariantDark,
     onSurface = OnSurfaceDark, onSurfaceVariant = OnSurfaceVariantDark,
     outline = OutlineDark, outlineVariant = OutlineVariantDark,
@@ -41,17 +45,44 @@ private val DarkColorScheme = darkColorScheme(
 data class StatusColors(
     val success: Color,
     val onSuccess: Color,
+    val successContainer: Color,
+    val onSuccessContainer: Color,
     val warning: Color,
     val onWarning: Color,
+    val warningContainer: Color,
+    val onWarningContainer: Color,
     val error: Color,
-    val onError: Color
+    val onError: Color,
+    val errorContainer: Color,
+    val onErrorContainer: Color,
+    val info: Color,
+    val onInfo: Color,
+    val infoContainer: Color,
+    val onInfoContainer: Color
 )
 
 @Composable
-fun statusColors(): StatusColors = if (isSystemInDarkTheme())
-    StatusColors(SuccessDark, OnSuccessDark, WarningDark, OnWarningDark, ErrorDark, OnErrorDark)
-else
-    StatusColors(SuccessLight, OnSuccessLight, WarningLight, OnWarningLight, ErrorLight, OnErrorLight)
+fun statusColors(): StatusColors = if (isSystemInDarkTheme()) {
+    StatusColors(
+        SuccessDark, OnSuccessDark, SuccessContainerDark, OnSuccessContainerDark,
+        WarningDark, OnWarningDark, WarningContainerDark, OnWarningContainerDark,
+        ErrorDark, OnErrorDark, ErrorContainerDark, OnErrorContainerDark,
+        InfoDark, OnInfoDark, InfoContainerDark, OnInfoContainerDark
+    )
+} else {
+    StatusColors(
+        SuccessLight, OnSuccessLight, SuccessContainerLight, OnSuccessContainerLight,
+        WarningLight, OnWarningLight, WarningContainerLight, OnWarningContainerLight,
+        ErrorLight, OnErrorLight, ErrorContainerLight, OnErrorContainerLight,
+        InfoLight, OnInfoLight, InfoContainerLight, OnInfoContainerLight
+    )
+}
+
+@Composable
+fun chartColors(): List<Color> = if (isSystemInDarkTheme()) ChartDarkColors else ChartLightColors
+
+@Composable
+fun authGradientColors(): List<Color> = if (isSystemInDarkTheme()) AuthGradientDarkColors else AuthGradientLightColors
 
 @Composable
 fun AttendMateTheme(

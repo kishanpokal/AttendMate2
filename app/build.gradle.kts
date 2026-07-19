@@ -89,6 +89,9 @@ dependencies {
 
     // Frosted-glass backdrop blur for the floating navigation bar (Compose 1.7 compatible)
     implementation(libs.haze)
+    
+    // Lottie Animation
+    implementation("com.airbnb.android:lottie-compose:6.4.0")
 
     /* ---------------- SPLASH SCREEN ---------------- */
     implementation("androidx.core:core-splashscreen:1.0.1")
@@ -126,11 +129,5 @@ dependencies {
 
     implementation ("androidx.glance:glance-appwidget:1.0.0")
     implementation ("androidx.glance:glance-material3:1.0.0")
-
-    /* ---------------- ADMOB ---------------- */
-    // AdMob removed
-
-    /* ---------------- AI (Rule-based, no API needed) ---------------- */
-    // No external AI SDK required — the AI assistant is fully offline and rule-based
 
 }

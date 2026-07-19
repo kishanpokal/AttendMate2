@@ -2,8 +2,6 @@ package com.kishan.attendmate.ui.attendance
 
 import com.kishan.attendmate.ui.theme.statusColors
 
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -12,10 +10,11 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,12 +38,13 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.airbnb.lottie.compose.*
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.kishan.attendmate.ui.theme.AttendMateTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -81,7 +81,6 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
     // Subject states
     var isLoadingSubjects by remember { mutableStateOf(true) }
     var subjects by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    var expanded by remember { mutableStateOf(false) }
     var selectedSubjectId by remember { mutableStateOf("") }
     var selectedSubjectName by remember { mutableStateOf("") }
 
@@ -92,13 +91,10 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
     var status by remember { mutableStateOf("Present") }
     var isSaving by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
-
-    // Animation states
-    var currentStep by remember { mutableStateOf(0) }
+    var showSuccessOverlay by remember { mutableStateOf(false) }
 
     val dateFormatter = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     val timeFormatter = SimpleDateFormat("hh:mm a", Locale.getDefault())
-    val currentTime = Calendar.getInstance()
 
     /* Load Subjects */
     LaunchedEffect(Unit) {
@@ -119,122 +115,148 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
             }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onBack()
+    /* Auto-fill from Timetable */
+    LaunchedEffect(selectedSubjectId, lectureDate) {
+        if (selectedSubjectId.isNotBlank()) {
+            val dayName = when (lectureDate.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.MONDAY -> "MONDAY"
+                Calendar.TUESDAY -> "TUESDAY"
+                Calendar.WEDNESDAY -> "WEDNESDAY"
+                Calendar.THURSDAY -> "THURSDAY"
+                Calendar.FRIDAY -> "FRIDAY"
+                Calendar.SATURDAY -> "SATURDAY"
+                Calendar.SUNDAY -> "SUNDAY"
+                else -> return@LaunchedEffect
+            }
+            
+            try {
+                val timetableSnapshot = db.collection("users")
+                    .document(userId)
+                    .collection("timetable")
+                    .whereEqualTo("day", dayName)
+                    .whereEqualTo("subjectId", selectedSubjectId)
+                    .get()
+                    .await()
+                
+                if (!timetableSnapshot.isEmpty) {
+                    val doc = timetableSnapshot.documents.first()
+                    val startRaw = doc.getString("startTime")
+                    val endRaw = doc.getString("endTime")
+                    
+                    if (startRaw != null && endRaw != null) {
+                        val sParts = startRaw.split(":")
+                        val eParts = endRaw.split(":")
+                        
+                        if (sParts.size == 2 && eParts.size == 2) {
+                            startTime = Calendar.getInstance().apply {
+                                set(Calendar.HOUR_OF_DAY, sParts[0].toInt())
+                                set(Calendar.MINUTE, sParts[1].toInt())
+                            }
+                            endTime = Calendar.getInstance().apply {
+                                set(Calendar.HOUR_OF_DAY, eParts[0].toInt())
+                                set(Calendar.MINUTE, eParts[1].toInt())
+                            }
                         }
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
                     }
-                },
-                title = {
-                    Column {
-                        Text(
-                            "Mark Attendance",
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            "Track your class participation",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface
-                ),
-                modifier = Modifier.shadow(
-                    elevation = 2.dp,
-                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                )
-            )
+                }
+            } catch (e: Exception) {
+                // Ignore failure, auto-fill is optional
+            }
         }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            Column(
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    navigationIcon = {
+                        IconButton(
+                            onClick = {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onBack()
+                            }
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    },
+                    title = {
+                        Column {
+                            Text(
+                                "Mark Attendance",
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Track your class participation",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier.shadow(
+                        elevation = 2.dp,
+                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                    )
+                )
+            }
+        ) { paddingValues ->
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                MaterialTheme.colorScheme.surface,
-                                MaterialTheme.colorScheme.surfaceContainerLowest
+                    .padding(paddingValues)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    MaterialTheme.colorScheme.surface,
+                                    MaterialTheme.colorScheme.surfaceContainerLowest
+                                )
                             )
                         )
-                    )
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                // Progress Indicator
-                AnimatedProgressIndicator(
-                    currentStep = currentStep,
-                    totalSteps = 4,
-                    stepLabels = listOf("Subject", "Date & Time", "Status", "Save")
-                )
-
-                // Hero Card with gradient
-                HeroCard()
-
-                // Subject Section
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn() + slideInVertically()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 20.dp, vertical = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(28.dp)
                 ) {
+
+                    // Subject Section
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SectionHeader(
                             icon = Icons.Outlined.Book,
-                            title = "Select Subject",
-                            subtitle = "Choose the subject for this lecture"
+                            title = "Subject",
+                            subtitle = "Which lecture?"
                         )
 
                         if (isLoadingSubjects) {
-                            LoadingCard()
+                            CircularProgressIndicator(modifier = Modifier.align(Alignment.CenterHorizontally))
                         } else {
-                            ModernSubjectSelector(
+                            ModernSubjectChips(
                                 subjects = subjects,
-                                selectedSubjectName = selectedSubjectName,
-                                expanded = expanded,
-                                onExpandChange = {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    expanded = it
-                                },
+                                selectedSubjectId = selectedSubjectId,
                                 onSubjectSelected = { id, name ->
-                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     selectedSubjectId = id
                                     selectedSubjectName = name
-                                    currentStep = 1
-                                    expanded = false
                                 }
                             )
                         }
                     }
-                }
 
-                // Lecture Details Section
-                AnimatedVisibility(
-                    visible = selectedSubjectId.isNotBlank(),
-                    enter = fadeIn() + slideInVertically() + expandVertically()
-                ) {
+                    // Lecture Details Section
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SectionHeader(
                             icon = Icons.Outlined.CalendarMonth,
                             title = "Date & Time",
-                            subtitle = "When did this lecture take place?"
+                            subtitle = "Auto-filled from your timetable"
                         )
 
                         ModernDateTimeSelector(
@@ -243,67 +265,45 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
                             endTime = endTime,
                             dateFormatter = dateFormatter,
                             timeFormatter = timeFormatter,
-                            onDateClick = {
+                            onDateChange = { newDate ->
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                DatePickerDialog(
-                                    context,
-                                    { _, year, month, day ->
-                                        lectureDate = Calendar.getInstance().apply {
-                                            set(year, month, day)
-                                        }
-                                        currentStep = maxOf(currentStep, 2)
-                                    },
-                                    lectureDate.get(Calendar.YEAR),
-                                    lectureDate.get(Calendar.MONTH),
-                                    lectureDate.get(Calendar.DAY_OF_MONTH)
-                                ).show()
+                                lectureDate = newDate
                             },
-                            onStartTimeClick = {
+                            onStartTimeChange = { newTime ->
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                TimePickerDialog(
-                                    context,
-                                    { _, hour, minute ->
-                                        startTime = Calendar.getInstance().apply {
-                                            set(Calendar.HOUR_OF_DAY, hour)
-                                            set(Calendar.MINUTE, minute)
-                                        }
-                                        currentStep = maxOf(currentStep, 2)
-                                    },
-                                    currentTime.get(Calendar.HOUR_OF_DAY),
-                                    currentTime.get(Calendar.MINUTE),
-                                    false
-                                ).show()
+                                startTime = newTime
+                                if (endTime == null) {
+                                    endTime = Calendar.getInstance().apply {
+                                        timeInMillis = newTime.timeInMillis + (60 * 60 * 1000)
+                                    }
+                                }
                             },
-                            onEndTimeClick = {
+                            onEndTimeChange = { newTime ->
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                TimePickerDialog(
-                                    context,
-                                    { _, hour, minute ->
-                                        endTime = Calendar.getInstance().apply {
-                                            set(Calendar.HOUR_OF_DAY, hour)
-                                            set(Calendar.MINUTE, minute)
-                                        }
-                                        currentStep = maxOf(currentStep, 2)
-                                    },
-                                    currentTime.get(Calendar.HOUR_OF_DAY),
-                                    currentTime.get(Calendar.MINUTE),
-                                    false
-                                ).show()
+                                endTime = newTime
+                                if (startTime == null) {
+                                    startTime = Calendar.getInstance().apply {
+                                        timeInMillis = newTime.timeInMillis - (60 * 60 * 1000)
+                                    }
+                                }
+                            },
+                            onDurationClick = { hours ->
+                                startTime?.let { st ->
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    endTime = Calendar.getInstance().apply {
+                                        timeInMillis = st.timeInMillis + (hours * 60 * 60 * 1000)
+                                    }
+                                }
                             }
                         )
                     }
-                }
 
-                // Status Selection
-                AnimatedVisibility(
-                    visible = startTime != null && endTime != null,
-                    enter = fadeIn() + slideInVertically() + expandVertically()
-                ) {
+                    // Status Selection
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         SectionHeader(
                             icon = Icons.Outlined.CheckCircle,
-                            title = "Attendance Status",
-                            subtitle = "Mark your presence for this lecture"
+                            title = "Status",
+                            subtitle = "Were you present?"
                         )
 
                         ModernStatusSelector(
@@ -311,25 +311,19 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
                             onStatusChange = { newStatus ->
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 status = newStatus
-                                currentStep = 3
                             }
                         )
 
-                        ModernNoteField(
+                        ContextAwareNoteField(
                             note = note,
                             onNoteChange = { if (it.length <= 200) note = it },
                             status = status
                         )
                     }
-                }
 
-                // Save Button
-                AnimatedVisibility(
-                    visible = selectedSubjectId.isNotBlank() && startTime != null && endTime != null,
-                    enter = fadeIn() + slideInVertically() + expandVertically()
-                ) {
+                    // Save Button
                     ModernSaveButton(
-                        enabled = !isSaving,
+                        enabled = selectedSubjectId.isNotBlank() && startTime != null && endTime != null && !isSaving,
                         isSaving = isSaving,
                         onClick = {
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -385,7 +379,7 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
                                 else subjectSnap.getLong("attendedClasses") ?: 0
 
                                 val attendanceData = mutableMapOf(
-                                    "status" to status,
+                                    "status" to status.uppercase(),
                                     "date" to lectureDate.time,
                                     "startTime" to startTime!!.time,
                                     "endTime" to endTime!!.time,
@@ -409,16 +403,7 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
                             }
                                 .addOnSuccessListener {
                                     isSaving = false
-                                    Toast.makeText(
-                                        context,
-                                        "✓ Attendance saved successfully!",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                    startTime = null
-                                    endTime = null
-                                    status = "Present"
-                                    note = ""
-                                    currentStep = 0
+                                    showSuccessOverlay = true
                                 }
                                 .addOnFailureListener { e ->
                                     isSaving = false
@@ -430,143 +415,64 @@ fun AddAttendanceScreen(onBack: () -> Unit) {
                                 }
                         }
                     )
+                    
+                    Spacer(Modifier.height(32.dp))
                 }
-
-                Spacer(Modifier.height(32.dp))
             }
         }
-    }
-}
 
-// Modern Progress Indicator
-@Composable
-fun AnimatedProgressIndicator(
-    currentStep: Int,
-    totalSteps: Int,
-    stepLabels: List<String>
-) {
-    val progress by animateFloatAsState(
-        targetValue = (currentStep + 1) / totalSteps.toFloat(),
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
-        label = "progress"
-    )
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        // Lottie Success Overlay
+        AnimatedVisibility(
+            visible = showSuccessOverlay,
+            enter = fadeIn(tween(300)) + scaleIn(tween(300, easing = OvershootInterpolator(1.2f))),
+            exit = fadeOut(tween(300))
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "Progress",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    "${currentStep + 1}/$totalSteps",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-
-            LinearProgressIndicator(
-                progress = { progress },
+            Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .clip(RoundedCornerShape(4.dp)),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            )
-
-            if (currentStep < stepLabels.size) {
-                Text(
-                    "Current: ${stepLabels[currentStep]}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                    .clickable(enabled = false) {}, // intercept clicks
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    val composition by rememberLottieComposition(LottieCompositionSpec.Url("https://assets9.lottiefiles.com/packages/lf20_lk80fpsm.json"))
+                    LottieAnimation(
+                        composition = composition,
+                        iterations = 1,
+                        modifier = Modifier.size(150.dp)
+                    )
+                    
+                    Text(
+                        "Attendance Saved!",
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        "$selectedSubjectName • $status",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            // Auto-dismiss after animation
+            LaunchedEffect(Unit) {
+                delay(1800)
+                onBack()
             }
         }
     }
 }
 
-// Hero Card with Gradient
-@Composable
-fun HeroCard() {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = 8.dp,
-                shape = RoundedCornerShape(24.dp),
-                spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
-            ),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primary
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    Brush.horizontalGradient(
-                        colors = listOf(
-                            MaterialTheme.colorScheme.primary,
-                            MaterialTheme.colorScheme.tertiary
-                        )
-                    )
-                )
-        ) {
-            Row(
-                modifier = Modifier.padding(24.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.2f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.EditCalendar,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "Mark Your Attendance",
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Keep track of every class you attend",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.9f)
-                    )
-                }
-            }
-        }
+// Custom easing for overshoot effect
+class OvershootInterpolator(private val tension: Float = 2.0f) : Easing {
+    override fun transform(fraction: Float): Float {
+        val t = fraction - 1.0f
+        return t * t * ((tension + 1) * t + tension) + 1.0f
     }
 }
 
@@ -595,7 +501,6 @@ fun SectionHeader(
                 modifier = Modifier.size(20.dp)
             )
         }
-
         Column {
             Text(
                 title,
@@ -612,231 +517,56 @@ fun SectionHeader(
     }
 }
 
-// Loading Card
-@Composable
-fun LoadingCard() {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-        ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(90.dp)
-                .padding(20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CircularProgressIndicator(
-                    strokeWidth = 3.dp,
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    "Loading subjects...",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-// Modern Subject Selector
+// Modern Subject Chips
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ModernSubjectSelector(
+fun ModernSubjectChips(
     subjects: List<Pair<String, String>>,
-    selectedSubjectName: String,
-    expanded: Boolean,
-    onExpandChange: (Boolean) -> Unit,
+    selectedSubjectId: String,
     onSubjectSelected: (String, String) -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = onExpandChange
+    LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 4.dp)
     ) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor()
-                .shadow(
-                    elevation = if (expanded) 8.dp else 2.dp,
-                    shape = RoundedCornerShape(20.dp),
-                    spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                ),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (selectedSubjectName.isNotEmpty())
-                    MaterialTheme.colorScheme.primaryContainer
-                else
-                    MaterialTheme.colorScheme.surfaceContainerHigh
-            ),
-            border = if (expanded) BorderStroke(
-                2.dp,
-                MaterialTheme.colorScheme.primary
-            ) else null
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (selectedSubjectName.isNotEmpty())
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.surfaceContainerHighest
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Book,
-                            contentDescription = null,
-                            tint = if (selectedSubjectName.isNotEmpty())
-                                Color.White
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Subject",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            selectedSubjectName.ifEmpty { "Select a subject" },
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (selectedSubjectName.isNotEmpty())
-                                FontWeight.SemiBold
-                            else
-                                FontWeight.Normal,
-                            color = if (selectedSubjectName.isEmpty())
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            else
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .background(
-                            if (expanded)
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-                            else
-                                Color.Transparent
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = null,
-                        tint = if (expanded)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(24.dp)
+        items(subjects) { (id, name) ->
+            val isSelected = id == selectedSubjectId
+            FilterChip(
+                selected = isSelected,
+                onClick = { onSubjectSelected(id, name) },
+                label = {
+                    Text(
+                        name,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
                     )
-                }
-            }
-        }
-
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { onExpandChange(false) },
-            modifier = Modifier
-                .background(MaterialTheme.colorScheme.surface)
-                .exposedDropdownSize()
-        ) {
-            subjects.forEach { (id, name) ->
-                DropdownMenuItem(
-                    text = {
-                        Text(
-                            name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = if (name == selectedSubjectName)
-                                FontWeight.SemiBold
-                            else
-                                FontWeight.Normal
+                },
+                leadingIcon = if (isSelected) {
+                    {
+                        Icon(
+                            imageVector = Icons.Filled.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
                         )
-                    },
-                    onClick = { onSubjectSelected(id, name) },
-                    leadingIcon = {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (name == selectedSubjectName)
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    else
-                                        MaterialTheme.colorScheme.surfaceContainerHighest
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Filled.Book,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                                tint = if (name == selectedSubjectName)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    },
-                    trailingIcon = if (name == selectedSubjectName) {
-                        {
-                            Icon(
-                                Icons.Filled.CheckCircle,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                    } else null,
-                    colors = MenuDefaults.itemColors(
-                        textColor = if (name == selectedSubjectName)
-                            MaterialTheme.colorScheme.primary
-                        else
-                            MaterialTheme.colorScheme.onSurface
-                    ),
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    }
+                } else null,
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                    selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                shape = RoundedCornerShape(16.dp),
+                border = FilterChipDefaults.filterChipBorder(
+                    enabled = true,
+                    selected = isSelected,
+                    borderColor = if (isSelected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant
                 )
-            }
+            )
         }
     }
 }
 
-// Modern Date Time Selector
+// Modern Date Time Selector with M3 Pickers
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModernDateTimeSelector(
     lectureDate: Calendar,
@@ -844,10 +574,104 @@ fun ModernDateTimeSelector(
     endTime: Calendar?,
     dateFormatter: SimpleDateFormat,
     timeFormatter: SimpleDateFormat,
-    onDateClick: () -> Unit,
-    onStartTimeClick: () -> Unit,
-    onEndTimeClick: () -> Unit
+    onDateChange: (Calendar) -> Unit,
+    onStartTimeChange: (Calendar) -> Unit,
+    onEndTimeChange: (Calendar) -> Unit,
+    onDurationClick: (Int) -> Unit
 ) {
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showStartTimePicker by remember { mutableStateOf(false) }
+    var showEndTimePicker by remember { mutableStateOf(false) }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = lectureDate.timeInMillis
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val cal = Calendar.getInstance().apply { timeInMillis = millis }
+                        onDateChange(cal)
+                    }
+                    showDatePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancel")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    if (showStartTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = startTime?.get(Calendar.HOUR_OF_DAY) ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
+            initialMinute = startTime?.get(Calendar.MINUTE) ?: Calendar.getInstance().get(Calendar.MINUTE),
+            is24Hour = false
+        )
+        AlertDialog(
+            onDismissRequest = { showStartTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                        set(Calendar.MINUTE, timePickerState.minute)
+                    }
+                    onStartTimeChange(cal)
+                    showStartTimePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showStartTimePicker = false }) {
+                    Text("Cancel")
+                }
+            },
+            text = {
+                TimePicker(state = timePickerState)
+            }
+        )
+    }
+
+    if (showEndTimePicker) {
+        val timePickerState = rememberTimePickerState(
+            initialHour = endTime?.get(Calendar.HOUR_OF_DAY) ?: Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
+            initialMinute = endTime?.get(Calendar.MINUTE) ?: Calendar.getInstance().get(Calendar.MINUTE),
+            is24Hour = false
+        )
+        AlertDialog(
+            onDismissRequest = { showEndTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, timePickerState.hour)
+                        set(Calendar.MINUTE, timePickerState.minute)
+                    }
+                    onEndTimeChange(cal)
+                    showEndTimePicker = false
+                }) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEndTimePicker = false }) {
+                    Text("Cancel")
+                }
+            },
+            text = {
+                TimePicker(state = timePickerState)
+            }
+        )
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Date Card
         ModernSelectionCard(
@@ -855,7 +679,7 @@ fun ModernDateTimeSelector(
             label = "Lecture Date",
             value = dateFormatter.format(lectureDate.time),
             isSelected = true,
-            onClick = onDateClick
+            onClick = { showDatePicker = true }
         )
 
         // Time Row
@@ -869,7 +693,7 @@ fun ModernDateTimeSelector(
                     label = "Start Time",
                     value = startTime?.let { timeFormatter.format(it.time) } ?: "Select",
                     isSelected = startTime != null,
-                    onClick = onStartTimeClick
+                    onClick = { showStartTimePicker = true }
                 )
             }
 
@@ -879,11 +703,53 @@ fun ModernDateTimeSelector(
                     label = "End Time",
                     value = endTime?.let { timeFormatter.format(it.time) } ?: "Select",
                     isSelected = endTime != null,
-                    onClick = onEndTimeClick
+                    onClick = { showEndTimePicker = true }
                 )
             }
         }
-
+        
+        // Quick Duration Chips
+        AnimatedVisibility(
+            visible = startTime != null,
+            enter = fadeIn() + expandVertically()
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { onDurationClick(1) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("1 Hour")
+                }
+                OutlinedButton(
+                    onClick = { onDurationClick(2) },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("2 Hours")
+                }
+            }
+        }
+        
         // Duration Display
         AnimatedVisibility(
             visible = startTime != null && endTime != null,
@@ -936,16 +802,9 @@ fun ModernSelectionCard(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1f else 0.98f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
-        label = "card_scale"
-    )
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .scale(scale)
             .shadow(
                 elevation = if (isSelected) 4.dp else 2.dp,
                 shape = RoundedCornerShape(20.dp),
@@ -1015,16 +874,6 @@ fun ModernSelectionCard(
                     )
                 }
             }
-
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = if (isSelected)
-                    MaterialTheme.colorScheme.primary
-                else
-                    MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
-            )
         }
     }
 }
@@ -1150,77 +999,113 @@ fun EnhancedStatusCard(
     }
 }
 
-// Modern Note Field
+// Context-Aware Note Field
 @Composable
-fun ModernNoteField(
+fun ContextAwareNoteField(
     note: String,
     onNoteChange: (String) -> Unit,
     status: String
 ) {
+    var isExpanded by remember { mutableStateOf(note.isNotEmpty()) }
+    val isPresent = status == "Present"
+
+    val containerColor by animateColorAsState(
+        if (isPresent) MaterialTheme.colorScheme.surfaceContainerHigh
+        else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
+        label = "note_container_color"
+    )
+    val contentColor by animateColorAsState(
+        if (isPresent) MaterialTheme.colorScheme.onSurface
+        else MaterialTheme.colorScheme.onErrorContainer,
+        label = "note_content_color"
+    )
+    val iconColor by animateColorAsState(
+        if (isPresent) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.error,
+        label = "note_icon_color"
+    )
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
-        )
+        colors = CardDefaults.cardColors(containerColor = containerColor)
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        Column(modifier = Modifier.padding(16.dp)) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { isExpanded = !isExpanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.EditNote,
+                        contentDescription = null,
+                        tint = iconColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        if (isPresent) "Add a note (optional)" else "Reason for Absence (optional)",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = contentColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
                 Icon(
-                    Icons.Filled.EditNote,
+                    if (isExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp)
-                )
-                Text(
-                    "Reason for Absence (Optional)",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onErrorContainer,
-                    fontWeight = FontWeight.SemiBold
+                    tint = contentColor
                 )
             }
 
-            OutlinedTextField(
-                value = note,
-                onValueChange = onNoteChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = {
-                    Text(
-                        "e.g., Sick, Festival, Personal work...",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                    )
-                },
-                maxLines = 3,
-                supportingText = {
-                    Row(
+            AnimatedVisibility(
+                visible = isExpanded,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(modifier = Modifier.padding(top = 12.dp)) {
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = onNoteChange,
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        Text(
-                            "${note.length}/200",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = if (note.length > 180)
-                                MaterialTheme.colorScheme.error
-                            else
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                        placeholder = {
+                            Text(
+                                "e.g., Sick, Festival, Personal work...",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                            )
+                        },
+                        maxLines = 3,
+                        supportingText = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Text(
+                                    "${note.length}/200",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (note.length > 180) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = iconColor,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                            focusedContainerColor = MaterialTheme.colorScheme.surface,
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surface
                         )
-                    }
-                },
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.error,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
-                )
-            )
+                    )
+                }
+            }
         }
     }
 }

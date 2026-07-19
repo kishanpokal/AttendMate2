@@ -4,6 +4,7 @@ import com.kishan.attendmate.ui.components.PrimaryButton
 import com.kishan.attendmate.ui.components.SecondaryButton
 
 import com.kishan.attendmate.ui.theme.statusColors
+import com.kishan.attendmate.ui.theme.chartColors
 
 import android.content.Intent
 import androidx.compose.ui.platform.LocalContext
@@ -1753,24 +1754,7 @@ fun SmartAttendanceCalendar(
 fun SubjectPieChart(attendance: List<AnalyticsAttendance>) {
     val grouped = attendance.groupBy { it.subject }
     val total = attendance.size.toFloat().coerceAtLeast(1f)
-    val warningColor = statusColors().warning
-    val successColor = statusColors().success
-    val primaryColor = MaterialTheme.colorScheme.primary
-    val errorColor = statusColors().error
-    val colors = remember(warningColor, successColor, primaryColor, errorColor) {
-        listOf(
-                Color(0xFF6366F1),
-                Color(0xFF8B5CF6),
-                Color(0xFFEC4899),
-                warningColor,
-                successColor,
-                primaryColor,
-                errorColor,
-                Color(0xFF14B8A6),
-                Color(0xFFF97316),
-                Color(0xFF06B6D4)
-        )
-    }
+    val colors = chartColors()
 
     // Expanding pie animation
     val animProgress = remember { Animatable(0f) }

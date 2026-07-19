@@ -78,16 +78,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                 Box(
                         modifier =
                                 Modifier.fillMaxSize()
-                                        .background(
-                                                Brush.verticalGradient(
-                                                        colors =
-                                                                listOf(
-                                                                        Color(0xFF6366F1),
-                                                                        Color(0xFF8B5CF6),
-                                                                        Color(0xFFA855F7)
-                                                                )
-                                                )
-                                        )
+                                        .background(MaterialTheme.colorScheme.background)
                 ) {
                     Column(
                             modifier =
@@ -101,10 +92,9 @@ class ManageSubjectsActivity : ComponentActivity() {
                             horizontalAlignment = Alignment.CenterHorizontally
                     ) {
 
-                        // Icon
                         Surface(
                                 modifier = Modifier.size(80.dp).clip(RoundedCornerShape(20.dp)),
-                                color = Color.White.copy(alpha = 0.2f)
+                                color = MaterialTheme.colorScheme.primaryContainer
                         ) {
                             Box(
                                     contentAlignment = Alignment.Center,
@@ -114,7 +104,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                                         Icons.Default.Book,
                                         contentDescription = null,
                                         modifier = Modifier.size(40.dp),
-                                        tint = Color.White
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                             }
                         }
@@ -125,13 +115,13 @@ class ManageSubjectsActivity : ComponentActivity() {
                                 text = "Manage Subjects",
                                 style = MaterialTheme.typography.headlineLarge,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onBackground
                         )
 
                         Text(
                                 text = "Add or remove subjects for attendance tracking",
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = Color.White.copy(alpha = 0.9f),
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(top = 8.dp)
                         )
@@ -142,7 +132,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                         Surface(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(24.dp),
-                                color = Color.White,
+                                color = MaterialTheme.colorScheme.surface,
                                 shadowElevation = 8.dp
                         ) {
                             Column(
@@ -219,7 +209,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                                         enabled = !addingSubject,
                                         colors =
                                                 ButtonDefaults.buttonColors(
-                                                        containerColor = Color(0xFF8B5CF6)
+                                                        containerColor = MaterialTheme.colorScheme.primary
                                                 ),
                                         shape = RoundedCornerShape(12.dp),
                                         modifier = Modifier.fillMaxWidth().height(50.dp)
@@ -228,7 +218,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                                         CircularProgressIndicator(
                                                 modifier = Modifier.size(20.dp),
                                                 strokeWidth = 2.dp,
-                                                color = Color.White
+                                                color = MaterialTheme.colorScheme.onPrimary
                                         )
                                     } else {
                                         Icon(Icons.Default.Add, null)
@@ -243,14 +233,14 @@ class ManageSubjectsActivity : ComponentActivity() {
                                 if (subjects.isNotEmpty()) {
                                     Spacer(Modifier.height(24.dp))
 
-                                    Divider(color = Color(0xFF000000), thickness = 1.dp)
+                                    Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
 
                                     Spacer(Modifier.height(16.dp))
 
                                     Text(
                                             text = "Your Subjects (${subjects.size})",
                                             fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFF374151),
+                                            color = MaterialTheme.colorScheme.onSurface,
                                             modifier = Modifier.fillMaxWidth()
                                     )
 
@@ -268,7 +258,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                                                         Modifier.fillMaxWidth()
                                                                 .padding(vertical = 4.dp),
                                                 shape = RoundedCornerShape(8.dp),
-                                                color = Color(0xFFF3F4F6)
+                                                color = MaterialTheme.colorScheme.surfaceVariant
                                         ) {
                                             Row(
                                                     modifier =
@@ -285,13 +275,13 @@ class ManageSubjectsActivity : ComponentActivity() {
                                                     Icon(
                                                             Icons.Default.Book,
                                                             contentDescription = null,
-                                                            tint = Color(0xFF8B5CF6),
+                                                            tint = MaterialTheme.colorScheme.primary,
                                                             modifier = Modifier.size(20.dp)
                                                     )
                                                     Spacer(Modifier.width(12.dp))
                                                     Text(
                                                             text = subject.name,
-                                                            color = Color(0xFF374151),
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                             fontWeight = FontWeight.Medium
                                                     )
                                                 }
@@ -315,7 +305,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                                                     Icon(
                                                             Icons.Default.Close,
                                                             contentDescription = "Delete",
-                                                            tint = Color(0xFF6B7280),
+                                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                             modifier = Modifier.size(18.dp)
                                                     )
                                                 }
@@ -332,9 +322,9 @@ class ManageSubjectsActivity : ComponentActivity() {
                                 onClick = { finish() },
                                 colors =
                                         ButtonDefaults.buttonColors(
-                                                containerColor = Color.White,
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
                                                 disabledContainerColor =
-                                                        Color.White.copy(alpha = 0.5f)
+                                                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                                         ),
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier.fillMaxWidth().height(56.dp)
@@ -342,7 +332,7 @@ class ManageSubjectsActivity : ComponentActivity() {
                             Text(
                                     "DONE",
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF8B5CF6)
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                     }
@@ -357,13 +347,13 @@ class ManageSubjectsActivity : ComponentActivity() {
                         ) {
                             Card(
                                     shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White)
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                             ) {
                                 Column(
                                         modifier = Modifier.padding(24.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    CircularProgressIndicator(color = Color(0xFF8B5CF6))
+                                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                                     Spacer(Modifier.height(16.dp))
                                     Text(
                                             text = "Loading subjects...",

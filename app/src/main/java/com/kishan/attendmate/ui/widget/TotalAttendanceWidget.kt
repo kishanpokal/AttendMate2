@@ -56,21 +56,21 @@ class TotalAttendanceWidget : GlanceAppWidget() {
         val IS_ON_TRACK_KEY = booleanPreferencesKey("is_on_track")
 
         // ------------------------------------------------------------------
-        // Design tokens  — dark glass palette
+        // Design tokens  — dark glass palette (Aligned to Indigo Scholar)
         // ------------------------------------------------------------------
-        private val Surface = Color(0xFF151519) // widget card bg
-        private val Teal = Color(0xFF2DD4BF) // accent (on-track)
-        private val TealGlow = Color(0x182DD4BF) // ~10% teal for pill bg
-        private val TealBorder = Color(0x382DD4BF) // pill border
-        private val Red = Color(0xFFFF453A) // at-risk accent
-        private val RedGlow = Color(0x18FF453A)
-        private val RedBorder = Color(0x38FF453A)
+        private val Surface = Color(0xFF111827) // Gray900
+        private val Teal = Color(0xFF10B981) // Success green (on-track)
+        private val TealGlow = Color(0x1810B981) // ~10% green for pill bg
+        private val TealBorder = Color(0x3810B981) // pill border
+        private val Red = Color(0xFFEF4444) // Error red (at-risk)
+        private val RedGlow = Color(0x18EF4444)
+        private val RedBorder = Color(0x38EF4444)
         private val White85 = Color(0xD9FFFFFF) // primary text
         private val White55 = Color(0x8CFFFFFF) // secondary text
         private val White35 = Color(0x59FFFFFF) // tertiary / labels
         private val White25 = Color(0x40FFFFFF) // very muted
         private val Track = Color(0x12FFFFFF) // progress track bg
-        private val TickLine = Color(0x66FFD060) // 75% tick: amber
+        private val TickLine = Color(0x66FBBF24) // 75% tick: amber
 
         // Size breakpoints
         val SMALL_SIZE = DpSize(110.dp, 40.dp)

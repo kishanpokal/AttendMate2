@@ -61,6 +61,8 @@ import com.kishan.attendmate.ui.theme.RadiusLG
 import com.kishan.attendmate.ui.theme.RadiusMD
 import com.kishan.attendmate.ui.theme.ElevationLow
 import com.kishan.attendmate.ui.theme.CardStyle
+import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.ui.theme.authBackgroundBrush
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.min
@@ -100,9 +102,7 @@ class LoginActivity : ComponentActivity() {
         )
 
         setContent {
-            MaterialTheme(
-                colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
-            ) {
+            AttendMateTheme {
                 EnhancedLoginScreen()
             }
         }
@@ -185,25 +185,7 @@ class LoginActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    if (isDark) {
-                        Brush.linearGradient(
-                            colors = listOf(
-                                Color(0xFF0F0C29),
-                                Color(0xFF1F1C3F),
-                                Color(0xFF14142B)
-                            )
-                        )
-                    } else {
-                        Brush.radialGradient(
-                            colors = listOf(
-                                Color(0xFFF8F9FF),
-                                Color(0xFFEEF2FF),
-                                Color(0xFFE0E7FF)
-                            )
-                        )
-                    }
-                )
+                .background(authBackgroundBrush())
         ) {
             Column(
                 modifier = Modifier

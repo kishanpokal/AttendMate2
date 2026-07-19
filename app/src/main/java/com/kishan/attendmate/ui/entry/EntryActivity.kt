@@ -37,21 +37,14 @@ import com.kishan.attendmate.R
 import com.kishan.attendmate.ui.auth.LoginActivity
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.delay
+import com.kishan.attendmate.ui.theme.authBackgroundBrush
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.pow
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  ADVANCED PROFESSIONAL PALETTE
+//  ADVANCED PROFESSIONAL PALETTE (MIGRATED TO THEME)
 // ─────────────────────────────────────────────────────────────────────────────
-private val BrandBlue = Color(0xFF1A64F0)
-private val BrandCyan = Color(0xFF00F5FF)
-private val DarkBackground = Color(0xFF060913) // Deeper, sleeker dark mode
-private val LightBackground = Color(0xFFF8FAFC)
-private val DarkText = Color(0xFF0F172A)
-private val LightText = Color(0xFFF8FAFC)
-private val MutedTextDark = Color(0xFF64748B)
-private val MutedTextLight = Color(0xFF94A3B8)
 
 class EntryActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -71,10 +64,6 @@ class EntryActivity : ComponentActivity() {
 
 @Composable
 fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
-    val isDark = isSystemInDarkTheme()
-    val bgColor = if (isDark) DarkBackground else LightBackground
-    val textColor = if (isDark) LightText else DarkText
-    val mutedTextColor = if (isDark) MutedTextLight else MutedTextDark
 
     // Animation visibility states
     var startAnimation by remember { mutableStateOf(false) }
@@ -114,7 +103,7 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(bgColor),
+            .background(authBackgroundBrush()),
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -149,14 +138,14 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
                             text = "Attend",
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = textColor,
+                            color = MaterialTheme.colorScheme.onSurface,
                             letterSpacing = 0.5.sp
                         )
                         Text(
                             text = "Mate",
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.SemiBold,
-                            color = BrandBlue,
+                            color = MaterialTheme.colorScheme.primary,
                             letterSpacing = 0.5.sp
                         )
                     }
@@ -167,7 +156,7 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
                         text = "SMART ATTENDANCE TRACKING",
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.Medium,
-                        color = mutedTextColor,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         letterSpacing = 2.sp,
                         textAlign = TextAlign.Center
                     )
@@ -181,7 +170,7 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(28.dp),
                     strokeWidth = 3.dp,
-                    color = BrandBlue
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }
@@ -197,7 +186,7 @@ fun AdvancedEntryScreen(onNavigate: (Class<*>) -> Unit) {
             Text(
                 text = "MADE BY KISHAN POKAL",
                 style = MaterialTheme.typography.labelSmall,
-                color = mutedTextColor.copy(alpha = 0.4f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                 letterSpacing = 3.sp,
                 fontWeight = FontWeight.Medium
             )

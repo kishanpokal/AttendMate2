@@ -37,6 +37,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.auth.FirebaseAuth
+import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.ui.theme.authBackgroundBrush
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -48,9 +50,7 @@ class ForgotPasswordActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme(
-                colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
-            ) {
+            AttendMateTheme {
                 ForgotPasswordScreen()
             }
         }
@@ -78,25 +78,7 @@ class ForgotPasswordActivity : ComponentActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(
-                    if (isDark) {
-                        Brush.verticalGradient(
-                            listOf(
-                                Color(0xFF1A1A2E),
-                                Color(0xFF16213E),
-                                Color(0xFF0F3460)
-                            )
-                        )
-                    } else {
-                        Brush.verticalGradient(
-                            listOf(
-                                Color(0xFFF8F9FA),
-                                Color(0xFFE9ECEF),
-                                Color(0xFFDEE2E6)
-                            )
-                        )
-                    }
-                )
+                .background(authBackgroundBrush())
         ) {
             // Back Button
             IconButton(

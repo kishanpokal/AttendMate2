@@ -23,6 +23,8 @@ import com.kishan.attendmate.MainActivity
 import com.kishan.attendmate.R
 import com.kishan.attendmate.ui.auth.LoginActivity
 import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.ui.theme.authBackgroundBrush
+import androidx.compose.material3.MaterialTheme
 import kotlinx.coroutines.delay
 
 class SplashActivity : ComponentActivity() {
@@ -80,7 +82,7 @@ private fun SplashUI(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black),
+            .background(authBackgroundBrush()),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -95,7 +97,7 @@ private fun SplashUI(
 
             Text(
                 text = "AttendMate",
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.graphicsLayer(alpha = nameAlpha)
             )
 
@@ -103,7 +105,7 @@ private fun SplashUI(
 
             Text(
                 text = "Track smart. Attend better.",
-                color = Color.White.copy(alpha = 0.85f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.graphicsLayer(alpha = sloganAlpha)
             )
         }

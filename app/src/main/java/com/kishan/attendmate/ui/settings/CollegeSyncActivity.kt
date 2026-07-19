@@ -267,10 +267,6 @@ fun readFirestoreTime(value: Any?, timeFormat: SimpleDateFormat): String {
 
 
 
-
-val CompareRecordMatchColor = Color(0xFF4CAF50)
-val CompareRecordMismatchColor = Color(0xFFEF5350)
-
 data class CompareDisplayItem(
     val scrapedRecord: CollegeAttendanceRecord?,
     val appRecord: CollegeAttendanceRecord?,

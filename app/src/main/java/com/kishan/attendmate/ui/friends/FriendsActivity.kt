@@ -1,7 +1,7 @@
 package com.kishan.attendmate.ui.friends
 
 import com.kishan.attendmate.ui.theme.statusColors
-
+import com.kishan.attendmate.ui.theme.AttendMateTheme
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
@@ -59,61 +59,7 @@ import kotlinx.coroutines.tasks.await
 ══════════════════════════════════════════════════════ */
 data class Friend(val uid: String, val username: String, val email: String = "")
 
-/* ══════════════════════════════════════════════════════
-   THEME — respects system dark/light + Material You (Android 12+)
-══════════════════════════════════════════════════════ */
-@Composable
-fun AttendMateTheme(content: @Composable () -> Unit) {
-    val context   = LocalContext.current
-    val darkTheme = isSystemInDarkTheme()
 
-    val colorScheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && darkTheme  -> dynamicDarkColorScheme(context)
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !darkTheme -> dynamicLightColorScheme(context)
-        darkTheme -> darkColorScheme(
-            primary             = Color(0xFF82B1FF),
-            onPrimary           = Color(0xFF003060),
-            primaryContainer    = Color(0xFF004787),
-            onPrimaryContainer  = Color(0xFFD4E3FF),
-            secondary           = Color(0xFFB0C6FF),
-            tertiary            = Color(0xFFD4BBFF),
-            background          = Color(0xFF0F1117),
-            surface             = Color(0xFF1A1D27),
-            surfaceContainerLow = Color(0xFF1E2130),
-            surfaceContainerHigh= Color(0xFF252838),
-            onSurface           = Color(0xFFE4E6F0),
-            onSurfaceVariant    = Color(0xFF9BA1B8),
-            outline             = Color(0xFF3D4155),
-            outlineVariant      = Color(0xFF2C2F40),
-            error               = Color(0xFFFF6E6E),
-            onError             = Color(0xFF690005),
-            errorContainer      = Color(0xFF93000A),
-            onErrorContainer    = Color(0xFFFFDAD6)
-        )
-        else -> lightColorScheme(
-            primary             = Color(0xFF1A6FEB),
-            onPrimary           = Color.White,
-            primaryContainer    = Color(0xFFD8E8FF),
-            onPrimaryContainer  = Color(0xFF001B42),
-            secondary           = Color(0xFF4B6291),
-            tertiary            = Color(0xFF6B4C9A),
-            background          = Color(0xFFF6F8FC),
-            surface             = Color.White,
-            surfaceContainerLow = Color(0xFFF0F3FA),
-            surfaceContainerHigh= Color(0xFFE9EDF8),
-            onSurface           = Color(0xFF0D1420),
-            onSurfaceVariant    = Color(0xFF5A6178),
-            outline             = Color(0xFFBBC3D8),
-            outlineVariant      = Color(0xFFDDE3F0),
-            error               = Color(0xFFBA1A1A),
-            onError             = Color.White,
-            errorContainer      = Color(0xFFFFDAD6),
-            onErrorContainer    = Color(0xFF410002)
-        )
-    }
-
-    MaterialTheme(colorScheme = colorScheme, content = content)
-}
 
 /* ══════════════════════════════════════════════════════
    ACTIVITY

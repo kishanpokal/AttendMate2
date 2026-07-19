@@ -35,9 +35,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.firebase.firestore.FirebaseFirestore
-import com.kishan.attendmate.AttendanceColors
 import com.kishan.attendmate.ui.components.StandardEmptyState
 import com.kishan.attendmate.ui.theme.AttendMateTheme
+import com.kishan.attendmate.ui.theme.chartColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.tasks.await
 import java.time.LocalDate
@@ -321,14 +321,11 @@ fun ProfileContentScreen(
 @Composable
 fun ProfileHeaderCard(username: String, email: String, percentage: Float) {
     val statusColor = when {
-        percentage >= 75 -> AttendanceColors.Present
-        percentage >= 60 -> AttendanceColors.Warning
-        else -> AttendanceColors.Absent
+        percentage >= 75 -> statusColors().success
+        percentage >= 60 -> statusColors().warning
+        else -> statusColors().error
     }
-    val avatarPalette = listOf(
-        Color(0xFF6366F1), Color(0xFF8B5CF6), Color(0xFFEC4899),
-        Color(0xFF06B6D4), statusColors().success, statusColors().warning
-    )
+    val avatarPalette = chartColors()
     val avatarColor = avatarPalette[username.hashCode().let { if (it < 0) -it else it } % avatarPalette.size]
 
     Card(
@@ -453,9 +450,9 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
     }
 
     val statusColor = when {
-        percentage >= 75 -> AttendanceColors.Present
-        percentage >= 60 -> AttendanceColors.Warning
-        else -> AttendanceColors.Absent
+        percentage >= 75 -> statusColors().success
+        percentage >= 60 -> statusColors().warning
+        else -> statusColors().error
     }
     val statusText = when {
         percentage >= 75 -> "Excellent"
@@ -484,8 +481,8 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
             )))
         ) {
             Canvas(Modifier.fillMaxSize()) {
-                drawCircle(statusColor.copy(0.03f), 100f, Offset(size.width * 0.85f, size.height * 0.2f))
-                drawCircle(statusColor.copy(0.04f), 150f, Offset(size.width * 0.15f, size.height * 0.8f))
+                drawCircle(statusColor.copy(alpha = 0.03f), 100f, Offset(size.width * 0.85f, size.height * 0.2f))
+                drawCircle(statusColor.copy(alpha = 0.04f), 150f, Offset(size.width * 0.15f, size.height * 0.8f))
             }
 
             Column(
@@ -504,9 +501,9 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                     ) {
                         Box(
                             Modifier.size(48.dp)
-                                .shadow(8.dp, RoundedCornerShape(14.dp), spotColor = statusColor.copy(0.3f))
+                                .shadow(8.dp, RoundedCornerShape(14.dp), spotColor = statusColor.copy(alpha = 0.3f))
                                 .clip(RoundedCornerShape(14.dp))
-                                .background(Brush.linearGradient(listOf(statusColor, statusColor.copy(0.8f)))),
+                                .background(Brush.linearGradient(listOf(statusColor, statusColor.copy(alpha = 0.8f)))),
                             Alignment.Center
                         ) {
                             Icon(
@@ -523,8 +520,8 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                     }
                     Surface(
                         shape = RoundedCornerShape(14.dp),
-                        color = statusColor.copy(0.15f),
-                        border = BorderStroke(1.5.dp, statusColor.copy(0.3f))
+                        color = statusColor.copy(alpha = 0.15f),
+                        border = BorderStroke(1.5.dp, statusColor.copy(alpha = 0.3f))
                     ) {
                         Row(
                             Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -544,13 +541,13 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                     repeat(3) { i ->
                         Canvas(Modifier.size((200 - i * 20).dp).alpha(0.3f - i * 0.1f)) {
                             drawCircle(Brush.radialGradient(listOf(
-                                statusColor.copy(0.3f), Color.Transparent)))
+                                statusColor.copy(alpha = 0.3f), Color.Transparent)))
                         }
                     }
                     Canvas(Modifier.size(175.dp)) {
                         drawCircle(
                             brush = Brush.radialGradient(listOf(
-                                surfaceVariant.copy(0.3f), surfaceVariant.copy(0.1f))),
+                                surfaceVariant.copy(alpha = 0.3f), surfaceVariant.copy(alpha = 0.1f))),
                             style = Stroke(18.dp.toPx())
                         )
                     }
@@ -570,7 +567,7 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                                 color = statusColor
                             )
                             Text("%", fontWeight = FontWeight.Bold,
-                                color = statusColor.copy(0.7f),
+                                color = statusColor.copy(alpha = 0.7f),
                                 modifier = Modifier.padding(bottom = 8.dp))
                         }
                     }
@@ -589,11 +586,11 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        FriendStatItem("Present", attended.toString(), Icons.Default.CheckCircle, AttendanceColors.Present)
-                        VerticalDivider(Modifier.height(56.dp), 2.dp, MaterialTheme.colorScheme.outlineVariant.copy(0.5f))
-                        FriendStatItem("Total", total.toString(), Icons.Default.CalendarMonth, AttendanceColors.Info)
-                        VerticalDivider(Modifier.height(56.dp), 2.dp, MaterialTheme.colorScheme.outlineVariant.copy(0.5f))
-                        FriendStatItem("Absent", (total - attended).toString(), Icons.Default.Cancel, AttendanceColors.Absent)
+                        FriendStatItem("Present", attended.toString(), Icons.Default.CheckCircle, statusColors().success)
+                        VerticalDivider(Modifier.height(56.dp), 2.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        FriendStatItem("Total", total.toString(), Icons.Default.CalendarMonth, MaterialTheme.colorScheme.primary)
+                        VerticalDivider(Modifier.height(56.dp), 2.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        FriendStatItem("Absent", (total - attended).toString(), Icons.Default.Cancel, statusColors().error)
                     }
                 }
 
@@ -606,14 +603,14 @@ fun FriendAttendanceSummaryCard(total: Int, attended: Int, percentage: Float) {
                         icon = "📚",
                         title = "Heads up!",
                         message = "Needs $needed more ${if (needed == 1) "class" else "classes"} to reach 75%",
-                        color = AttendanceColors.Warning
+                        color = statusColors().warning
                     )
                 } else {
                     FriendMotivationalCard(
                         icon = "🏆",
                         title = "Outstanding!",
                         message = "Maintaining excellent attendance — well above 75%",
-                        color = AttendanceColors.Present
+                        color = statusColors().success
                     )
                 }
             }
@@ -706,15 +703,15 @@ fun ProfileSectionHeader(
 fun FriendLectureCard(lecture: FriendLecture) {
     val normalized = lecture.status.uppercase()
     val isPresent = normalized == "PRESENT"
-    val statusColor = if (isPresent) AttendanceColors.Present else AttendanceColors.Absent
+    val statusColor = if (isPresent) statusColors().success else statusColors().error
     val statusBg = statusColor.copy(alpha = 0.08f)
 
     Card(
         modifier = Modifier.fillMaxWidth()
-            .shadow(2.dp, RoundedCornerShape(20.dp), spotColor = statusColor.copy(0.1f)),
+            .shadow(2.dp, RoundedCornerShape(20.dp), spotColor = statusColor.copy(alpha = 0.1f)),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, statusColor.copy(0.2f))
+        border = BorderStroke(1.dp, statusColor.copy(alpha = 0.2f))
     ) {
         Box(
             Modifier.fillMaxWidth().background(
@@ -732,7 +729,7 @@ fun FriendLectureCard(lecture: FriendLecture) {
                 /* Status icon box */
                 Box(
                     Modifier.size(48.dp).clip(RoundedCornerShape(14.dp))
-                        .background(statusColor.copy(0.15f)),
+                        .background(statusColor.copy(alpha = 0.15f)),
                     Alignment.Center
                 ) {
                     Icon(
@@ -773,7 +770,7 @@ fun FriendLectureCard(lecture: FriendLecture) {
                         /* Status badge */
                         Surface(
                             shape = RoundedCornerShape(50),
-                            color = statusColor.copy(0.13f)
+                            color = statusColor.copy(alpha = 0.13f)
                         ) {
                             Text(
                                 if (isPresent) "Present" else "Absent",

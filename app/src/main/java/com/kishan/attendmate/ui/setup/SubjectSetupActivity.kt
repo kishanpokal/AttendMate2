@@ -52,15 +52,7 @@ class SubjectSetupActivity : ComponentActivity() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(
-                                    Color(0xFF6366F1),
-                                    Color(0xFF8B5CF6),
-                                    Color(0xFFA855F7)
-                                )
-                            )
-                        )
+                        .background(androidx.compose.material3.MaterialTheme.colorScheme.background)
                 ) {
                     Column(
                         modifier = Modifier
@@ -74,7 +66,7 @@ class SubjectSetupActivity : ComponentActivity() {
                             modifier = Modifier
                                 .size(80.dp)
                                 .clip(RoundedCornerShape(20.dp)),
-                            color = Color.White.copy(alpha = 0.2f)
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.primaryContainer
                         ) {
                             Box(
                                 contentAlignment = Alignment.Center,
@@ -84,7 +76,7 @@ class SubjectSetupActivity : ComponentActivity() {
                                     imageVector = Icons.Default.Book,
                                     contentDescription = null,
                                     modifier = Modifier.size(40.dp),
-                                    tint = Color.White
+                                    tint = androidx.compose.material3.MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                             }
                         }
@@ -95,13 +87,13 @@ class SubjectSetupActivity : ComponentActivity() {
                             text = "Add Your Subjects",
                             style = MaterialTheme.typography.headlineLarge,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onBackground
                         )
 
                         Text(
                             text = "Add all the subjects you want to track attendance for",
                             style = MaterialTheme.typography.bodyLarge,
-                            color = Color.White.copy(alpha = 0.9f),
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(top = 8.dp, start = 16.dp, end = 16.dp)
                         )
@@ -112,7 +104,7 @@ class SubjectSetupActivity : ComponentActivity() {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(24.dp),
-                            color = Color.White,
+                            color = androidx.compose.material3.MaterialTheme.colorScheme.surface,
                             shadowElevation = 8.dp
                         ) {
                             Column(
@@ -124,24 +116,24 @@ class SubjectSetupActivity : ComponentActivity() {
                                 OutlinedTextField(
                                     value = subjectName,
                                     onValueChange = { subjectName = it },
-                                    label = { Text("Subject Name", color = Color(0xFF6B7280)) },
-                                    placeholder = { Text("e.g., Deep Learning", color = Color(0xFF9CA3AF)) },
+                                    label = { Text("Subject Name", color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant) },
+                                    placeholder = { Text("e.g., Deep Learning", color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)) },
                                     leadingIcon = {
                                         Icon(
                                             Icons.Default.Book,
                                             null,
-                                            tint = Color(0xFF8B5CF6)
+                                            tint = androidx.compose.material3.MaterialTheme.colorScheme.primary
                                         )
                                     },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF8B5CF6),
-                                        unfocusedBorderColor = Color(0xFFE5E7EB),
+                                        focusedBorderColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = androidx.compose.material3.MaterialTheme.colorScheme.outlineVariant,
                                         focusedLabelColor = androidx.compose.material3.MaterialTheme.colorScheme.outline,
-                                        unfocusedTextColor = Color.Black,
-                                        focusedTextColor = Color.Black,
-                                        cursorColor = Color(0xFF8B5CF6)
+                                        unfocusedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                                        focusedTextColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurface,
+                                        cursorColor = androidx.compose.material3.MaterialTheme.colorScheme.primary
                                     ),
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.fillMaxWidth()
@@ -203,7 +195,7 @@ class SubjectSetupActivity : ComponentActivity() {
                                                     .fillMaxWidth()
                                                     .padding(vertical = 4.dp),
                                                 shape = RoundedCornerShape(8.dp),
-                                                color = Color(0xFFF3F4F6)
+                                                color = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant
                                             ) {
                                                 Row(
                                                     modifier = Modifier
@@ -219,7 +211,7 @@ class SubjectSetupActivity : ComponentActivity() {
                                                         Icon(
                                                             Icons.Default.Book,
                                                             contentDescription = null,
-                                                            tint = Color(0xFF8B5CF6),
+                                                            tint = androidx.compose.material3.MaterialTheme.colorScheme.primary,
                                                             modifier = Modifier.size(20.dp)
                                                         )
                                                         Spacer(Modifier.width(12.dp))
@@ -238,7 +230,7 @@ class SubjectSetupActivity : ComponentActivity() {
                                                         Icon(
                                                             Icons.Default.Close,
                                                             contentDescription = "Remove",
-                                                            tint = Color(0xFF6B7280),
+                                                            tint = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
                                                             modifier = Modifier.size(18.dp)
                                                         )
                                                     }
@@ -273,7 +265,7 @@ class SubjectSetupActivity : ComponentActivity() {
                             Spacer(Modifier.height(12.dp))
                             Text(
                                 text = "Add at least one subject to continue",
-                                color = Color.White.copy(alpha = 0.8f),
+                                color = androidx.compose.material3.MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
                                 textAlign = TextAlign.Center
                             )
                         }

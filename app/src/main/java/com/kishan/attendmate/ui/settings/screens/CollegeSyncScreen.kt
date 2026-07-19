@@ -5,6 +5,7 @@ package com.kishan.attendmate.ui.settings
 
 import android.annotation.SuppressLint
 import android.content.Context
+import com.kishan.attendmate.ui.theme.statusColors
 import android.os.Bundle
 import android.util.Log
 import android.webkit.JavascriptInterface
@@ -568,9 +569,9 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                             val pctDisplay = String.format(Locale.getDefault(), "%.2f", pctFloat)
 
                             val barColor = when {
-                                pctFloat >= 75f -> Color(0xFF4CAF50)
-                                pctFloat >= 60f -> Color(0xFFFFC107)
-                                else -> Color(0xFFEF5350)
+                                pctFloat >= 75f -> statusColors().success
+                                pctFloat >= 60f -> statusColors().warning
+                                else -> statusColors().error
                             }
 
                             Card(
@@ -618,7 +619,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                                 "$present",
                                                 style = MaterialTheme.typography.headlineLarge,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF4CAF50)
+                                                color = statusColors().success
                                             )
                                             Text(
                                                 "Present",
@@ -640,7 +641,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                                 "$absent",
                                                 style = MaterialTheme.typography.headlineLarge,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color(0xFFEF5350)
+                                                color = statusColors().error
                                             )
                                             Text(
                                                 "Absent",
@@ -1103,7 +1104,7 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                                                 SummaryChipCard(
                                                     "Match",
                                                     matched,
-                                                    Color(0xFF4CAF50),
+                                                    statusColors().success,
                                                     Icons.Default.CheckCircle,
                                                     compareFilter == "Match"
                                                 ) {
@@ -1842,7 +1843,7 @@ fun SummaryChip(label: String, count: Int, color: Color, modifier: Modifier = Mo
 @Composable
 fun SubjectDataCard(record: CollegeAttendanceRecord) {
     val isPresent = record.status.equals("Present", ignoreCase = true)
-    val statusColor = if (isPresent) Color(0xFF4CAF50) else Color(0xFFEF5350)
+    val statusColor = if (isPresent) statusColors().success else statusColors().error
     var expanded by remember { mutableStateOf(false) }
 
     Card(
@@ -1995,7 +1996,7 @@ fun CompareDataCard(
             Row(
                 modifier =
                     Modifier.fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.03f))
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f))
                         .padding(16.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
@@ -2119,7 +2120,7 @@ fun CompareDataCard(
 
 @Composable
 fun StatusBadge(label: String, present: Boolean) {
-    val bg = if (present) CompareRecordMatchColor else CompareRecordMismatchColor
+    val bg = if (present) statusColors().success else statusColors().error
     Surface(shape = CircleShape, color = bg.copy(alpha = 0.15f)) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),

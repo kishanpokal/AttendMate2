@@ -7,6 +7,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.unit.dp
 
 // SPACING TOKENS
@@ -28,16 +30,17 @@ val ElevationNone = 0.dp
 val ElevationLow  = 2.dp
 val ElevationHigh = 6.dp
 
-@Deprecated("Use statusColors().success instead")
-val SuccessColor = Color(0xFF1E8E3E)
 
-@Deprecated("Use statusColors().warning instead")
-val WarningColor = Color(0xFFC4720B)
-
-@Deprecated("Use statusColors().error (or MaterialTheme.colorScheme.error) instead")
-val DangerColor  = Color(0xFFBA1A1A)
-
-
+@Composable
+fun authBackgroundBrush(): Brush {
+    val isDark = isSystemInDarkTheme()
+    val colors = authGradientColors()
+    return if (isDark) {
+        Brush.linearGradient(colors = colors)
+    } else {
+        Brush.radialGradient(colors = colors)
+    }
+}
 
 // CARD CONFIGURATION
 object CardStyle {

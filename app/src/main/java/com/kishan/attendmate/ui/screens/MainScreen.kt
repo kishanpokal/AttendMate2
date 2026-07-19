@@ -1075,23 +1075,6 @@ fun ModernAttendanceDialog(
         }
 }
 
-object AttendanceColors {
-        val Present = Color(0xFF10B981)
-        val PresentLight = Color(0xFF34D399)
-        val PresentBg = Color(0xFFD1FAE5)
-
-        val Absent = Color(0xFFEF4444)
-        val AbsentLight = Color(0xFFF87171)
-        val AbsentBg = Color(0xFFFEE2E2)
-
-        val Warning = Color(0xFFF59E0B)
-        val WarningLight = Color(0xFFFBBF24)
-        val WarningBg = Color(0xFFFEF3C7)
-
-        val Info = Color(0xFF3B82F6)
-        val InfoLight = Color(0xFF60A5FA)
-        val InfoBg = Color(0xFFDBEAFE)
-}
 
 @Composable
 fun AnimatedDialogIcon() {
