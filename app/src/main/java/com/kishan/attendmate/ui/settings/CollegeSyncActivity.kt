@@ -374,9 +374,23 @@ fun addScrapedRecordToApp(
         return
     }
 
-    val lectureDate = java.util.Calendar.getInstance().apply { time = dateObj }
-    val startTime = java.util.Calendar.getInstance().apply { time = fromTimeObj }
-    val endTime = java.util.Calendar.getInstance().apply { time = toTimeObj }
+    val lectureDate = java.util.Calendar.getInstance().apply {
+        time = dateObj
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }
+    val startTime = (lectureDate.clone() as java.util.Calendar).apply {
+        val temp = java.util.Calendar.getInstance().apply { time = fromTimeObj }
+        set(java.util.Calendar.HOUR_OF_DAY, temp.get(java.util.Calendar.HOUR_OF_DAY))
+        set(java.util.Calendar.MINUTE, temp.get(java.util.Calendar.MINUTE))
+    }
+    val endTime = (lectureDate.clone() as java.util.Calendar).apply {
+        val temp = java.util.Calendar.getInstance().apply { time = toTimeObj }
+        set(java.util.Calendar.HOUR_OF_DAY, temp.get(java.util.Calendar.HOUR_OF_DAY))
+        set(java.util.Calendar.MINUTE, temp.get(java.util.Calendar.MINUTE))
+    }
 
     val dateKeyFormatter = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
     val timeKeyFormatter = java.text.SimpleDateFormat("HHmm", java.util.Locale.getDefault())
@@ -411,7 +425,7 @@ fun addScrapedRecordToApp(
     val subjectRef = db.collection("users").document(uid).collection("subjects").document(subjectId)
     val attendanceRef = subjectRef.collection("attendance").document(lectureId)
     val isPresent = record.status.equals("Present", ignoreCase = true)
-    val finalStatus = if (isPresent) "Present" else "Absent"
+    val finalStatus = if (isPresent) "PRESENT" else "ABSENT"
 
     db
         .runTransaction { transaction ->
@@ -427,12 +441,12 @@ fun addScrapedRecordToApp(
                 else subjectSnap.getLong("attendedClasses") ?: 0
 
             val attendanceData =
-                mutableMapOf(
+                mutableMapOf<String, Any>(
                     "status" to finalStatus,
-                    "date" to lectureDate.time,
-                    "startTime" to startTime.time,
-                    "endTime" to endTime.time,
-                    "createdAt" to java.util.Date()
+                    "date" to com.google.firebase.Timestamp(lectureDate.time),
+                    "startTime" to com.google.firebase.Timestamp(startTime.time),
+                    "endTime" to com.google.firebase.Timestamp(endTime.time),
+                    "createdAt" to com.google.firebase.Timestamp.now()
                 )
             if (record.topic.isNotBlank()) {
                 attendanceData["note"] = "Synced from College Portal: " + record.topic
@@ -973,17 +987,28 @@ object ScraperScripts {
                 var expectedTotal = matchArr ? parseInt(matchArr[0]) : 0;
 
                 if (expectedTotal === 0) {
-                    Android.onProgressUpdate(subject + ': 0 total attendances');
-                    await goBackSafely();
-                    continue;
+                    var initialRows = Array.from(document.querySelectorAll('li')).filter(function(li) {
+                        var cls = (li.className || '').toLowerCase();
+                        var txt = li.innerText || '';
+                        return (cls.includes('bg-green') || cls.includes('bg-red') || cls.includes('min-w-max')) && 
+                               txt.includes('/') && txt.includes(':');
+                    });
+                    if (initialRows.length === 0) {
+                        Android.onProgressUpdate(subject + ': 0 total attendances');
+                        await goBackSafely();
+                        continue;
+                    } else {
+                        expectedTotal = 9999;
+                    }
                 }
 
-                Android.onProgressUpdate(subject + ': Targeting ' + expectedTotal + ' records');
+                Android.onProgressUpdate(subject + ': Targeting ' + (expectedTotal === 9999 ? 'all' : expectedTotal) + ' records');
                 var recordsScraped = 0;
                 var pageNumber = 1;
+                var seenKeys = {};
 
                 while (recordsScraped < expectedTotal) {
-                    Android.onProgressUpdate(subject + ' — page ' + pageNumber + ' (' + recordsScraped + '/' + expectedTotal + ')');
+                    Android.onProgressUpdate(subject + ' — page ' + pageNumber + ' (' + recordsScraped + '/' + (expectedTotal === 9999 ? '?' : expectedTotal) + ')');
 
                     var rows = Array.from(document.querySelectorAll('li')).filter(function(li) {
                         var cls = (li.className || '').toLowerCase();
@@ -1031,51 +1056,79 @@ object ScraperScripts {
                             }
 
                             if (recDate.includes('/') && recFrom.includes(':')) {
-                                var record = {
-                                    subject: subject,
-                                    date: recDate,
-                                    fromTime: recFrom,
-                                    toTime: recTo,
-                                    topic: recTopic,
-                                    status: isPresent ? 'Present' : 'Absent'
-                                };
-                                masterData.push(record);
-                                recordsScraped++;
+                                var recordKey = subject + '_' + recDate + '_' + recFrom + '_' + recTo + '_' + recTopic;
+                                if (!seenKeys[recordKey]) {
+                                    seenKeys[recordKey] = true;
+                                    var record = {
+                                        subject: subject,
+                                        date: recDate,
+                                        fromTime: recFrom,
+                                        toTime: recTo,
+                                        topic: recTopic,
+                                        status: isPresent ? 'Present' : 'Absent'
+                                    };
+                                    masterData.push(record);
+                                    recordsScraped++;
+                                }
                             }
                         } catch(rowErr) { }
                     }
 
                     if (recordsScraped >= expectedTotal) break;
 
-                    var nextBtn = document.querySelector('button[aria-label="btnNextPage"]');
-                    if (!nextBtn) {
-                        var btns = Array.from(document.querySelectorAll('button'));
-                        nextBtn = btns[btns.length - 1];
+                    // Navigate to next page with async batch loading support
+                    var targetPage = pageNumber + 1;
+                    var pageChanged = false;
+
+                    for (var waitAttempts = 0; waitAttempts < 25; waitAttempts++) {
+                        // Check if numbered button for targetPage exists and is clickable
+                        var allButtons = Array.from(document.querySelectorAll('button'));
+                        var targetPageBtn = allButtons.find(function(b) {
+                            return (b.innerText || '').trim() === String(targetPage) && !b.disabled;
+                        });
+
+                        if (targetPageBtn) {
+                            targetPageBtn.click();
+                            pageChanged = true;
+                            break;
+                        }
+
+                        // Check if Next Page button is enabled
+                        var nextBtn = document.querySelector('button[aria-label="btnNextPage"]');
+                        var isNextDisabled = !nextBtn || nextBtn.disabled || 
+                                             (nextBtn.className && (nextBtn.className.includes('disabled') || nextBtn.className.includes('cursor-not-allowed') || nextBtn.className.includes('opacity-')));
+
+                        if (nextBtn && !isNextDisabled) {
+                            nextBtn.click();
+                            pageChanged = true;
+                            break;
+                        }
+
+                        // Next button may be temporarily disabled while React fetches next batch
+                        await sleep(400);
                     }
 
-                    if (!nextBtn || nextBtn.disabled || (nextBtn.className && (nextBtn.className.includes('disabled') || nextBtn.className.includes('opacity-')))) {
+                    if (!pageChanged) {
+                        Android.onProgressUpdate(subject + ': Completed all pages (' + recordsScraped + ' records)');
                         break;
                     }
 
-                    nextBtn.click();
-
-                    var pw = 0;
-                    var pageLoaded = false;
-                    while (pw < 15000) {
-                        await sleep(400);
-                        var newRows = Array.from(document.querySelectorAll('li')).filter(function(li) {
+                    // Wait for new page rows to render
+                    var rowWait = 0;
+                    while (rowWait < 12000) {
+                        await sleep(300);
+                        var currentRows = Array.from(document.querySelectorAll('li')).filter(function(li) {
                             var cls = (li.className || '').toLowerCase();
                             var txt = li.innerText || '';
                             return (cls.includes('bg-green') || cls.includes('bg-red') || cls.includes('min-w-max')) && 
                                    txt.includes('/') && txt.includes(':');
                         });
-                        if (newRows.length > 0 && newRows[0].innerText.trim() !== topRowKey) {
-                            pageLoaded = true;
+                        if (currentRows.length > 0 && currentRows[0].innerText.trim() !== topRowKey) {
                             break;
                         }
-                        pw += 400;
+                        rowWait += 300;
                     }
-                    if (!pageLoaded) await sleep(1500);
+
                     pageNumber++;
                 }
 

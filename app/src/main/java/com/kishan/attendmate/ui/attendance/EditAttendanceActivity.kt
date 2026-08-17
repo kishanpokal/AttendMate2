@@ -46,27 +46,81 @@ import com.google.firebase.Timestamp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.DocumentSnapshot
 import com.kishan.attendmate.ui.theme.AttendMateTheme
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
-/* ---------------- SAFE TIME PARSER ---------------- */
-private fun parseTimeToCalendar(raw: Any?, baseDate: Calendar): Calendar {
-    val cal = baseDate.clone() as Calendar
-    when (raw) {
-        is Timestamp -> cal.timeInMillis = raw.toDate().time
+/* ---------------- SAFE DATE & TIME PARSER ---------------- */
+private fun readDate(doc: DocumentSnapshot): Date? {
+    val value = doc.get("date") ?: return null
+    return when (value) {
+        is Timestamp -> value.toDate()
+        is Date -> value
+        is Long -> Date(value)
+        is Double -> Date(value.toLong())
         is String -> {
-            val parts = raw.split(":")
-            if (parts.size == 2) {
-                cal.set(Calendar.HOUR_OF_DAY, parts[0].toIntOrNull() ?: 0)
-                cal.set(Calendar.MINUTE, parts[1].toIntOrNull() ?: 0)
+            val patterns = listOf(
+                "dd/MM/yyyy",
+                "yyyy-MM-dd",
+                "dd-MM-yyyy",
+                "yyyy/MM/dd",
+                "d/M/yyyy",
+                "d-M-yyyy",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                "EEE MMM dd HH:mm:ss zzz yyyy",
+                "dd MMM yyyy"
+            )
+            for (pattern in patterns) {
+                try {
+                    val sdf = SimpleDateFormat(pattern, Locale.getDefault())
+                    sdf.isLenient = true
+                    val parsed = sdf.parse(value)
+                    if (parsed != null) return parsed
+                } catch (_: Exception) {}
+            }
+            value.toLongOrNull()?.let { Date(it) }
+        }
+        else -> null
+    }
+}
+
+private fun parseTimeToCalendar(raw: Any?, baseDate: Calendar): Calendar {
+    val cal = (baseDate.clone() as Calendar).apply {
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    when (raw) {
+        is Timestamp -> {
+            val rawCal = Calendar.getInstance().apply { time = raw.toDate() }
+            cal.set(Calendar.HOUR_OF_DAY, rawCal.get(Calendar.HOUR_OF_DAY))
+            cal.set(Calendar.MINUTE, rawCal.get(Calendar.MINUTE))
+        }
+        is Date -> {
+            val rawCal = Calendar.getInstance().apply { time = raw }
+            cal.set(Calendar.HOUR_OF_DAY, rawCal.get(Calendar.HOUR_OF_DAY))
+            cal.set(Calendar.MINUTE, rawCal.get(Calendar.MINUTE))
+        }
+        is Long -> {
+            val rawCal = Calendar.getInstance().apply { timeInMillis = raw }
+            cal.set(Calendar.HOUR_OF_DAY, rawCal.get(Calendar.HOUR_OF_DAY))
+            cal.set(Calendar.MINUTE, rawCal.get(Calendar.MINUTE))
+        }
+        is String -> {
+            if (raw.contains(":")) {
+                val parts = raw.trim().split(":")
+                if (parts.size >= 2) {
+                    val h = parts[0].trim().toIntOrNull() ?: 0
+                    val m = parts[1].trim().take(2).toIntOrNull() ?: 0
+                    cal.set(Calendar.HOUR_OF_DAY, h)
+                    cal.set(Calendar.MINUTE, m)
+                }
             }
         }
     }
-    cal.set(Calendar.SECOND, 0)
-    cal.set(Calendar.MILLISECOND, 0)
     return cal
 }
 
@@ -142,7 +196,7 @@ fun EditAttendanceScreen(
                 .collection("attendance").document(attendanceId)
                 .get().await()
 
-            val date = (attendanceSnap.getTimestamp("date") ?: Timestamp.now()).toDate()
+            val date = readDate(attendanceSnap) ?: Date()
             lectureDate.timeInMillis = date.time
 
             startTime = attendanceSnap.get("startTime")

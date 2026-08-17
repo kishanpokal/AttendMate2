@@ -60,7 +60,41 @@ import kotlinx.coroutines.tasks.await
 import java.text.SimpleDateFormat
 import java.util.*
 
-/* -------------------- SAFE TIME READER -------------------- */
+/* -------------------- SAFE DATE & TIME READERS -------------------- */
+private fun readDate(doc: DocumentSnapshot): Date? {
+    val value = doc.get("date") ?: return null
+    return when (value) {
+        is Timestamp -> value.toDate()
+        is Date -> value
+        is Long -> Date(value)
+        is Double -> Date(value.toLong())
+        is String -> {
+            val patterns = listOf(
+                "dd/MM/yyyy",
+                "yyyy-MM-dd",
+                "dd-MM-yyyy",
+                "yyyy/MM/dd",
+                "d/M/yyyy",
+                "d-M-yyyy",
+                "yyyy-MM-dd'T'HH:mm:ss",
+                "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                "EEE MMM dd HH:mm:ss zzz yyyy",
+                "dd MMM yyyy"
+            )
+            for (pattern in patterns) {
+                try {
+                    val sdf = SimpleDateFormat(pattern, Locale.getDefault())
+                    sdf.isLenient = true
+                    val parsed = sdf.parse(value)
+                    if (parsed != null) return parsed
+                } catch (_: Exception) {}
+            }
+            value.toLongOrNull()?.let { Date(it) }
+        }
+        else -> null
+    }
+}
+
 private fun readTimeAsString(
     doc: DocumentSnapshot,
     field: String
@@ -70,7 +104,25 @@ private fun readTimeAsString(
         is Timestamp -> {
             SimpleDateFormat("HH:mm", Locale.getDefault()).format(value.toDate())
         }
-        is String -> value
+        is Date -> {
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(value)
+        }
+        is Long -> {
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(value))
+        }
+        is Double -> {
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(value.toLong()))
+        }
+        is String -> {
+            if (value.contains(":")) {
+                val parts = value.trim().split(":")
+                if (parts.size >= 2) {
+                    val h = parts[0].trim().padStart(2, '0')
+                    val m = parts[1].trim().take(2).padStart(2, '0')
+                    "$h:$m"
+                } else value
+            } else value
+        }
         else -> ""
     }
 }
@@ -192,8 +244,8 @@ fun AttendanceListScreen(
                     .await()
 
                 for (doc in attendanceSnap.documents) {
-                    val date = doc.getTimestamp("date")?.toDate() ?: continue
-                    val status = doc.getString("status")?.uppercase() ?: "ABSENT"
+                    val date = readDate(doc) ?: continue
+                    val status = (doc.getString("status") ?: "ABSENT").uppercase()
                     val startTime = readTimeAsString(doc, "startTime")
                     val endTime = readTimeAsString(doc, "endTime")
                     val note = doc.getString("note")
