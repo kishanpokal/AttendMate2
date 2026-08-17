@@ -173,10 +173,16 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
         isRefreshing = false
     }
 
-    // Reload app data after scraping completes
+    // Reload app data and scraped data after scraping completes
     LaunchedEffect(isScraping) {
-        if (!isScraping && scrapedData.isNotEmpty()) {
+        if (!isScraping) {
+            val saved = loadScrapedData(context)
+            if (saved.isNotEmpty()) {
+                scrapedData = saved
+                subjects = buildSubjectList(saved)
+            }
             appData = loadAppAttendanceFromFirestore()
+            appSubjectMap = loadAppSubjectMapFromFirestore()
         }
     }
 
@@ -1221,212 +1227,6 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
 
                     item { Spacer(Modifier.height(48.dp)) }
                 }
-
-                // ── Invisible WebView (scraping engine) ──────────────────────
-                Box(modifier = Modifier.size(1.dp).alpha(0f)) {
-                    AndroidView(
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                settings.userAgentString =
-                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
-                                            "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-
-                                addJavascriptInterface(
-                                    ScraperBridge(
-                                        progressCb = { msg: String ->
-                                            coroutineScope.launch(Dispatchers.Main) {
-                                                statusText = msg
-
-                                                // --- NEW: Parse scraper text and trigger 3D planet animations! ---
-                                                Regex("Processing:\\s*([^(]+)\\s*\\((\\d+)/(\\d+)\\)").find(msg)?.let {
-                                                    val name = it.groupValues[1].trim()
-                                                    ScrapingEventBus.tryEmit(ScrapingEvent.SpawnSubject(name))
-                                                    ScrapingEventBus.tryEmit(ScrapingEvent.StartExtraction(name))
-                                                }
-
-                                                Regex("(.*?)\\s*—\\s*page\\s*\\d+\\s*\\((\\d+)/(\\d+)\\)").find(msg)?.let {
-                                                    val pct = ((it.groupValues[2].toFloat() / it.groupValues[3].toFloat()) * 100).coerceIn(0f, 100f)
-                                                    ScrapingEventBus.tryEmit(ScrapingEvent.UpdateProgress(pct, msg))
-                                                }
-
-                                                Regex("(.*?):\\s*Scraped\\s*(\\d+)\\s*records").find(msg)?.let {
-                                                    val name = it.groupValues[1].trim()
-                                                    val count = it.groupValues[2].toIntOrNull() ?: 0
-                                                    if (count > 0) ScrapingEventBus.tryEmit(ScrapingEvent.RecordExtracted(count))
-                                                    ScrapingEventBus.tryEmit(ScrapingEvent.FinishSubject(name))
-                                                }
-
-                                                if (msg.contains("No attendance data") || msg.contains("Skipping")) {
-                                                    Regex("(.*?):\\s*(No attendance|Skipping)").find(msg)?.let {
-                                                        ScrapingEventBus.tryEmit(ScrapingEvent.FinishSubject(it.groupValues[1].trim()))
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        errorCb = { error: String ->
-                                            coroutineScope.launch(Dispatchers.Main) {
-                                                Log.e("CollegeSync", "Scrape error: $error")
-                                                statusText = "Error: $error"
-                                                phaseState.value = ScrapePhase.IDLE
-                                            }
-                                        },
-                                        dataCb = { json: String ->
-                                            coroutineScope.launch(Dispatchers.Main) {
-                                                statusText = "Processing data..."
-                                                try {
-                                                    val list =
-                                                        mutableListOf<
-                                                                CollegeAttendanceRecord>()
-                                                    val arr = JSONArray(json)
-                                                    if (arr.length() == 0) {
-                                                        Log.d(
-                                                            "CollegeSync",
-                                                            "Empty extraction: no records found"
-                                                        )
-                                                        scrapedData = emptyList()
-                                                        saveScrapedData(context, emptyList())
-                                                        statusText = "Sync complete — no records found."
-                                                        phaseState.value = ScrapePhase.IDLE
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Sync finished!",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                        return@launch
-                                                    }
-                                                    for (i in 0 until arr.length()) {
-                                                        val o = arr.getJSONObject(i)
-                                                        list.add(
-                                                            CollegeAttendanceRecord(
-                                                                subject =
-                                                                    o.optString(
-                                                                        "subject",
-                                                                        ""
-                                                                    ),
-                                                                date =
-                                                                    o.optString(
-                                                                        "date",
-                                                                        ""
-                                                                    ),
-                                                                fromTime =
-                                                                    o.optString(
-                                                                        "fromTime",
-                                                                        ""
-                                                                    ),
-                                                                toTime =
-                                                                    o.optString(
-                                                                        "toTime",
-                                                                        ""
-                                                                    ),
-                                                                topic =
-                                                                    o.optString(
-                                                                        "topic",
-                                                                        ""
-                                                                    ),
-                                                                status =
-                                                                    o.optString(
-                                                                        "status",
-                                                                        ""
-                                                                    )
-                                                            )
-                                                        )
-                                                    }
-                                                    scrapedData = list
-                                                    saveScrapedData(context, list)
-                                                    statusText =
-                                                        "Sync complete — ${list.size} records."
-                                                    Log.d(
-                                                        "CollegeSync",
-                                                        "Saved ${list.size} records"
-                                                    )
-                                                    phaseState.value = ScrapePhase.IDLE
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Sync finished!",
-                                                        Toast.LENGTH_SHORT
-                                                    )
-                                                        .show()
-                                                } catch (ex: Exception) {
-                                                    Log.e("CollegeSync", "Parse error", ex)
-                                                    statusText =
-                                                        "Parse error: ${ex.message}"
-                                                    phaseState.value = ScrapePhase.IDLE
-                                                }
-                                            }
-                                        },
-                                        loginSuccessCb = {
-                                            coroutineScope.launch(Dispatchers.Main) {
-                                                if (phaseState.value == ScrapePhase.LOGIN_INJECTED) {
-                                                    statusText = "Logged in! Loading attendance page..."
-                                                    Log.d("CollegeSync", "Login success — navigating to attendance")
-                                                    phaseState.value = ScrapePhase.SCRAPING
-                                                    webViewRef?.loadUrl("https://attendence-system-1910.vercel.app/students/current/attendances")
-                                                }
-                                            }
-                                        }
-                                    ),
-                                    "Android"
-                                )
-
-                                webViewClient =
-                                    object : WebViewClient() {
-                                        override fun onPageFinished(
-                                            view: WebView,
-                                            url: String
-                                        ) {
-                                            super.onPageFinished(view, url)
-                                            val phase = phaseState.value
-                                            Log.d(
-                                                "CollegeSync",
-                                                "onPageFinished url=$url phase=$phase"
-                                            )
-
-                                            when {
-                                                // ── LOGIN phase + login page → fill form ──
-                                                phase == ScrapePhase.LOGIN && url.contains("/users/login") -> {
-                                                    statusText = "Filling login form..."
-                                                    phaseState.value = ScrapePhase.LOGIN_INJECTED // Lock to prevent double injection
-
-                                                    val safeEmail = email.replace("\\", "\\\\").replace("'", "\\'")
-                                                    val safePassword = password.replace("\\", "\\\\").replace("'", "\\'")
-                                                    val js = ScraperScripts.buildLoginScript(safeEmail, safePassword)
-                                                    Log.d("CollegeSync", "Injecting login script")
-                                                    view.evaluateJavascript(js, null)
-                                                }
-
-                                                // ── SCRAPING phase + attendance page → scrape ──
-                                                phase == ScrapePhase.SCRAPING && url.contains("/students/current/attendances") -> {
-                                                    statusText = "Extracting data..."
-                                                    phaseState.value = ScrapePhase.EXTRACTING // Lock to prevent double injection
-
-                                                    Log.d("CollegeSync", "Injecting scraping script")
-                                                    val sem = syncPrefs.selectedSemester ?: "Sem9"
-                                                    val subjs = syncPrefs.targetSubjects?.toList() ?: emptyList()
-                                                    view.evaluateJavascript(ScraperScripts.buildScrapingScript(sem, subjs), null)
-                                                }
-
-                                                // ── SCRAPING phase + bounced to login → expired ──
-                                                (phase == ScrapePhase.SCRAPING || phase == ScrapePhase.EXTRACTING) && url.contains("/users/login") -> {
-                                                    coroutineScope.launch(Dispatchers.Main) {
-                                                        statusText = "Session expired — please sync again."
-                                                        phaseState.value = ScrapePhase.IDLE
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                webViewRef = this
-                            }
-                        },
-                        onRelease = { webView ->
-                            webView.removeJavascriptInterface("Android")
-                            webView.destroy()
-                        }
-                    )
-                }
             }
         }
 
@@ -1439,10 +1239,8 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                 phase = phaseState.value,
                 statusText = statusText,
                 onCancel = {
-                    webViewRef?.stopLoading()
                     phaseState.value = ScrapePhase.IDLE
-
-                    // ADD THIS NEW LINE RIGHT HERE:
+                    statusText = "Sync cancelled"
                     ScrapingEventBus.clearHistory()
 
                     val stopIntent = Intent(context, CollegeSyncService::class.java).apply {
@@ -1600,16 +1398,12 @@ fun CollegeSyncScreen(onBack: () -> Unit) {
                         phaseState.value = ScrapePhase.LOGIN
                         statusText = "Starting login..."
                         Log.d("CollegeSync", "Sync started from bottom sheet")
-                        webViewRef?.loadUrl(
-                            "https://attendence-system-1910.vercel.app/users/login"
-                        )
-                        // ── NEW: Start Foreground Service for background-safe scraping (planets will still spawn via EventBus) ──
+                        
                         val serviceIntent = Intent(context, CollegeSyncService::class.java).apply {
                             putExtra("EMAIL", email)
                             putExtra("PASSWORD", password)
                         }
                         ContextCompat.startForegroundService(context, serviceIntent)
-                        // Old webView path is kept (no deletion) for immediate foreground feedback
                     },
                     modifier =
                         Modifier.fillMaxWidth()

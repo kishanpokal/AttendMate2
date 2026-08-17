@@ -95,11 +95,11 @@ class CollegeSyncService : Service() {
                         stopSelf()
                     },
                     loginSuccessCb = {
-                        if (currentPhase == ScrapePhase.LOGIN_INJECTED) {
+                        if (currentPhase == ScrapePhase.LOGIN || currentPhase == ScrapePhase.LOGIN_INJECTED) {
                             currentPhase = ScrapePhase.SCRAPING
                             ScrapingEventBus.tryEmit(ScrapingEvent.SetPhase(currentPhase))
                             CoroutineScope(Dispatchers.Main).launch {
-                                loadUrl("https://attendence-system-1910.vercel.app/students/current/attendances")
+                                webView?.loadUrl("https://attendence-system-1910.vercel.app/students/current/attendances")
                             }
                         }
                     }
@@ -107,18 +107,17 @@ class CollegeSyncService : Service() {
             )
 
             webViewClient = object : WebViewClient() {
-                override fun onPageFinished(view: WebView, url: String) {
-                    super.onPageFinished(view, url)
-
+                private fun checkAndInject(view: WebView, url: String) {
+                    Log.d("CollegeSyncService", "checkAndInject url=$url currentPhase=$currentPhase")
                     when {
-                        currentPhase == ScrapePhase.LOGIN && url.contains("/users/login") -> {
+                        (currentPhase == ScrapePhase.LOGIN || currentPhase == ScrapePhase.LOGIN_INJECTED) && url.contains("/users/login") -> {
                             currentPhase = ScrapePhase.LOGIN_INJECTED
                             ScrapingEventBus.tryEmit(ScrapingEvent.SetPhase(currentPhase))
                             val safeEmail = email.replace("\\", "\\\\").replace("'", "\\'")
                             val safePassword = password.replace("\\", "\\\\").replace("'", "\\'")
                             view.evaluateJavascript(ScraperScripts.buildLoginScript(safeEmail, safePassword), null)
                         }
-                        currentPhase == ScrapePhase.SCRAPING && url.contains("/students/current/attendances") -> {
+                        (currentPhase == ScrapePhase.SCRAPING || currentPhase == ScrapePhase.LOGIN || currentPhase == ScrapePhase.LOGIN_INJECTED) && url.contains("/students/current/attendances") -> {
                             currentPhase = ScrapePhase.EXTRACTING
                             ScrapingEventBus.tryEmit(ScrapingEvent.SetPhase(currentPhase))
                             val syncPrefs = CollegeSyncPreferences(this@CollegeSyncService)
@@ -127,6 +126,16 @@ class CollegeSyncService : Service() {
                             view.evaluateJavascript(ScraperScripts.buildScrapingScript(sem, subjects), null)
                         }
                     }
+                }
+
+                override fun onPageFinished(view: WebView, url: String) {
+                    super.onPageFinished(view, url)
+                    checkAndInject(view, url)
+                }
+
+                override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+                    super.doUpdateVisitedHistory(view, url, isReload)
+                    checkAndInject(view, url)
                 }
             }
 

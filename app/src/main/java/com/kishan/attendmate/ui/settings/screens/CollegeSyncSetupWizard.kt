@@ -268,7 +268,7 @@ fun CollegeSyncSetupWizard(onSetupComplete: () -> Unit, onBack: () -> Unit) {
                                                             val text = pageText?.replace("\"", "") ?: ""
                                                             android.util.Log.d("CollegeSync", "handleUrlChange page text: ${text.take(80)}")
                                                             
-                                                            if (text.contains("Your Attendances") || text.contains("Select Course") || text.contains("Select Subject")) {
+                                                            if (text.contains("Your Attendances") || text.contains("Select Course") || text.contains("Select Subject") || text.contains("Attendance System") || text.contains("Select Subject For Attendance")) {
                                                                 if (phaseState == ScrapePhase.LOGIN || phaseState == ScrapePhase.LOGIN_INJECTED || phaseState == ScrapePhase.FETCH_SUBJECTS) {
                                                                     coroutineScope.launch(Dispatchers.Main) {
                                                                         fetchStatus = "Logged in! Extracting subjects..."
@@ -363,7 +363,7 @@ fun CollegeSyncSetupWizard(onSetupComplete: () -> Unit, onBack: () -> Unit) {
                                         val text = pageText?.replace("\"", "") ?: ""
                                         android.util.Log.d("CollegeSync", "URL Poller page text: ${text.take(80)}")
                                         
-                                        if (text.contains("Your Attendances") || text.contains("Select Course") || text.contains("Select Subject")) {
+                                        if (text.contains("Your Attendances") || text.contains("Select Course") || text.contains("Select Subject") || text.contains("Attendance System") || text.contains("Select Subject For Attendance")) {
                                             if (phaseState == ScrapePhase.LOGIN || phaseState == ScrapePhase.LOGIN_INJECTED || phaseState == ScrapePhase.FETCH_SUBJECTS) {
                                                 coroutineScope.launch(Dispatchers.Main) {
                                                     fetchStatus = "Session detected! Extracting subjects..."

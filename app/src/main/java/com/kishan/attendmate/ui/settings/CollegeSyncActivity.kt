@@ -464,26 +464,21 @@ object ScraperScripts {
     fun buildLoginScript(safeEmail: String, safePassword: String): String =
         """
     (async function() {
-        if (window.__loginScriptInjected) return;
-        window.__loginScriptInjected = true;
         try {
             Android.onProgressUpdate('Looking for login fields...');
 
             function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
 
-            // Simulate typing character by character — React picks up InputEvent
             function simulateTyping(input, text) {
                 input.focus();
                 input.value = '';
                 input.dispatchEvent(new Event('focus', { bubbles: true }));
                 
-                // Set value via native setter to bypass React's controlled input
                 var nativeSetter = Object.getOwnPropertyDescriptor(
                     window.HTMLInputElement.prototype, 'value'
                 ).set;
                 nativeSetter.call(input, text);
                 
-                // Dispatch the events React actually listens to
                 input.dispatchEvent(new InputEvent('input', {
                     bubbles: true, cancelable: true, inputType: 'insertText', data: text
                 }));
@@ -491,46 +486,36 @@ object ScraperScripts {
                 input.dispatchEvent(new Event('blur', { bubbles: true }));
             }
 
-            // Poll for login form fields
             var waited = 0;
             while (waited < 20000) {
-                if (document.body && (document.body.innerText.includes("Your Attendances") || document.body.innerText.includes("Your Today's Attendance"))) {
-                    Android.onProgressUpdate('Already logged in, skipping login form...');
-                    Android.loginSuccess();
+                if (document.body && (document.body.innerText.includes("Your Attendances") || document.body.innerText.includes("Your Today's Attendance") || document.body.innerText.includes("Select Subject For Attendance"))) {
+                    Android.onProgressUpdate('Already logged in, proceeding...');
+                    Android.onLoginSuccess();
                     return;
                 }
                 
-                var passInput  = document.querySelector("input[type='password']");
-                var emailInput = document.querySelector("input[type='email']") || document.querySelector("input[placeholder*='@']") || document.querySelector("input[type='text']") || document.querySelector("input");
-                var submitBtn  = Array.from(document.querySelectorAll('button')).find(b => b.innerText.toLowerCase().includes('log')) || document.querySelector("button[type='submit']") || document.querySelector("button");
+                var passInput  = document.getElementById('userPassword') || document.querySelector("input[type='password']");
+                var emailInput = document.getElementById('userEmail') || document.querySelector("input[type='email']") || document.querySelector("input[placeholder*='@']") || document.querySelector("input[type='text']");
+                var submitBtn  = document.querySelector("button[type='submit']") || Array.from(document.querySelectorAll('button')).find(b => (b.innerText || '').toLowerCase().includes('log'));
 
-                if (waited % 2000 === 0) {
-                    Android.onProgressUpdate('DEBUG: email=' + !!emailInput + ', pass=' + !!passInput + ', btn=' + !!submitBtn);
-                }
-                if (waited === 2000) {
-                    var text = document.body ? document.body.innerText.trim().substring(0, 150) : 'NO BODY';
-                    Android.onProgressUpdate('PAGE TEXT: ' + (text || 'EMPTY BODY'));
-                }
                 if (emailInput && passInput && submitBtn) {
                     Android.onProgressUpdate('Filling credentials...');
                     
                     simulateTyping(emailInput, '$safeEmail');
                     await sleep(300);
                     simulateTyping(passInput, '$safePassword');
-                    await sleep(500);
+                    await sleep(400);
                     
-                    Android.onProgressUpdate('Clicking login button...');
+                    Android.onProgressUpdate('Submitting login...');
                     submitBtn.click();
 
-                    // Wait for URL to change (login redirect)
                     var urlWait = 0;
                     while (urlWait < 20000) {
                         if (!window.location.href.includes('/users/login')) {
                             Android.onLoginSuccess();
                             return;
                         }
-                        // Also check for error messages on page
-                        var errorEl = document.querySelector('.error, .alert-danger, [role="alert"]');
+                        var errorEl = document.querySelector('.input__error-message, .glass--red, [role="alert"]');
                         if (errorEl && errorEl.innerText && errorEl.innerText.trim().length > 0) {
                             Android.onError('Login failed: ' + errorEl.innerText.trim());
                             return;
@@ -538,7 +523,7 @@ object ScraperScripts {
                         await sleep(500);
                         urlWait += 500;
                     }
-                    Android.onError('Login timed out after 20s — check your credentials.');
+                    Android.onError('Login timed out — please check credentials.');
                     return;
                 }
                 await sleep(500);
@@ -553,15 +538,131 @@ object ScraperScripts {
 
     fun buildSubjectFetchScript(semester: String): String = """
     (async function() {
-        if (window.__subjectScriptInjected) return;
-        window.__subjectScriptInjected = true;
         try {
-            Android.onProgressUpdate('Fetching subjects for ' + '$semester' + '...');
+            Android.onProgressUpdate('Preparing to fetch subjects for ' + '$semester' + '...');
             function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
 
-            // Step 1: Click "Your Attendances" button if visible
-            var waited = 0;
-            while (waited < 15000) {
+            async function getDropdownContainer(idOrLabel, maxWait) {
+                maxWait = maxWait || 20000;
+                var t = 0;
+                while (t < maxWait) {
+                    var el = document.getElementById(idOrLabel);
+                    if (el) {
+                        var container = el.closest('.input__container') || el.closest('.dropdown') || el.parentElement;
+                        if (container) return container;
+                    }
+                    var labels = document.querySelectorAll('label, .input__label');
+                    for (var i = 0; i < labels.length; i++) {
+                        var lText = (labels[i].innerText || '').toLowerCase();
+                        if (lText.includes(idOrLabel.toLowerCase())) {
+                            var parent = labels[i].closest('.input__container') || labels[i].parentElement;
+                            if (parent) return parent;
+                        }
+                    }
+                    await sleep(300);
+                    t += 300;
+                }
+                return null;
+            }
+
+            async function selectDropdown(idOrLabel, preferredValue) {
+                var displayName = preferredValue ? idOrLabel + ' (' + preferredValue + ')' : idOrLabel;
+                Android.onProgressUpdate('Selecting ' + displayName + '...');
+                
+                var container = await getDropdownContainer(idOrLabel, 15000);
+                if (!container) throw new Error('Dropdown not found: ' + idOrLabel);
+
+                var waitEnabled = 0;
+                while (waitEnabled < 15000) {
+                    var dropdownEl = container.querySelector('.dropdown') || container;
+                    var isDisabled = dropdownEl.classList.contains('dropdown--disabled') || 
+                                     (dropdownEl.innerText && dropdownEl.innerText.includes('Loading...'));
+                    if (!isDisabled) break;
+                    await sleep(300);
+                    waitEnabled += 300;
+                }
+
+                var selectedOptionEl = container.querySelector('.dropdown-selected-option');
+                if (!selectedOptionEl) throw new Error('Dropdown selected option box not found for ' + idOrLabel);
+
+                var currentSelectedText = (selectedOptionEl.innerText || '').trim();
+                
+                if (preferredValue && currentSelectedText.toLowerCase() === preferredValue.toLowerCase().trim()) {
+                    Android.onProgressUpdate(idOrLabel + ' already set to: ' + currentSelectedText);
+                    return currentSelectedText;
+                }
+
+                var listOpen = false;
+                for (var attempt = 0; attempt < 5; attempt++) {
+                    selectedOptionEl.scrollIntoView({ block: 'center' });
+                    await sleep(200);
+                    selectedOptionEl.click();
+                    await sleep(600);
+
+                    var items = container.querySelectorAll('.dropdown-list__item, li');
+                    if (items.length > 0) {
+                        listOpen = true;
+                        break;
+                    }
+                }
+
+                if (!listOpen) {
+                    if (currentSelectedText && currentSelectedText.toLowerCase() !== 'none' && !currentSelectedText.toLowerCase().includes('select')) {
+                        return currentSelectedText;
+                    }
+                    throw new Error('Could not open dropdown list for: ' + idOrLabel);
+                }
+
+                var items = Array.from(container.querySelectorAll('.dropdown-list__item, li'))
+                    .filter(function(li) {
+                        var txt = (li.innerText || '').trim().toLowerCase();
+                        return txt && txt !== 'none' && !txt.includes('select');
+                    });
+
+                if (items.length === 0) {
+                    selectedOptionEl.click();
+                    await sleep(300);
+                    if (currentSelectedText && currentSelectedText.toLowerCase() !== 'none') {
+                        return currentSelectedText;
+                    }
+                    throw new Error('No available options found for: ' + idOrLabel);
+                }
+
+                var chosenItem = null;
+                if (preferredValue && preferredValue.trim().length > 0) {
+                    var targetLower = preferredValue.toLowerCase().trim();
+                    chosenItem = items.find(function(li) {
+                        return (li.innerText || '').trim().toLowerCase() === targetLower;
+                    });
+                    if (!chosenItem) {
+                        var cleanTarget = targetLower.replace(/[^a-z0-9]/g, '');
+                        chosenItem = items.find(function(li) {
+                            var cleanLi = (li.innerText || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                            return cleanLi === cleanTarget;
+                        });
+                    }
+                    if (!chosenItem) {
+                        chosenItem = items.find(function(li) {
+                            var liTxt = (li.innerText || '').trim().toLowerCase();
+                            return liTxt.includes(targetLower) || targetLower.includes(liTxt);
+                        });
+                    }
+                }
+
+                if (!chosenItem) {
+                    chosenItem = items[0];
+                }
+
+                var chosenText = (chosenItem.innerText || '').trim();
+                Android.onProgressUpdate('Selected ' + idOrLabel + ' → ' + chosenText);
+                chosenItem.click();
+                await sleep(800);
+                return chosenText;
+            }
+
+            // Step 1: Wait for the filter form to be ready
+            var formReadyWait = 0;
+            while (formReadyWait < 15000) {
                 var buttons = document.querySelectorAll('button, a');
                 var attendBtn = null;
                 for (var i = 0; i < buttons.length; i++) {
@@ -572,120 +673,58 @@ object ScraperScripts {
                     }
                 }
                 if (attendBtn) {
-                    Android.onProgressUpdate('Clicking "Your Attendances" button...');
                     attendBtn.click();
-                    await sleep(3000);
+                    await sleep(2000);
                     break;
                 }
-                
-                // Maybe we're already on the filter page (check for labels)
-                var labels = document.querySelectorAll('label');
-                var hasFilter = false;
-                for (var j = 0; j < labels.length; j++) {
-                    if (labels[j].innerText && labels[j].innerText.toLowerCase().includes('select')) {
-                        hasFilter = true;
-                        break;
-                    }
-                }
-                if (hasFilter) {
-                    Android.onProgressUpdate('Already on filter page...');
-                    break;
-                }
-                
-                await sleep(1000);
-                waited += 1000;
-            }
-
-            // Step 2: Debug - log what we see on the page
-            Android.onProgressUpdate('PAGE: ' + (document.body ? document.body.innerText.trim().substring(0, 100).replace(/\n/g, ' ') : 'EMPTY'));
-
-            async function findLabel(text, maxWait) {
-                maxWait = maxWait || 15000;
-                var t = 0;
-                while (t < maxWait) {
-                    var labels = document.querySelectorAll('label');
-                    for (var i = 0; i < labels.length; i++) {
-                        if (labels[i].innerText && labels[i].innerText.toLowerCase().includes(text.toLowerCase())) {
-                            return labels[i];
-                        }
-                    }
-                    await sleep(500);
-                    t += 500;
-                }
-                return null;
-            }
-
-            async function selectDropdown(labelText, optionText) {
-                Android.onProgressUpdate('Setting ' + labelText + ' → ' + optionText);
-                var label = await findLabel(labelText);
-                if (!label) throw new Error('Label not found: ' + labelText);
-
-                label.scrollIntoView({ block: 'center' });
+                var courseEl = document.getElementById('course') || document.querySelector("label");
+                if (courseEl) break;
                 await sleep(500);
-
-                var box = label.nextElementSibling.querySelector('.dropdown-selected-option')
-                          || label.nextElementSibling;
-
-                var target = null;
-                var retry = 0;
-                
-                while(retry < 5) {
-                    box.click();
-                    await sleep(1500); 
-
-                    var lowerOption = optionText.toLowerCase().trim();
-                    var allEls = document.querySelectorAll('*');
-                    var visibleMatches = [];
-
-                    for (var k = 0; k < allEls.length; k++) {
-                        var el = allEls[k];
-                        if (el.offsetHeight > 0 && el.innerText) {
-                            var elText = el.innerText.trim().toLowerCase();
-                            if (elText === lowerOption && el.children.length === 0) {
-                                visibleMatches.push(el);
-                            }
-                        }
-                    }
-
-                    if (visibleMatches.length > 0) {
-                        target = visibleMatches[visibleMatches.length - 1];
-                        break;
-                    }
-
-                    Android.onProgressUpdate('Retrying exact match for ' + optionText + ' (' + (retry+1) + '/5)');
-                    box.click(); 
-                    await sleep(1000);
-                    retry++;
-                }
-
-                if (!target) throw new Error('Option not found or not visible: ' + optionText);
-                Android.onProgressUpdate('Selected: ' + target.innerText.trim());
-                target.click();
-                await sleep(1000);
+                formReadyWait += 500;
             }
 
-            await findLabel('Select Course', 15000);
-            await selectDropdown('Select Course',   'Msc Cs');
-            await selectDropdown('Select Batch',    'MSC CS BATCH 2022-2027');
-            await selectDropdown('Select Division', 'MSC CS BATCH 2022-2027 Div-2');
-            await selectDropdown('Select Semester', '$semester');
+            // Step 2: Configure Course, Batch, Division, and Semester
+            await selectDropdown('course', 'Msc Cs');
+            await selectDropdown('batch', '');
+            await selectDropdown('division', '');
+            await selectDropdown('semester', '$semester');
 
-            var subjectLabel = await findLabel('Select Subjects');
-            if (!subjectLabel) throw new Error('Subject dropdown label not found');
+            // Step 3: Extract all subjects
+            Android.onProgressUpdate('Reading subject options for ' + '$semester' + '...');
+            var subContainer = await getDropdownContainer('subjects', 15000);
+            if (!subContainer) throw new Error('Subjects dropdown container not found');
 
-            var subjectBox = subjectLabel.nextElementSibling.querySelector('.dropdown-selected-option') || subjectLabel.nextElementSibling;
-            subjectBox.click();
-            await sleep(1000);
+            var waitSub = 0;
+            while (waitSub < 15000) {
+                var dropdownEl = subContainer.querySelector('.dropdown') || subContainer;
+                var isSubDisabled = dropdownEl.classList.contains('dropdown--disabled') || 
+                                    (dropdownEl.innerText && dropdownEl.innerText.includes('Loading...'));
+                if (!isSubDisabled) break;
+                await sleep(300);
+                waitSub += 300;
+            }
 
-            var rawText = subjectLabel.nextElementSibling.innerText;
-            var allSubjects = rawText.split('\n')
-                .map(function(s) { return s.trim(); })
-                .filter(function(s) { return s && s.toLowerCase() !== 'none' && !s.toLowerCase().includes('select'); });
+            var subBox = subContainer.querySelector('.dropdown-selected-option');
+            if (!subBox) throw new Error('Subjects dropdown box not found');
 
-            subjectBox.click(); 
-            await sleep(1000);
+            subBox.click();
+            await sleep(800);
 
-            Android.onSubjectsFetched(JSON.stringify(allSubjects));
+            var subItems = Array.from(subContainer.querySelectorAll('.dropdown-list__item, li'))
+                .map(function(li) { return (li.innerText || '').trim(); })
+                .filter(function(txt) {
+                    return txt && txt.toLowerCase() !== 'none' && !txt.toLowerCase().includes('select');
+                });
+
+            subBox.click();
+            await sleep(300);
+
+            if (subItems.length === 0) {
+                throw new Error('No subjects found for semester ' + '$semester');
+            }
+
+            Android.onProgressUpdate('Found ' + subItems.length + ' subjects: ' + subItems.join(', '));
+            Android.onSubjectsFetched(JSON.stringify(subItems));
         } catch (e) {
             Android.onError('Fetch subjects error: ' + (e.message || String(e)));
         }
@@ -693,18 +732,134 @@ object ScraperScripts {
     """.trimIndent()
 
     fun buildScrapingScript(semester: String, targetSubjects: List<String>): String {
-        val subjectsArrayJs = targetSubjects.joinToString(prefix = "['", postfix = "']", separator = "','") { it.replace("'", "\'") }
+        val subjectsArrayJs = targetSubjects.joinToString(prefix = "['", postfix = "']", separator = "','") { it.replace("'", "\\'") }
         return """
     (async function() {
-        if (window.__scrapingScriptInjected) return;
-        window.__scrapingScriptInjected = true;
         try {
-            Android.onProgressUpdate('Setting up search parameters...');
+            Android.onProgressUpdate('Initializing attendance sync...');
             function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
 
-            // Step 1: Click "Your Attendances" button if visible
-            var waited = 0;
-            while (waited < 15000) {
+            async function getDropdownContainer(idOrLabel, maxWait) {
+                maxWait = maxWait || 20000;
+                var t = 0;
+                while (t < maxWait) {
+                    var el = document.getElementById(idOrLabel);
+                    if (el) {
+                        var container = el.closest('.input__container') || el.closest('.dropdown') || el.parentElement;
+                        if (container) return container;
+                    }
+                    var labels = document.querySelectorAll('label, .input__label');
+                    for (var i = 0; i < labels.length; i++) {
+                        var lText = (labels[i].innerText || '').toLowerCase();
+                        if (lText.includes(idOrLabel.toLowerCase())) {
+                            var parent = labels[i].closest('.input__container') || labels[i].parentElement;
+                            if (parent) return parent;
+                        }
+                    }
+                    await sleep(300);
+                    t += 300;
+                }
+                return null;
+            }
+
+            async function selectDropdown(idOrLabel, preferredValue) {
+                var displayName = preferredValue ? idOrLabel + ' (' + preferredValue + ')' : idOrLabel;
+                Android.onProgressUpdate('Selecting ' + displayName + '...');
+                
+                var container = await getDropdownContainer(idOrLabel, 15000);
+                if (!container) throw new Error('Dropdown not found: ' + idOrLabel);
+
+                var waitEnabled = 0;
+                while (waitEnabled < 15000) {
+                    var dropdownEl = container.querySelector('.dropdown') || container;
+                    var isDisabled = dropdownEl.classList.contains('dropdown--disabled') || 
+                                     (dropdownEl.innerText && dropdownEl.innerText.includes('Loading...'));
+                    if (!isDisabled) break;
+                    await sleep(300);
+                    waitEnabled += 300;
+                }
+
+                var selectedOptionEl = container.querySelector('.dropdown-selected-option');
+                if (!selectedOptionEl) throw new Error('Dropdown selected option box not found for ' + idOrLabel);
+
+                var currentSelectedText = (selectedOptionEl.innerText || '').trim();
+                
+                if (preferredValue && currentSelectedText.toLowerCase() === preferredValue.toLowerCase().trim()) {
+                    Android.onProgressUpdate(idOrLabel + ' already set to: ' + currentSelectedText);
+                    return currentSelectedText;
+                }
+
+                var listOpen = false;
+                for (var attempt = 0; attempt < 5; attempt++) {
+                    selectedOptionEl.scrollIntoView({ block: 'center' });
+                    await sleep(200);
+                    selectedOptionEl.click();
+                    await sleep(600);
+
+                    var items = container.querySelectorAll('.dropdown-list__item, li');
+                    if (items.length > 0) {
+                        listOpen = true;
+                        break;
+                    }
+                }
+
+                if (!listOpen) {
+                    if (currentSelectedText && currentSelectedText.toLowerCase() !== 'none' && !currentSelectedText.toLowerCase().includes('select')) {
+                        return currentSelectedText;
+                    }
+                    throw new Error('Could not open dropdown list for: ' + idOrLabel);
+                }
+
+                var items = Array.from(container.querySelectorAll('.dropdown-list__item, li'))
+                    .filter(function(li) {
+                        var txt = (li.innerText || '').trim().toLowerCase();
+                        return txt && txt !== 'none' && !txt.includes('select');
+                    });
+
+                if (items.length === 0) {
+                    selectedOptionEl.click();
+                    await sleep(300);
+                    if (currentSelectedText && currentSelectedText.toLowerCase() !== 'none') {
+                        return currentSelectedText;
+                    }
+                    throw new Error('No available options found for: ' + idOrLabel);
+                }
+
+                var chosenItem = null;
+                if (preferredValue && preferredValue.trim().length > 0) {
+                    var targetLower = preferredValue.toLowerCase().trim();
+                    chosenItem = items.find(function(li) {
+                        return (li.innerText || '').trim().toLowerCase() === targetLower;
+                    });
+                    if (!chosenItem) {
+                        var cleanTarget = targetLower.replace(/[^a-z0-9]/g, '');
+                        chosenItem = items.find(function(li) {
+                            var cleanLi = (li.innerText || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+                            return cleanLi === cleanTarget;
+                        });
+                    }
+                    if (!chosenItem) {
+                        chosenItem = items.find(function(li) {
+                            var liTxt = (li.innerText || '').trim().toLowerCase();
+                            return liTxt.includes(targetLower) || targetLower.includes(liTxt);
+                        });
+                    }
+                }
+
+                if (!chosenItem) {
+                    chosenItem = items[0];
+                }
+
+                var chosenText = (chosenItem.innerText || '').trim();
+                Android.onProgressUpdate('Selected ' + idOrLabel + ' → ' + chosenText);
+                chosenItem.click();
+                await sleep(800);
+                return chosenText;
+            }
+
+            // Step 1: Navigate to filter form if needed
+            var formReadyWait = 0;
+            while (formReadyWait < 15000) {
                 var buttons = document.querySelectorAll('button, a');
                 var attendBtn = null;
                 for (var i = 0; i < buttons.length; i++) {
@@ -715,171 +870,110 @@ object ScraperScripts {
                     }
                 }
                 if (attendBtn) {
-                    Android.onProgressUpdate('Clicking "Your Attendances" button...');
                     attendBtn.click();
-                    await sleep(3000);
+                    await sleep(2000);
                     break;
                 }
-                
-                // Maybe we're already on the filter page (check for labels)
-                var labels = document.querySelectorAll('label');
-                var hasFilter = false;
-                for (var j = 0; j < labels.length; j++) {
-                    if (labels[j].innerText && labels[j].innerText.toLowerCase().includes('select')) {
-                        hasFilter = true;
-                        break;
-                    }
-                }
-                if (hasFilter) {
-                    Android.onProgressUpdate('Already on filter page...');
-                    break;
-                }
-                
-                await sleep(1000);
-                waited += 1000;
-            }
-
-            // Step 2: Debug - log what we see on the page
-            Android.onProgressUpdate('PAGE: ' + (document.body ? document.body.innerText.trim().substring(0, 100).replace(/\n/g, ' ') : 'EMPTY'));
-
-            async function findLabel(text, maxWait) {
-                maxWait = maxWait || 15000;
-                var t = 0;
-                while (t < maxWait) {
-                    var labels = document.querySelectorAll('label');
-                    for (var i = 0; i < labels.length; i++) {
-                        if (labels[i].innerText && labels[i].innerText.toLowerCase().includes(text.toLowerCase())) {
-                            return labels[i];
-                        }
-                    }
-                    await sleep(500);
-                    t += 500;
-                }
-                return null;
-            }
-
-            async function selectDropdown(labelText, optionText) {
-                Android.onProgressUpdate('Setting ' + labelText + ' → ' + optionText);
-                var label = await findLabel(labelText);
-                if (!label) throw new Error('Label not found: ' + labelText);
-
-                label.scrollIntoView({ block: 'center' });
+                var courseEl = document.getElementById('course') || document.querySelector("label");
+                if (courseEl) break;
                 await sleep(500);
-
-                var box = label.nextElementSibling.querySelector('.dropdown-selected-option')
-                          || label.nextElementSibling;
-
-                var target = null;
-                var retry = 0;
-                
-                while(retry < 5) {
-                    box.click();
-                    await sleep(1500); 
-
-                    var lowerOption = optionText.toLowerCase().trim();
-                    var allEls = document.querySelectorAll('*');
-                    var visibleMatches = [];
-
-                    for (var k = 0; k < allEls.length; k++) {
-                        var el = allEls[k];
-                        if (el.offsetHeight > 0 && el.innerText) {
-                            var elText = el.innerText.trim().toLowerCase();
-                            if (elText === lowerOption && el.children.length === 0) {
-                                visibleMatches.push(el);
-                            }
-                        }
-                    }
-
-                    if (visibleMatches.length > 0) {
-                        target = visibleMatches[visibleMatches.length - 1];
-                        break;
-                    }
-
-                    Android.onProgressUpdate('Retrying exact match for ' + optionText + ' (' + (retry+1) + '/5)');
-                    box.click(); 
-                    await sleep(1000);
-                    retry++;
-                }
-
-                if (!target) throw new Error('Option not found or not visible: ' + optionText);
-                Android.onProgressUpdate('Selected: ' + target.innerText.trim());
-                target.click();
-                await sleep(1000);
+                formReadyWait += 500;
             }
 
-            // --- 1. Setup Parameters ---
-            await findLabel('Select Course', 15000);
-            await selectDropdown('Select Course',   'Msc Cs');
-            await selectDropdown('Select Batch',    'MSC CS BATCH 2022-2027');
-            await selectDropdown('Select Division', 'MSC CS BATCH 2022-2027 Div-2');
-            await selectDropdown('Select Semester', '${semester}');
+            // Step 2: Setup Course, Batch, Division, Semester
+            await selectDropdown('course', 'Msc Cs');
+            await selectDropdown('batch', '');
+            await selectDropdown('division', '');
+            await selectDropdown('semester', '${semester}');
 
-            // --- 2. Extract Available Subjects ---
+            // Step 3: Determine subjects to scrape
             var allSubjects = ${subjectsArrayJs};
+            if (!allSubjects || allSubjects.length === 0) {
+                var subContainer = await getDropdownContainer('subjects', 15000);
+                var subBox = subContainer.querySelector('.dropdown-selected-option');
+                subBox.click();
+                await sleep(800);
+                allSubjects = Array.from(subContainer.querySelectorAll('.dropdown-list__item, li'))
+                    .map(function(li) { return (li.innerText || '').trim(); })
+                    .filter(function(txt) { return txt && txt.toLowerCase() !== 'none' && !txt.toLowerCase().includes('select'); });
+                subBox.click();
+                await sleep(300);
+            }
+
             Android.onProgressUpdate('Found ' + allSubjects.length + ' subjects to scrape');
             var masterData = [];
 
-            // Reusable Safe Go Back (Now explicitly pauses the script)
             async function goBackSafely() {
                 var btns = document.querySelectorAll('button');
+                var backBtn = null;
                 for (var g = 0; g < btns.length; g++) {
-                    if (btns[g].innerText && btns[g].innerText.includes('Go Back')) {
-                        btns[g].click(); break;
+                    var t = (btns[g].innerText || '').trim().toLowerCase();
+                    if (t === 'go back') {
+                        backBtn = btns[g];
+                        break;
                     }
+                }
+                if (backBtn) {
+                    backBtn.click();
                 }
                 
                 var backWait = 0;
-                while(backWait < 15000) {
-                    await sleep(1000);
-                    var isFormVisible = Array.from(document.querySelectorAll('button')).some(b => b.innerText && b.innerText.includes('View Attendance'));
+                while (backWait < 15000) {
+                    await sleep(400);
+                    var isFormVisible = Array.from(document.querySelectorAll('button'))
+                        .some(function(b) { return (b.innerText || '').includes('View Attendance'); });
                     if (isFormVisible) break;
-                    backWait += 1000;
+                    backWait += 400;
                 }
-                await sleep(1000); // Extra buffer for React rendering
+                await sleep(600);
             }
 
-            // --- 3. Scrape Each Subject ---
+            // Step 4: Scrape each subject
             for (var si = 0; si < allSubjects.length; si++) {
                 var subject = allSubjects[si];
-                if (subject.toLowerCase().includes('web')) {
-                    Android.onProgressUpdate('Skipping: ' + subject);
-                    continue;
-                }
-
                 Android.onProgressUpdate('Processing: ' + subject + ' (' + (si + 1) + '/' + allSubjects.length + ')');
-                await selectDropdown('Select Subjects', subject);
+                
+                await selectDropdown('subjects', subject);
+                await sleep(400);
 
                 var viewBtn = null;
                 var allBtns = document.querySelectorAll('button');
                 for (var b = 0; b < allBtns.length; b++) {
-                    if (allBtns[b].innerText && allBtns[b].innerText.includes('View Attendance')) {
-                        viewBtn = allBtns[b]; break;
+                    if ((allBtns[b].innerText || '').includes('View Attendance')) {
+                        viewBtn = allBtns[b];
+                        break;
                     }
                 }
-                if (!viewBtn) continue;
+                if (!viewBtn) {
+                    Android.onProgressUpdate('View Attendance button not found for ' + subject);
+                    continue;
+                }
                 viewBtn.click();
 
                 var loadWait = 0;
-                while (loadWait < 15000) {
-                    var loadingEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.trim() === 'Loading...');
-                    if (!loadingEl) break;
-                    await sleep(500);
-                    loadWait += 500;
+                while (loadWait < 20000) {
+                    var hasLoading = Array.from(document.querySelectorAll('*'))
+                        .some(function(e) { return (e.innerText || '').trim() === 'Loading...'; });
+                    var hasTotal = document.body && (document.body.innerText.includes('Total Attendances:') || document.body.innerText.includes('There is no attendances found for you'));
+                    if (!hasLoading && hasTotal) break;
+                    await sleep(400);
+                    loadWait += 400;
                 }
-                await sleep(1000);
+                await sleep(600);
 
-                // Check for empty attendance and securely await transition
                 if (document.body.innerText.includes('There is no attendances found for you')) {
                     Android.onProgressUpdate(subject + ': No attendance data, skipping');
                     await goBackSafely();
                     continue;
                 }
 
-                var totalEl = Array.from(document.querySelectorAll('*')).find(e => e.innerText && e.innerText.includes('Total Attendances:'));
+                var totalEl = Array.from(document.querySelectorAll('h3, *'))
+                    .find(function(e) { return (e.innerText || '').includes('Total Attendances:'); });
                 var matchArr = totalEl ? totalEl.innerText.match(/\d+/) : null;
                 var expectedTotal = matchArr ? parseInt(matchArr[0]) : 0;
 
                 if (expectedTotal === 0) {
+                    Android.onProgressUpdate(subject + ': 0 total attendances');
                     await goBackSafely();
                     continue;
                 }
@@ -891,66 +985,97 @@ object ScraperScripts {
                 while (recordsScraped < expectedTotal) {
                     Android.onProgressUpdate(subject + ' — page ' + pageNumber + ' (' + recordsScraped + '/' + expectedTotal + ')');
 
-                    var rows = document.querySelectorAll('[class*="bg-green"], [class*="bg-red"]');
-                    if (rows.length === 0) break;
+                    var rows = Array.from(document.querySelectorAll('li')).filter(function(li) {
+                        var cls = (li.className || '').toLowerCase();
+                        var txt = li.innerText || '';
+                        return (cls.includes('bg-green') || cls.includes('bg-red') || cls.includes('min-w-max')) && 
+                               txt.includes('/') && txt.includes(':');
+                    });
 
-                    var topRowText = rows[0].innerText;
+                    if (rows.length === 0) {
+                        Android.onProgressUpdate(subject + ': No rows found on page ' + pageNumber);
+                        break;
+                    }
+
+                    var topRowKey = rows[0].innerText.trim();
 
                     for (var ri = 0; ri < rows.length; ri++) {
                         var row = rows[ri];
                         try {
-                            var rowHtml = row.outerHTML.toLowerCase();
-                            var rowText = row.innerText;
+                            var rowHtml = (row.outerHTML || '').toLowerCase();
+                            var rowClass = (row.className || '').toLowerCase();
+                            var isPresent = rowClass.includes('bg-green') || rowHtml.includes('bg-green') || rowHtml.includes('rgb(34, 197, 94');
 
-                            if (rowText.includes('/') && rowText.includes(':')) {
-                                var lines = rowText.replace(/\r/g, '').split('\n').map(l => l.trim()).filter(l => l.length > 0);
+                            var spans = Array.from(row.querySelectorAll('span'))
+                                .map(function(s) { return s.innerText.trim(); })
+                                .filter(function(s) { return s.length > 0; });
 
-                                if (lines.length >= 4) {
-                                    var isPresent = rowHtml.includes('bg-green') || rowHtml.includes('rgb(34, 197, 94');
-                                    var record = {
-                                        subject:  subject,
-                                        date:     lines[0], 
-                                        fromTime: lines[1], 
-                                        toTime:   lines[2], 
-                                        topic:    lines.slice(3).join(' '), 
-                                        status:   isPresent ? 'Present' : 'Absent'
-                                    };
-                                    masterData.push(record);
-                                    recordsScraped++;
+                            var recDate = '';
+                            var recFrom = '';
+                            var recTo = '';
+                            var recTopic = '';
+
+                            if (spans.length >= 3) {
+                                recDate = spans[0];
+                                recFrom = spans[1];
+                                recTo = spans[2];
+                                recTopic = spans.slice(3).join(' ');
+                            } else {
+                                var tokens = (row.innerText || '').replace(/\r/g, '').split(/[\n\t]+/).map(function(t){ return t.trim(); }).filter(Boolean);
+                                if (tokens.length >= 3) {
+                                    recDate = tokens[0];
+                                    recFrom = tokens[1];
+                                    recTo = tokens[2];
+                                    recTopic = tokens.slice(3).join(' ');
                                 }
                             }
-                        } catch(rowErr) { } 
+
+                            if (recDate.includes('/') && recFrom.includes(':')) {
+                                var record = {
+                                    subject: subject,
+                                    date: recDate,
+                                    fromTime: recFrom,
+                                    toTime: recTo,
+                                    topic: recTopic,
+                                    status: isPresent ? 'Present' : 'Absent'
+                                };
+                                masterData.push(record);
+                                recordsScraped++;
+                            }
+                        } catch(rowErr) { }
                     }
 
                     if (recordsScraped >= expectedTotal) break;
 
-                    var pageBtns = document.querySelectorAll('button');
-                    var navBtns = [];
-                    for (var nb = 0; nb < pageBtns.length; nb++) {
-                        var bText = pageBtns[nb].innerText.toLowerCase().trim();
-                        if (bText !== 'log in' && bText !== 'go back' && !bText.includes('view attendance')) {
-                            navBtns.push(pageBtns[nb]);
-                        }
+                    var nextBtn = document.querySelector('button[aria-label="btnNextPage"]');
+                    if (!nextBtn) {
+                        var btns = Array.from(document.querySelectorAll('button'));
+                        nextBtn = btns[btns.length - 1];
                     }
 
-                    var nextBtn = navBtns.length > 0 ? navBtns[navBtns.length - 1] : null;
-
-                    if (!nextBtn || nextBtn.disabled || (nextBtn.className && nextBtn.className.includes('opacity-'))) break;
+                    if (!nextBtn || nextBtn.disabled || (nextBtn.className && (nextBtn.className.includes('disabled') || nextBtn.className.includes('opacity-')))) {
+                        break;
+                    }
 
                     nextBtn.click();
 
                     var pw = 0;
                     var pageLoaded = false;
                     while (pw < 15000) {
-                        await sleep(500);
-                        var newRows = document.querySelectorAll('[class*="bg-green"], [class*="bg-red"]');
-                        if (newRows.length > 0 && newRows[0].innerText !== topRowText) {
+                        await sleep(400);
+                        var newRows = Array.from(document.querySelectorAll('li')).filter(function(li) {
+                            var cls = (li.className || '').toLowerCase();
+                            var txt = li.innerText || '';
+                            return (cls.includes('bg-green') || cls.includes('bg-red') || cls.includes('min-w-max')) && 
+                                   txt.includes('/') && txt.includes(':');
+                        });
+                        if (newRows.length > 0 && newRows[0].innerText.trim() !== topRowKey) {
                             pageLoaded = true;
                             break;
                         }
-                        pw += 500;
+                        pw += 400;
                     }
-                    if (!pageLoaded) await sleep(2000); 
+                    if (!pageLoaded) await sleep(1500);
                     pageNumber++;
                 }
 
