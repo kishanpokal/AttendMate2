@@ -676,12 +676,12 @@ object ScraperScripts {
 
             // Step 1: Wait for the filter form to be ready
             var formReadyWait = 0;
-            while (formReadyWait < 15000) {
+            while (formReadyWait < 20000) {
                 var buttons = document.querySelectorAll('button, a');
                 var attendBtn = null;
                 for (var i = 0; i < buttons.length; i++) {
                     var txt = (buttons[i].innerText || '').toLowerCase().trim();
-                    if (txt === 'your attendances') {
+                    if (txt === 'your attendances' || txt.includes('your attendance')) {
                         attendBtn = buttons[i];
                         break;
                     }
@@ -689,9 +689,8 @@ object ScraperScripts {
                 if (attendBtn) {
                     attendBtn.click();
                     await sleep(2000);
-                    break;
                 }
-                var courseEl = document.getElementById('course') || document.querySelector("label");
+                var courseEl = document.getElementById('course') || document.querySelector('.dropdown-selected-option') || document.querySelector('.dropdown');
                 if (courseEl) break;
                 await sleep(500);
                 formReadyWait += 500;
@@ -873,12 +872,12 @@ object ScraperScripts {
 
             // Step 1: Navigate to filter form if needed
             var formReadyWait = 0;
-            while (formReadyWait < 15000) {
+            while (formReadyWait < 20000) {
                 var buttons = document.querySelectorAll('button, a');
                 var attendBtn = null;
                 for (var i = 0; i < buttons.length; i++) {
                     var txt = (buttons[i].innerText || '').toLowerCase().trim();
-                    if (txt === 'your attendances') {
+                    if (txt === 'your attendances' || txt.includes('your attendance')) {
                         attendBtn = buttons[i];
                         break;
                     }
@@ -886,9 +885,8 @@ object ScraperScripts {
                 if (attendBtn) {
                     attendBtn.click();
                     await sleep(2000);
-                    break;
                 }
-                var courseEl = document.getElementById('course') || document.querySelector("label");
+                var courseEl = document.getElementById('course') || document.querySelector('.dropdown-selected-option') || document.querySelector('.dropdown');
                 if (courseEl) break;
                 await sleep(500);
                 formReadyWait += 500;

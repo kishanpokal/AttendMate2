@@ -35,6 +35,7 @@ import com.kishan.attendmate.ui.settings.ScraperBridge
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 
 enum class SetupStep {
     SEMESTER,
@@ -251,59 +252,84 @@ fun CollegeSyncSetupWizard(onSetupComplete: () -> Unit, onBack: () -> Unit) {
                                                     }
                                                 }
 
-                                                webViewClient = object : WebViewClient() {
+                                                 webViewClient = object : WebViewClient() {
                                                     private var lastHandledUrl = ""
                                                     
-                                                    private fun handleUrlChange(view: WebView, url: String) {
-                                                        if (url == lastHandledUrl) return
-                                                        lastHandledUrl = url
-                                                        
+                                                    private fun inspectAndAct(view: WebView, url: String) {
                                                         val phase = phaseState
-                                                        android.util.Log.d("CollegeSync", "handleUrlChange: phase=$phase, url=$url")
+                                                        android.util.Log.d("CollegeSync", "inspectAndAct: phase=$phase, url=$url")
                                                         
-                                                        // Evaluate script based on actual page content check to avoid multiple injections or dead scripts
                                                         view.evaluateJavascript(
-                                                            "(function() { return document.body ? document.body.innerText.substring(0, 200) : ''; })()"
-                                                        ) { pageText ->
-                                                            val text = pageText?.replace("\"", "") ?: ""
-                                                            android.util.Log.d("CollegeSync", "handleUrlChange page text: ${text.take(80)}")
-                                                            
-                                                            if (text.contains("Your Attendances") || text.contains("Select Course") || text.contains("Select Subject") || text.contains("Attendance System") || text.contains("Select Subject For Attendance")) {
-                                                                if (phaseState == ScrapePhase.LOGIN || phaseState == ScrapePhase.LOGIN_INJECTED || phaseState == ScrapePhase.FETCH_SUBJECTS) {
+                                                            """
+                                                            (function() {
+                                                                var hasPassword = !!(document.querySelector('input[type="password"]') || document.getElementById('userPassword'));
+                                                                var isLogin = hasPassword || window.location.href.includes('/login') || window.location.href.includes('/users/login');
+                                                                var isAttendance = !hasPassword && (window.location.href.includes('/attendances') || !!document.getElementById('course') || !!document.querySelector('.dropdown-selected-option') || (document.body && (document.body.innerText.includes('Select Course') || document.body.innerText.includes('Your Attendances'))));
+                                                                return JSON.stringify({
+                                                                    isLogin: isLogin,
+                                                                    isAttendance: isAttendance,
+                                                                    url: window.location.href
+                                                                });
+                                                            })()
+                                                            """.trimIndent()
+                                                        ) { jsonStr ->
+                                                            try {
+                                                                val cleanJson = if (jsonStr != null && jsonStr.startsWith("\"") && jsonStr.endsWith("\"")) {
+                                                                    org.json.JSONTokener(jsonStr).nextValue().toString()
+                                                                } else jsonStr ?: "{}"
+                                                                val obj = JSONObject(cleanJson)
+                                                                val isLogin = obj.optBoolean("isLogin", false)
+                                                                val isAttendance = obj.optBoolean("isAttendance", false)
+                                                                val currentUrl = obj.optString("url", url)
+                                                                
+                                                                android.util.Log.d("CollegeSync", "Page state: isLogin=$isLogin, isAttendance=$isAttendance, phase=$phaseState, url=$currentUrl")
+                                                                
+                                                                if (isLogin && (phaseState == ScrapePhase.LOGIN || phaseState == ScrapePhase.FETCH_SUBJECTS)) {
                                                                     coroutineScope.launch(Dispatchers.Main) {
-                                                                        fetchStatus = "Logged in! Extracting subjects..."
-                                                                        phaseState = ScrapePhase.EXTRACTING
-                                                                        view.evaluateJavascript(ScraperScripts.buildSubjectFetchScript(selectedSemester), null)
+                                                                        fetchStatus = "Logging in to College Portal..."
+                                                                        phaseState = ScrapePhase.LOGIN_INJECTED
+                                                                        val safeEmail = emailInput.replace("\\", "\\\\").replace("'", "\\'")
+                                                                        val safePassword = passwordInput.replace("\\", "\\\\").replace("'", "\\'")
+                                                                        view.evaluateJavascript(ScraperScripts.buildLoginScript(safeEmail, safePassword), null)
+                                                                    }
+                                                                } else if (!isLogin && isAttendance) {
+                                                                    if (phaseState == ScrapePhase.LOGIN || phaseState == ScrapePhase.LOGIN_INJECTED || phaseState == ScrapePhase.FETCH_SUBJECTS) {
+                                                                        coroutineScope.launch(Dispatchers.Main) {
+                                                                            fetchStatus = "Logged in! Extracting subjects..."
+                                                                            phaseState = ScrapePhase.EXTRACTING
+                                                                            kotlinx.coroutines.delay(1000)
+                                                                            view.evaluateJavascript(ScraperScripts.buildSubjectFetchScript(selectedSemester), null)
+                                                                        }
                                                                     }
                                                                 }
-                                                            } else if (text.contains("Log In") && text.contains("Email") && phaseState == ScrapePhase.LOGIN) {
-                                                                coroutineScope.launch(Dispatchers.Main) {
-                                                                    fetchStatus = "Filling login form..."
-                                                                    phaseState = ScrapePhase.LOGIN_INJECTED
-                                                                    val safeEmail = emailInput.replace("\\", "\\\\").replace("'", "\\'")
-                                                                    val safePassword = passwordInput.replace("\\", "\\\\").replace("'", "\\'")
-                                                                    view.evaluateJavascript(ScraperScripts.buildLoginScript(safeEmail, safePassword), null)
-                                                                }
+                                                            } catch (e: Exception) {
+                                                                android.util.Log.e("CollegeSync", "Failed to parse page inspection json", e)
                                                             }
                                                         }
                                                     }
 
                                                     override fun onPageFinished(view: WebView, url: String) {
                                                         super.onPageFinished(view, url)
-                                                        handleUrlChange(view, url)
+                                                        if (url != lastHandledUrl) {
+                                                            lastHandledUrl = url
+                                                            inspectAndAct(view, url)
+                                                        }
                                                     }
 
                                                     override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
                                                         super.doUpdateVisitedHistory(view, url, isReload)
-                                                        handleUrlChange(view, url)
+                                                        if (url != lastHandledUrl) {
+                                                            lastHandledUrl = url
+                                                            inspectAndAct(view, url)
+                                                        }
                                                     }
                                                     
                                                     override fun shouldOverrideUrlLoading(view: WebView, request: android.webkit.WebResourceRequest): Boolean {
                                                         val url = request.url.toString()
                                                         android.util.Log.d("CollegeSync", "shouldOverrideUrlLoading: url=$url")
                                                         coroutineScope.launch(Dispatchers.Main) {
-                                                            kotlinx.coroutines.delay(3000)
-                                                            handleUrlChange(view, url)
+                                                            kotlinx.coroutines.delay(2000)
+                                                            inspectAndAct(view, url)
                                                         }
                                                         return false
                                                     }
@@ -346,11 +372,11 @@ fun CollegeSyncSetupWizard(onSetupComplete: () -> Unit, onBack: () -> Unit) {
                             }
                         }
 
-                        // Trigger the initial load — go to attendance page directly!
+                        // Trigger the initial load — start at the login portal!
                         LaunchedEffect(webViewRef) {
-                            webViewRef?.loadUrl("https://attendence-system-1910.vercel.app/students/current/attendances")
+                            webViewRef?.loadUrl("https://attendence-system-1910.vercel.app/users/login")
                             
-                            kotlinx.coroutines.delay(8000)
+                            kotlinx.coroutines.delay(4000)
                             
                             while (phaseState != ScrapePhase.IDLE && phaseState != ScrapePhase.EXTRACTING) {
                                 webViewRef?.let { wv ->
@@ -358,32 +384,51 @@ fun CollegeSyncSetupWizard(onSetupComplete: () -> Unit, onBack: () -> Unit) {
                                     android.util.Log.d("CollegeSync", "URL Poller: phase=$phaseState, url=$currentUrl")
                                     
                                     wv.evaluateJavascript(
-                                        "(function() { return document.body ? document.body.innerText.substring(0, 200) : ''; })()"
-                                    ) { pageText ->
-                                        val text = pageText?.replace("\"", "") ?: ""
-                                        android.util.Log.d("CollegeSync", "URL Poller page text: ${text.take(80)}")
-                                        
-                                        if (text.contains("Your Attendances") || text.contains("Select Course") || text.contains("Select Subject") || text.contains("Attendance System") || text.contains("Select Subject For Attendance")) {
-                                            if (phaseState == ScrapePhase.LOGIN || phaseState == ScrapePhase.LOGIN_INJECTED || phaseState == ScrapePhase.FETCH_SUBJECTS) {
+                                        """
+                                        (function() {
+                                            var hasPassword = !!(document.querySelector('input[type="password"]') || document.getElementById('userPassword'));
+                                            var isLogin = hasPassword || window.location.href.includes('/login') || window.location.href.includes('/users/login');
+                                            var isAttendance = !hasPassword && (window.location.href.includes('/attendances') || !!document.getElementById('course') || !!document.querySelector('.dropdown-selected-option') || (document.body && (document.body.innerText.includes('Select Course') || document.body.innerText.includes('Your Attendances'))));
+                                            return JSON.stringify({
+                                                isLogin: isLogin,
+                                                isAttendance: isAttendance,
+                                                url: window.location.href
+                                            });
+                                        })()
+                                        """.trimIndent()
+                                    ) { jsonStr ->
+                                        try {
+                                            val cleanJson = if (jsonStr != null && jsonStr.startsWith("\"") && jsonStr.endsWith("\"")) {
+                                                org.json.JSONTokener(jsonStr).nextValue().toString()
+                                            } else jsonStr ?: "{}"
+                                            val obj = JSONObject(cleanJson)
+                                            val isLogin = obj.optBoolean("isLogin", false)
+                                            val isAttendance = obj.optBoolean("isAttendance", false)
+                                            
+                                            if (isLogin && (phaseState == ScrapePhase.LOGIN || phaseState == ScrapePhase.FETCH_SUBJECTS)) {
                                                 coroutineScope.launch(Dispatchers.Main) {
-                                                    fetchStatus = "Session detected! Extracting subjects..."
-                                                    phaseState = ScrapePhase.EXTRACTING
-                                                    kotlinx.coroutines.delay(1000)
-                                                    wv.evaluateJavascript(ScraperScripts.buildSubjectFetchScript(selectedSemester), null)
+                                                    fetchStatus = "Logging in to College Portal..."
+                                                    phaseState = ScrapePhase.LOGIN_INJECTED
+                                                    val safeEmail = emailInput.replace("\\", "\\\\").replace("'", "\\'")
+                                                    val safePassword = passwordInput.replace("\\", "\\\\").replace("'", "\\'")
+                                                    wv.evaluateJavascript(ScraperScripts.buildLoginScript(safeEmail, safePassword), null)
+                                                }
+                                            } else if (!isLogin && isAttendance) {
+                                                if (phaseState == ScrapePhase.LOGIN || phaseState == ScrapePhase.LOGIN_INJECTED || phaseState == ScrapePhase.FETCH_SUBJECTS) {
+                                                    coroutineScope.launch(Dispatchers.Main) {
+                                                        fetchStatus = "Logged in! Extracting subjects..."
+                                                        phaseState = ScrapePhase.EXTRACTING
+                                                        kotlinx.coroutines.delay(1000)
+                                                        wv.evaluateJavascript(ScraperScripts.buildSubjectFetchScript(selectedSemester), null)
+                                                    }
                                                 }
                                             }
-                                        } else if (text.contains("Log In") && text.contains("Email") && phaseState == ScrapePhase.LOGIN) {
-                                            coroutineScope.launch(Dispatchers.Main) {
-                                                fetchStatus = "Filling login form..."
-                                                phaseState = ScrapePhase.LOGIN_INJECTED
-                                                val safeEmail = emailInput.replace("\\", "\\\\").replace("'", "\\'")
-                                                val safePassword = passwordInput.replace("\\", "\\\\").replace("'", "\\'")
-                                                wv.evaluateJavascript(ScraperScripts.buildLoginScript(safeEmail, safePassword), null)
-                                            }
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("CollegeSync", "Poller json parse error", e)
                                         }
                                     }
                                 }
-                                kotlinx.coroutines.delay(5000)
+                                kotlinx.coroutines.delay(4000)
                             }
                         }
                     }
