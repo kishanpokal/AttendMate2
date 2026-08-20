@@ -71,6 +71,16 @@ class CollegeSyncService : Service() {
         currentPhase = ScrapePhase.LOGIN
         ScrapingEventBus.tryEmit(ScrapingEvent.SetPhase(currentPhase))
 
+        // Pre-emit configured target subjects to prime the 3D orbit
+        val syncPrefs = CollegeSyncPreferences(this)
+        val initialSubjects = syncPrefs.targetSubjects?.toList() ?: emptyList()
+        if (initialSubjects.isNotEmpty()) {
+            ScrapingEventBus.tryEmit(ScrapingEvent.SubjectsFetched(initialSubjects))
+            initialSubjects.forEach { name ->
+                ScrapingEventBus.tryEmit(ScrapingEvent.SpawnSubject(name))
+            }
+        }
+
         webView = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
@@ -119,10 +129,13 @@ class CollegeSyncService : Service() {
                         }
                         (currentPhase == ScrapePhase.SCRAPING || currentPhase == ScrapePhase.LOGIN || currentPhase == ScrapePhase.LOGIN_INJECTED) && url.contains("/students/current/attendances") -> {
                             currentPhase = ScrapePhase.EXTRACTING
-                            ScrapingEventBus.tryEmit(ScrapingEvent.SetPhase(currentPhase))
-                            val syncPrefs = CollegeSyncPreferences(this@CollegeSyncService)
-                            val sem = syncPrefs.selectedSemester ?: "Sem9"
-                            val subjects = syncPrefs.targetSubjects?.toList() ?: emptyList()
+                            ScrapingEventBus.tryEmit(ScrapePhase.EXTRACTING.let { ScrapingEvent.SetPhase(it) })
+                            val prefsHelper = CollegeSyncPreferences(this@CollegeSyncService)
+                            val sem = prefsHelper.selectedSemester ?: "Sem9"
+                            val subjects = prefsHelper.targetSubjects?.toList() ?: emptyList()
+                            if (subjects.isNotEmpty()) {
+                                ScrapingEventBus.tryEmit(ScrapingEvent.SubjectsFetched(subjects))
+                            }
                             view.evaluateJavascript(ScraperScripts.buildScrapingScript(sem, subjects), null)
                         }
                     }
@@ -144,6 +157,15 @@ class CollegeSyncService : Service() {
     }
 
     private fun parseAndEmitEvent(msg: String) {
+        Regex("Found\\s*(\\d+)\\s*subjects:\\s*(.*)").find(msg)?.let {
+            val subjectsStr = it.groupValues[2]
+            val list = subjectsStr.split(",").map { s -> s.trim() }.filter { s -> s.isNotEmpty() }
+            if (list.isNotEmpty()) {
+                ScrapingEventBus.tryEmit(ScrapingEvent.SubjectsFetched(list))
+                list.forEach { s -> ScrapingEventBus.tryEmit(ScrapingEvent.SpawnSubject(s)) }
+            }
+        }
+
         Regex("Processing:\\s*([^(]+)\\s*\\((\\d+)/(\\d+)\\)").find(msg)?.let {
             val name = it.groupValues[1].trim()
             ScrapingEventBus.tryEmit(ScrapingEvent.SpawnSubject(name))
@@ -151,12 +173,26 @@ class CollegeSyncService : Service() {
             ScrapingEventBus.tryEmit(ScrapingEvent.UpdateProgress(0f, "Targeting $name..."))
         }
 
+        Regex("(.*?):\\s*Targeting\\s*(\\d+|all)\\s*records").find(msg)?.let {
+            val name = it.groupValues[1].trim()
+            ScrapingEventBus.tryEmit(ScrapingEvent.StartExtraction(name))
+        }
+
         Regex("(.*?)\\s*—\\s*page\\s*\\d+\\s*\\((\\d+)/(\\d+)\\)").find(msg)?.let {
             val name = it.groupValues[1].trim()
             val cur = it.groupValues[2].toFloatOrNull() ?: 0f
             val tot = it.groupValues[3].toFloatOrNull() ?: 1f
-            val pct = ((cur / tot) * 100).coerceIn(0f, 100f)
+            val pct = if (tot > 0f) ((cur / tot) * 100).coerceIn(0f, 100f) else 0f
             ScrapingEventBus.tryEmit(ScrapingEvent.UpdateProgress(pct, "Extracting $name: ${cur.toInt()}/${tot.toInt()}"))
+            ScrapingEventBus.tryEmit(ScrapingEvent.RecordExtracted(cur.toInt()))
+        }
+
+        Regex("(.*?):\\s*Scraped\\s*(\\d+)").find(msg)?.let {
+            val name = it.groupValues[1].trim()
+            val count = it.groupValues[2].toIntOrNull() ?: 0
+            ScrapingEventBus.tryEmit(ScrapingEvent.RecordExtracted(count))
+            ScrapingEventBus.tryEmit(ScrapingEvent.FinishSubject(name))
+            ScrapingEventBus.tryEmit(ScrapingEvent.UpdateProgress(100f, "$name COMPLETE"))
         }
 
         Regex("(.*?):\\s*Scraped").find(msg)?.let {
@@ -169,6 +205,7 @@ class CollegeSyncService : Service() {
             Regex("(.*?):\\s*(No attendance|Skipping)").find(msg)?.let {
                 val name = it.groupValues[1].trim()
                 ScrapingEventBus.tryEmit(ScrapingEvent.FinishSubject(name))
+                ScrapingEventBus.tryEmit(ScrapingEvent.UpdateProgress(100f, "$name: Skipped"))
             }
         }
     }
